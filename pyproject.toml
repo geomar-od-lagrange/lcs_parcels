@@ -28,3 +28,4 @@ lcs_parcels = { path = ".", editable = true }
 
 [tool.pixi.dependencies]
 pytest = ">=9.0.3,<10"
+black = ">=26.5.1,<27"
