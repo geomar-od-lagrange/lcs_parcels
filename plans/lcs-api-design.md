@@ -25,8 +25,9 @@ programming session. It provides:
 - the notation doc.
 
 It deliberately does **not** provide the numerical implementation. Method bodies
-are placeholders (`raise NotImplementedError` / `...`); the tests may be marked
-`xfail`/`skip` until the pairing session fills them in.
+are placeholders (`raise NotImplementedError`). Tests are real and **left red**:
+no `xfail`, no `skip`. A true red suite is the intended starting point for the
+human implementation session.
 
 ## Scope
 
@@ -76,6 +77,9 @@ ParticleGrid (ABC, composition wrapper around .ds)
 ├── NeighborGrid     # stencil = neighboring grid points (i±1, j±1)
 └── AuxiliaryGrid    # stencil = per-point displacement grid (Haller Eq. 9)
 ```
+
+> Note: `NeighborGrid` may correspond to the SPASSO approach to FTLE seeding.
+> Under investigation (background research); does not block this PR.
 
 ### Common state (base `ParticleGrid`)
 - `.ds`: `xr.Dataset` with logical dims `i, j` and data vars `lon(i, j)`,
