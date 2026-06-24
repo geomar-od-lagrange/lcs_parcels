@@ -229,6 +229,12 @@ class NeighborGrid(ParticleGrid):
     no auxiliary displacement grid is added, so ``.ds`` carries no extra
     dimensions beyond ``i, j``. This couples the diagnostic resolution to the
     seed grid resolution. See Haller (2015) Eq. 9 for the deformation gradient.
+
+    This is the SPASSO / d'Ovidio approach to FTLE: particles are seeded once on
+    a single regular grid (one per output cell) and the flow-map gradient is
+    taken by neighbour-differencing those positions (``np.gradient`` over the
+    grid), with no controlled auxiliary separation. See SPASSO,
+    ``src/Diagnostics.py`` (https://github.com/OceanCruises/SPASSO).
     """
 
     @classmethod

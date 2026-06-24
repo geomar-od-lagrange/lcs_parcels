@@ -1,168 +1,123 @@
-"""Operators on a known linear flow map: gradF -> C -> eigen -> FTLE.
+"""Operator tests: gradF -> C -> eigen -> FTLE.
 
-For a constant linear flow map ``F(x) = M @ x`` (in the local meters tangent
-frame), the deformation gradient ``gradF`` equals ``M`` at every grid point.
-We seed a grid, emit its particle set, advect it through such an ``M`` with the
-conftest helper, ingest the result, and assert the analytic answers.
+These are intentionally left as **docstring-only stubs** for the human
+implementation session. Each function name fixes *what* to test; its docstring
+fixes *how* and *why*. Fill in the bodies during pairing.
+
+Suggested shared setup (analytic linear flow map)
+-------------------------------------------------
+For a constant linear flow map ``F(x) = M @ x`` in the local meters tangent
+frame, the deformation gradient ``gradF`` equals ``M`` at every grid point, so
+the whole chain has closed-form answers:
+
+- seed a grid via ``cls.from_axes(lon_axis, lat_axis)``;
+- emit its particle set with ``to_parcels_pset()``;
+- advect the flat positions through ``M`` about the grid centre (a helper like
+  ``conftest.apply_linear_map_to_pset`` can do this in the meters frame);
+- ingest with ``cls.from_parcels_pset_lon_lat(seed, lon_out, lat_out, T=...)``.
+
+Pick a **non-symmetric** ``M`` (e.g. ``[[2.0, 0.5], [0.0, 3.0]]``) so that
+``C = M^T M`` is a non-trivial check, and an integration time ``T`` (seconds).
+Use only the high-level, label-based xarray API in assertions (``.isel`` /
+``.sel`` / named dims), never positional indexing.
 """
-
-import numpy as np
-import pytest
-import xarray as xr
-
-from lcs_parcels import AuxiliaryGrid, NeighborGrid
-
-from conftest import apply_linear_map_to_pset
-
-
-# A non-symmetric constant map so that C = M^T M is a non-trivial check.
-M = np.array([[2.0, 0.5], [0.0, 3.0]])
-T = 86400.0  # 1 day, seconds
-
-
-def _advected_grid(cls, lon_axis, lat_axis, M):
-    seed = cls.from_axes(lon_axis, lat_axis)
-    lon, lat = seed.to_parcels_pset()
-    origin = (float(lon_axis.mean()), float(lat_axis.mean()))
-    lon_out, lat_out = apply_linear_map_to_pset(lon, lat, M, origin)
-    return cls.from_parcels_pset_lon_lat(seed, lon_out, lat_out, T=T)
 
 
 # --- deformation gradient --------------------------------------------------
 
 
-def test_deformation_gradient_dims_and_coords(lon_axis, lat_axis):
-    g = _advected_grid(NeighborGrid, lon_axis, lat_axis, M)
-    gradF = g.deformation_gradient()
+def test_deformation_gradient_dims_and_coords():
+    """gradF has dims ``(i, j, row, col)`` with a ``comp = ['x', 'y']`` coord.
 
-    assert set(gradF.dims) == {"i", "j", "row", "col"}
-    assert gradF.sizes["row"] == 2
-    assert gradF.sizes["col"] == 2
-    # component label coord on both row and col (or shared comp coord)
-    assert list(gradF["comp"].values) == ["x", "y"]
+    Assert the tensor layout contract: ``row`` and ``col`` of size 2 and the
+    component label coordinate. This pins the storage convention the rest of the
+    operators rely on.
+    """
 
 
-def test_deformation_gradient_equals_M(lon_axis, lat_axis):
-    g = _advected_grid(NeighborGrid, lon_axis, lat_axis, M)
-    gradF = g.deformation_gradient()
+def test_deformation_gradient_equals_M_neighbor():
+    """NeighborGrid: gradF == M at every *interior* grid point.
 
-    # gradF == M at every interior grid point (boundary may be NaN for
-    # neighbor differencing; check the interior with label-based selection).
-    interior = gradF.isel(
-        i=slice(1, -1), j=slice(1, -1)
-    )
-    for r in range(2):
-        for c in range(2):
-            vals = interior.isel(row=r, col=c).values
-            np.testing.assert_allclose(vals, M[r, c], atol=1e-6)
+    Neighbour differencing has no stencil at the domain edge, so boundary cells
+    are legitimately NaN. Select the interior (``isel(i=slice(1, -1),
+    j=slice(1, -1))``) and check each component against ``M`` to ~1e-6.
+    """
 
 
-def test_auxiliary_deformation_gradient_equals_M(lon_axis, lat_axis):
-    g = _advected_grid(AuxiliaryGrid, lon_axis, lat_axis, M)
-    gradF = g.deformation_gradient()
+def test_deformation_gradient_equals_M_auxiliary():
+    """AuxiliaryGrid: gradF == M at *every* grid point, including the boundary.
 
-    # AuxiliaryGrid differences within each per-point stencil, so the gradient
-    # is well-defined at every (i, j) including the boundary.
-    for r in range(2):
-        for c in range(2):
-            vals = gradF.isel(row=r, col=c).values
-            np.testing.assert_allclose(vals, M[r, c], atol=1e-6)
+    The per-point auxiliary stencil makes the gradient well-defined everywhere,
+    so there are no NaN edges to exclude. Check each component against ``M``.
+    """
 
 
 # --- Cauchy-Green ----------------------------------------------------------
 
 
-def test_cauchy_green_symmetry(lon_axis, lat_axis):
-    g = _advected_grid(AuxiliaryGrid, lon_axis, lat_axis, M)
-    C = g.cauchy_green()
+def test_cauchy_green_symmetry():
+    """C is symmetric: ``C == C`` transposed over ``(row, col)``.
 
-    assert set(C.dims) == {"i", "j", "row", "col"}
-    # C is symmetric: C == C transposed over (row, col).
-    C_swapped = C.rename({"row": "col", "col": "row"})
-    xr.testing.assert_allclose(C, C_swapped)
+    Compare ``C`` with ``C.rename({'row': 'col', 'col': 'row'})`` via
+    ``xr.testing.assert_allclose``. True for any gradF, so it does not need the
+    analytic map.
+    """
 
 
-def test_cauchy_green_equals_MT_M(lon_axis, lat_axis):
-    g = _advected_grid(AuxiliaryGrid, lon_axis, lat_axis, M)
-    C = g.cauchy_green()
+def test_cauchy_green_equals_MT_M():
+    """C == M^T M for the linear flow map.
 
-    expected = M.T @ M
-    for r in range(2):
-        for c in range(2):
-            vals = C.isel(row=r, col=c).values
-            np.testing.assert_allclose(vals, expected[r, c], atol=1e-6)
+    With ``gradF == M`` everywhere, ``C = (grad F)^T grad F`` must equal the
+    constant ``M.T @ M`` at every grid point. Use AuxiliaryGrid to avoid NaN
+    edges. Check each component to ~1e-6.
+    """
 
 
 # --- eigen-analysis --------------------------------------------------------
 
 
-def test_cg_eigen_shapes_and_order(lon_axis, lat_axis):
-    g = _advected_grid(AuxiliaryGrid, lon_axis, lat_axis, M)
-    eig = g.cg_eigen()
+def test_cg_eigen_shapes_and_order():
+    """cg_eigen returns ``lambda`` (i,j,eig) and ``xi`` (i,j,comp,eig), ascending.
 
-    lam = eig["lambda"]
-    xi = eig["xi"]
-    assert set(lam.dims) == {"i", "j", "eig"}
-    assert set(xi.dims) == {"i", "j", "comp", "eig"}
-    assert lam.sizes["eig"] == 2
-    assert xi.sizes["comp"] == 2
-
-    # eigenvalues sorted ascending along eig
-    lo = lam.isel(eig=0)
-    hi = lam.isel(eig=1)
-    assert bool((hi >= lo).all())
+    Assert dims/sizes (``eig`` size 2, ``comp`` size 2) and that eigenvalues are
+    sorted ascending along ``eig`` (``lambda.isel(eig=1) >= lambda.isel(eig=0)``
+    everywhere).
+    """
 
 
-def test_cg_eigen_relation(lon_axis, lat_axis):
-    g = _advected_grid(AuxiliaryGrid, lon_axis, lat_axis, M)
-    C = g.cauchy_green()
-    eig = g.cg_eigen()
-    lam = eig["lambda"]
-    xi = eig["xi"]
+def test_cg_eigen_relation():
+    """The eigenpairs satisfy ``C @ xi == lambda * xi``.
 
-    # C @ xi == lambda * xi for each eigenpair. Use label-based matmul over the
-    # component dims: contract C's col with xi's comp.
-    Cxi = xr.dot(
-        C.rename({"col": "comp"}),
-        xi,
-        dims=["comp"],
-    ).rename({"row": "comp"})
-    expected = lam * xi
-    xr.testing.assert_allclose(Cxi, expected, atol=1e-6)
+    Contract ``C``'s ``col`` against ``xi``'s ``comp`` (e.g. with ``xr.dot`` over
+    the shared component dim) and compare to ``lambda * xi``. This validates
+    eigenvectors independently of any analytic value.
+    """
 
 
-def test_cg_eigen_values_match_analytic(lon_axis, lat_axis):
-    g = _advected_grid(AuxiliaryGrid, lon_axis, lat_axis, M)
-    eig = g.cg_eigen()
-    lam = eig["lambda"]
+def test_cg_eigen_values_match_analytic():
+    """Eigenvalues equal ``eigvalsh(M^T M)`` for the linear map.
 
-    analytic = np.sort(np.linalg.eigvalsh(M.T @ M))
-    np.testing.assert_allclose(lam.isel(eig=0).values, analytic[0], atol=1e-6)
-    np.testing.assert_allclose(lam.isel(eig=1).values, analytic[1], atol=1e-6)
+    Compare ``lambda`` (ascending) against ``numpy.linalg.eigvalsh(M.T @ M)`` at
+    every grid point to ~1e-6.
+    """
 
 
 # --- FTLE ------------------------------------------------------------------
 
 
-def test_ftle_pure_stretch(lon_axis, lat_axis):
-    a, b = 4.0, 2.0
-    M_stretch = np.diag([a, b])
-    g = _advected_grid(AuxiliaryGrid, lon_axis, lat_axis, M_stretch)
+def test_ftle_pure_stretch():
+    """Pure stretch ``M = diag(a, b)`` gives a constant analytic FTLE.
 
-    ftle = g.ftle()
-    assert set(ftle.dims) == {"i", "j"}
-
-    # lambda_max = max(a, b)**2 -> ftle = (1/|T|) log sqrt(lambda_max)
-    lambda_max = max(a, b) ** 2
-    expected = (1.0 / abs(T)) * np.log(np.sqrt(lambda_max))
-    np.testing.assert_allclose(ftle.values, expected, atol=1e-9)
+    Then ``lambda_max = max(a, b)**2`` and
+    ``ftle == (1 / |T|) * log(sqrt(lambda_max))`` at every grid point. Assert
+    dims ``(i, j)`` and the value.
+    """
 
 
-def test_ftle_matches_eigen(lon_axis, lat_axis):
-    g = _advected_grid(AuxiliaryGrid, lon_axis, lat_axis, M)
-    ftle = g.ftle()
-    lam = g.cg_eigen()["lambda"]
+def test_ftle_matches_eigen():
+    """ftle is consistent with cg_eigen's largest eigenvalue.
 
-    lambda_max = lam.isel(eig=1)
-    expected = (1.0 / abs(T)) * np.log(np.sqrt(lambda_max))
-    xr.testing.assert_allclose(ftle, expected, atol=1e-9)
+    For a general ``M``, ``ftle == (1 / |T|) * log(sqrt(lambda.isel(eig=1)))``.
+    Cross-checks the FTLE definition against the eigen step using the *largest*
+    eigenvalue.
+    """
