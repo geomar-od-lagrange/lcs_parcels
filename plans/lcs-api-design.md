@@ -109,9 +109,11 @@ Kept deliberately minimal:
 - `to_parcels_pset() -> tuple[list, list]` — flatten to plain `(lon, lat)` lists
   for Parcels. Internally `.stack(particle=('i','j'))` or
   `(...,'di','dj')`; the `particle` MultiIndex is the lossless inverse.
-- `from_parcels_pset_lon_lat(lon, lat, *, T) -> ParticleGrid` — factory that
-  reattaches advected positions to the `particle` coord, `.unstack()`s back to
-  the grid, and records the integration time `T` (needed for FTLE).
+- `from_parcels_pset_lon_lat(seed, lon, lat, *, t0, T) -> ParticleGrid` — factory
+  that reattaches advected positions to the `particle` coord, `.unstack()`s back
+  to the grid, and records the release time `t0` (`datetime64`) and signed
+  integration window `T` (`timedelta64`, needed for FTLE). See
+  `plans/timing-design.md`.
 
 Multiple release times `t0` and multiple integration times `T` are just extra
 broadcast dimensions — handled by xarray, no special machinery. Particle loss

@@ -14,10 +14,13 @@ the whole chain has closed-form answers:
 - emit its particle set with ``to_parcels_pset()``;
 - advect the flat positions through ``M`` about the grid centre (a helper like
   ``conftest.apply_linear_map_to_pset`` can do this in the meters frame);
-- ingest with ``cls.from_parcels_pset_lon_lat(seed, lon_out, lat_out, T=...)``.
+- ingest with
+  ``cls.from_parcels_pset_lon_lat(seed, lon_out, lat_out, t0=..., T=...)``,
+  where ``t0`` is a ``datetime64`` release time and ``T`` a signed
+  ``timedelta64`` integration window (see ``plans/timing-design.md``).
 
 Pick a **non-symmetric** ``M`` (e.g. ``[[2.0, 0.5], [0.0, 3.0]]``) so that
-``C = M^T M`` is a non-trivial check, and an integration time ``T`` (seconds).
+``C = M^T M`` is a non-trivial check.
 Use only the high-level, label-based xarray API in assertions (``.isel`` /
 ``.sel`` / named dims), never positional indexing.
 """

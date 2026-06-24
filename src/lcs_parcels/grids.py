@@ -116,15 +116,22 @@ class ParticleGrid(abc.ABC):
     @classmethod
     @abc.abstractmethod
     def from_parcels_pset_lon_lat(
-        cls, seed: "ParticleGrid", lon, lat, *, T: float
+        cls,
+        seed: "ParticleGrid",
+        lon,
+        lat,
+        *,
+        t0: np.datetime64,
+        T: np.timedelta64,
     ) -> Self:
-        """Reattach advected flat lon/lat onto a seed grid and record ``T``.
+        """Reattach advected flat lon/lat onto a seed grid and record ``t0``, ``T``.
 
         Inverse of :meth:`to_parcels_pset`: the flat advected positions are
         attached to the ``particle`` MultiIndex of ``seed`` and unstacked back to
         the grid dims. Lost particles arrive as NaN and propagate naturally.
-        Multiple release times ``t0`` and integration times ``T`` are just extra
-        broadcast dimensions handled by xarray.
+        Multiple release times ``t0`` and integration windows ``T`` are just
+        extra broadcast dimensions handled by xarray. See
+        ``plans/timing-design.md``.
 
         Parameters
         ----------
@@ -135,15 +142,20 @@ class ParticleGrid(abc.ABC):
         lon, lat : array-like
             Advected longitudes/latitudes (degrees), aligned with the order of
             :meth:`to_parcels_pset` output.
-        T : float
-            Integration time in seconds, including sign (the particle set owns
-            integration direction). Recorded for use by :meth:`ftle`.
+        t0 : np.datetime64
+            Release time (scalar, or array for an ensemble of releases).
+            Recorded as a coordinate.
+        T : np.timedelta64
+            Integration window, **signed** (the particle set owns integration
+            direction: ``T < 0`` is backward → attracting LCS, ``T > 0`` is
+            forward → repelling LCS). Recorded as a coordinate and used by
+            :meth:`ftle`. The absolute end time ``t1 = t0 + T`` is never stored.
 
         Returns
         -------
         Self
             A grid whose ``.ds`` holds the advected positions on the original
-            grid and records ``T``.
+            grid and records ``t0`` and ``T`` as coordinates.
         """
         raise NotImplementedError(
             "from_parcels_pset_lon_lat is not implemented (scaffolding only)."
@@ -212,7 +224,8 @@ class ParticleGrid(abc.ABC):
 
         Computes ``Lambda = (1 / |T|) * log(sqrt(lambda_max))`` using the
         *largest* eigenvalue of ``C`` from :meth:`cg_eigen` and the recorded
-        integration time ``T`` (seconds).
+        integration window ``T`` (signed ``timedelta64``, converted to seconds;
+        the conversion must be calendar-aware for non-standard model calendars).
 
         Returns
         -------
@@ -256,7 +269,13 @@ class NeighborGrid(ParticleGrid):
 
     @classmethod
     def from_parcels_pset_lon_lat(
-        cls, seed: "ParticleGrid", lon, lat, *, T: float
+        cls,
+        seed: "ParticleGrid",
+        lon,
+        lat,
+        *,
+        t0: np.datetime64,
+        T: np.timedelta64,
     ) -> Self:
         """Reattach advected lon/lat onto the ``('i', 'j')`` MultiIndex.
 
@@ -310,7 +329,13 @@ class AuxiliaryGrid(ParticleGrid):
 
     @classmethod
     def from_parcels_pset_lon_lat(
-        cls, seed: "ParticleGrid", lon, lat, *, T: float
+        cls,
+        seed: "ParticleGrid",
+        lon,
+        lat,
+        *,
+        t0: np.datetime64,
+        T: np.timedelta64,
     ) -> Self:
         """Reattach advected lon/lat onto the ``('i', 'j', 'di', 'dj')`` MultiIndex.
 
