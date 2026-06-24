@@ -78,8 +78,14 @@ ParticleGrid (ABC, composition wrapper around .ds)
 └── AuxiliaryGrid    # stencil = per-point displacement grid (Haller Eq. 9)
 ```
 
-> Note: `NeighborGrid` may correspond to the SPASSO approach to FTLE seeding.
-> Under investigation (background research); does not block this PR.
+> Note: `NeighborGrid` **is** the SPASSO / d'Ovidio approach (confirmed against
+> the [SPASSO source](https://github.com/OceanCruises/SPASSO), `src/Diagnostics.py`):
+> particles are seeded once on a single regular grid at spacing `delta0` (one
+> per output cell), and FTLE is computed by neighbour-differencing the
+> final-position maps with `np.gradient` over that same grid — no auxiliary
+> stencil. `AuxiliaryGrid` is the Haller (Eq. 9) auxiliary-grid alternative.
+> Their naming worth echoing: `delta0` (grid spacing), final vs initial
+> separation, integration window in days.
 
 ### Common state (base `ParticleGrid`)
 - `.ds`: `xr.Dataset` with logical dims `i, j` and data vars `lon(i, j)`,

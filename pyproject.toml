@@ -9,7 +9,7 @@ description = "Lagrangian coherent structures with Parcels."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-dependencies = []
+dependencies = ["numpy", "xarray"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lcs_parcels"]
@@ -28,3 +28,5 @@ lcs_parcels = { path = ".", editable = true }
 
 [tool.pixi.dependencies]
 pytest = ">=9.0.3,<10"
+numpy = "*"
+xarray = "*"
