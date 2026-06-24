@@ -1,132 +1,159 @@
+<!--
+Plan for the scaffolding PR. This file plans the API; it also drives two doc
+deliverables: a notation reference (`docs/notation.md`) and the replacement of
+the `docs/api.md` sketch with a real API doc once the code exists.
+-->
+
 # LCS-Parcels API design plan
 
 Status: draft for review.
 
 This plan turns the sketch in `docs/api.md` into a concrete design. It follows
-Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech. 47:137–162
+Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech.
+47:137–162, [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322),
 for naming and notation.
+
+## What this PR delivers (pedagogical scaffolding)
+
+This PR is scaffolding, built to be read and then filled in during a human pair
+programming session. It provides:
+
+- class definitions, method **signatures**, and **type hints**;
+- **docstrings** stating intent, units, shapes, and the relevant Haller equation;
+- **tests** that pin the intended behavior (shapes, dims, round-trip, simple
+  analytic cases);
+- the notation doc.
+
+It deliberately does **not** provide the numerical implementation. Method bodies
+are placeholders (`raise NotImplementedError` / `...`); the tests may be marked
+`xfail`/`skip` until the pairing session fills them in.
 
 ## Scope
 
-This package is the **diagnostic layer** that sits *on top of* trajectory
-integration. Parcels does the advection; we provide:
+This package is the **diagnostic layer** that sits on top of trajectory
+integration. It contains **no Parcels code**: it emits particle sets and ingests
+results, nothing more. The particle set owns the integration time `$T$`
+(including its sign), so this package never decides integration direction.
 
-1. Seeding (build seed positions from a structured grid).
-2. Reshaping advected positions back onto that grid (the "roundtrip").
-3. Operators: flow map gradient → Cauchy–Green → eigen-analysis.
-4. Diagnostics: FTLE and eigen-derived scalar fields.
+We provide:
 
-Parcels advection itself is treated as a thin adapter at the boundary, not a
-core responsibility.
+1. Seeding — build seed positions from a structured grid.
+2. Round-trip — emit a particle set, ingest advected lon/lat back onto the grid.
+3. Operators — deformation gradient → Cauchy–Green → eigen-analysis.
+4. Diagnostics — FTLE and eigen-derived scalar fields.
 
 ## Notation (Haller 2015)
 
+Full reference lives in `docs/notation.md`; summary here.
+
 | Symbol | Meaning | Eq. |
 |---|---|---|
-| `v(x, t)` | velocity field, `x = (x¹, x²)` in 2D | 2 |
-| `F_{t0}^{t}(x0) = x(t; t0, x0)` | flow map: initial position → position at time `t` | 3 |
-| `∇F_{t0}^{t1}(x0)` | deformation gradient (2×2 in 2D) | 4, 9 |
-| `C(x0) = (∇F)ᵀ ∇F` | right Cauchy–Green strain tensor | 6 |
-| `C ξᵢ = λᵢ ξᵢ`, `0 < λ₁ ≤ λ₂`, `ξ₁ ⟂ ξ₂` | eigen-decomposition of `C` | 7 |
-| `Λ = (1/(t1−t0)) log √λ_max` | FTLE (uses the **largest** eigenvalue) | §4.1 |
-| `η±`, shrink/stretch/shear lines | geometric LCS from `ξ₁,₂` | 10, 11, Table 1 |
+| $v(x, t)$ | velocity field, $x = (x^1, x^2)$ in 2D | 2 |
+| $F_{t_0}^{t}(x_0) = x(t; t_0, x_0)$ | flow map: initial position $\to$ position at time $t$ | 3 |
+| $\nabla F_{t_0}^{t_1}(x_0)$ | deformation gradient ($2\times2$ in 2D) | 4, 9 |
+| $C(x_0) = (\nabla F)^\top \nabla F$ | right Cauchy–Green strain tensor | 6 |
+| $C\,\xi_i = \lambda_i\,\xi_i,\ 0 < \lambda_1 \le \lambda_2,\ \xi_1 \perp \xi_2$ | eigen-decomposition of $C$ | 7 |
+| $\Lambda = \tfrac{1}{t_1 - t_0}\log\sqrt{\lambda_{\max}}$ | FTLE (uses the **largest** eigenvalue) | §4.1 |
+| $\eta^\pm$, shrink/stretch/shear lines | geometric LCS from $\xi_{1,2}$ | 10, 11, Table 1 |
 
-Naming consequence: the sketch's "F (2×2)" is really `∇F`. We reserve `F` /
-`flow_map` for the map itself (a 2-component vector field) and
-`deformation_gradient` / `gradF` for the 2×2 tensor.
+Naming consequence: the sketch's "F ($2\times2$)" is really $\nabla F$. We reserve
+`F` / `flow_map` for the map itself (a 2-component vector field) and
+`deformation_gradient` / `gradF` for the $2\times2$ tensor.
 
 ## Data structures
 
-All structures are thin conventions over `xarray` objects, not new classes where
-a Dataset will do.
+The two differentiation methods are modeled as **two explicit classes**, not as
+runtime inference from dims (no `"di" in ds.dims` sniffing). Both are
+first-class — neither is a default or a fallback.
 
-### Particle grid
-- `xr.Dataset` with logical dims `i, j` and data vars `lon(i, j)`, `lat(i, j)`.
-- Curvilinear-capable (lon/lat are 2D), so non-rectangular grids work.
-- Carries resolution metadata (`dlon`, `dlat`) as attrs/coords.
-- This is the set of `x0` on which FTLE, `C`, eigen-fields are defined.
+Each class is a **composition wrapper** around an `xr.Dataset` (it holds a `.ds`;
+it does not subclass `xr.Dataset`, which xarray discourages). Operators are
+methods on these classes. All internal access uses the high-level, label-based
+xarray API (`.isel`, `.sel`, named dims), never positional indexing.
 
-### Displacement grid (optional) — the differentiation stencil
-- Dims `(di, dj)` with displacements `dx(di, dj)`, `dy(di, dj)` **in meters**.
-- This *is* Haller's auxiliary-grid finite-difference stencil (Eq. 9): each
-  `(i, j)` point gets its own tight stencil at controlled separation δ.
-- Presence/absence of this grid selects the differentiation mode (below).
+```
+ParticleGrid (ABC, composition wrapper around .ds)
+├── NeighborGrid     # stencil = neighboring grid points (i±1, j±1)
+└── AuxiliaryGrid    # stencil = per-point displacement grid (Haller Eq. 9)
+```
 
-### Particle set
-- Flattened view: `.stack(particle=('i','j'))` or
-  `.stack(particle=('i','j','di','dj'))`.
-- The `particle` MultiIndex is the inverse map, so grid ↔ set is lossless.
-- Parcels consumes plain 1D `lon/lat` arrays; we stash the MultiIndex, run
-  advection, reattach the output to the `particle` coord, then `.unstack()`.
+### Common state (base `ParticleGrid`)
+- `.ds`: `xr.Dataset` with logical dims `i, j` and data vars `lon(i, j)`,
+  `lat(i, j)` (2D lon/lat, so curvilinear/non-rectangular grids work). These are
+  the $x_0$ on which diagnostics are defined.
+- Resolution metadata (`dlon`, `dlat`) as coords/attrs.
 
-## Differentiation modes for `∇F`
+### `NeighborGrid`
+- No extra dims. The deformation gradient is differenced against neighboring
+  grid points `(i±1, j±1)`.
 
-The operators are **polymorphic over the presence of the displacement grid**:
+### `AuxiliaryGrid`
+- Adds a per-point displacement stencil with dims `(di, dj)` and displacements
+  `dx(di, dj)`, `dy(di, dj)` in **meters** — Haller's auxiliary grid (Eq. 9).
+  Decouples diagnostic resolution from the gradient step.
 
-1. **Auxiliary grid (recommended default)** — displacement grid present. Each
-   `(i, j)` has its own 4-point stencil at separation δ. Decouples diagnostic
-   resolution from gradient step; less noisy; degrades gracefully under
-   particle loss. ~4–5× particle count. Haller Eq. 9.
-2. **Neighbor differencing (fallback)** — no displacement grid. Stencil is the
-   neighboring grid points `(i±1, j±1)`. Fewer particles, but welds FTLE
-   resolution to the differentiation step and degrades at boundaries.
+## Round-trip (emit / ingest)
 
-## Sphere metric (correctness requirement)
+Kept deliberately minimal:
 
-Haller's math is Cartesian. Our grid is lon/lat. `∇F` must be formed from
-separations in a **local tangent frame in meters** — both the initial stencil
-and the final displacements — using `dx = R cos φ dλ`, `dy = R dφ`. Forming
-`∇F` directly from degree differences gives wrong eigenvalues (hence wrong FTLE
-and ξ directions). Decision: displacement `dx, dy` are in meters; a metric/
-projection helper converts to lon/lat for seeding and back for differentiation.
+- `to_parcels_pset() -> tuple[list, list]` — flatten to plain `(lon, lat)` lists
+  for Parcels. Internally `.stack(particle=('i','j'))` or
+  `(...,'di','dj')`; the `particle` MultiIndex is the lossless inverse.
+- `from_parcels_pset_lon_lat(lon, lat, *, T) -> ParticleGrid` — factory that
+  reattaches advected positions to the `particle` coord, `.unstack()`s back to
+  the grid, and records the integration time `T` (needed for FTLE).
+
+Multiple release times `t0` and multiple integration times `T` are just extra
+broadcast dimensions — handled by xarray, no special machinery. Particle loss
+arrives as NaN and propagates naturally; cells with a missing stencil point
+yield NaN `$\nabla F$`.
+
+## Operators (methods)
+
+- `deformation_gradient() -> DataArray` — `$\nabla F$`, dims `(i, j, row, col)`.
+- `cauchy_green() -> DataArray` — `$C = (\nabla F)^\top \nabla F$`, same dims.
+- `cg_eigen() -> Dataset` — eigenvalues `λ` on `(i, j, eig)` and eigenvectors
+  `ξ` on `(i, j, comp, eig)`, via
+  `xr.apply_ufunc(np.linalg.eigh, C, input_core_dims=[['row','col']], ...)`.
+- `ftle() -> DataArray` — `$\Lambda = \tfrac{1}{|T|}\log\sqrt{\lambda_{\max}}$`.
+- (optional) generalized Green–Lagrange `$E_\lambda$` (Eq. 8).
 
 ## Tensor representation
 
-Hold 2×2 tensors and 2-vectors as **single DataArrays with component dims**,
-not as scalar vars (`F11, F12, …`):
-- `gradF`, `C`: dims `(i, j, row, col)` with labeled coord `comp = ['x','y']`.
-- eigen output: `λ` on `(i, j, eig)` and `ξ` on `(i, j, comp, eig)`.
+2×2 tensors and 2-vectors are **single DataArrays with component dims**, not
+scalar vars (`F11, F12, …`):
+- `gradF`, `C`: dims `(i, j, row, col)`, labeled coord `comp = ['x', 'y']`.
+- eigen output: `λ` on `(i, j, eig)`, `ξ` on `(i, j, comp, eig)`.
 
-This makes the eigen step a one-liner:
-`xr.apply_ufunc(np.linalg.eigh, C, input_core_dims=[['row','col']], ...)`
-and keeps the operator algebra vectorized.
+This keeps the eigen step a vectorized one-liner.
 
-## Operators (layered)
+## Sphere metric (note, not a blocker)
 
-- **L0 Seeding**: `particle_grid (+ displacement_grid) → particle_set`.
-- **L1 Advection**: Parcels (external adapter). Returns final positions.
-- **L2 Flow map**: reshape advected positions to the grid; `dX/dy` partials →
-  `deformation_gradient` (`∇F`), mode-polymorphic.
-- **L3 Tensors**: `cauchy_green` (`C`); `cg_eigen` (`λ₁, λ₂, ξ₁, ξ₂`);
-  optionally generalized Green–Lagrange `E_λ` (Eq. 8).
-- **L4 Diagnostics**: `ftle = (1/|T|) log √λ_max`; further eigen-derived scalar
-  fields.
-
-## Cross-cutting concerns
-
-- **Release time `t0` and integration time `T`**: carried as coords so FTLE time
-  series are natural.
-- **Forward vs backward integration**: forward → repelling LCS, backward →
-  attracting LCS (Haller §3.5 duality). Cheap: a direction/sign on advection.
-- **Particle loss**: beached / out-of-domain particles return as NaN/deleted;
-  `unstack` must tolerate gaps; any cell with a missing stencil point yields a
-  NaN `∇F`. Auxiliary-grid mode is more robust here.
+Haller's math is Cartesian; our grid is lon/lat. The deformation gradient is
+formed from separations in a local tangent frame in **meters**
+($dx = R\cos\phi\,d\lambda$, $dy = R\,d\phi$). Because we operate in the
+tiny-separation regime, a flat-tangent `$\cos\phi$` approximation is adequate in
+practice; this is a convention, not a correctness blocker.
 
 ## v1 scope vs later
 
-**v1 (this plan):** L0–L4 — seed → flow map → `C` → eigen → FTLE and
-eigen-derived scalar fields, with auxiliary-grid as the primary path and the
-sphere metric handled correctly.
+**v1 (this PR):** seed → deformation gradient → `$C$` → eigen → FTLE and
+eigen-derived scalar fields, as scaffolding (signatures, types, docstrings,
+tests; no implementation). Both `NeighborGrid` and `AuxiliaryGrid` are
+first-class.
 
 **Deferred (separate module):** the geometric LCS layer — shrink/stretch/shear
 lines, elliptic (vortex) LCS via closed shear lines (Eqs. 10–11, Table 1). This
-is tensor-line ODE integration with eigenvector orientation/desingularization,
-a different problem from pointwise grid algebra.
+is tensor-line ODE integration with eigenvector orientation/desingularization, a
+different problem from pointwise grid algebra.
 
-## Open questions (for review)
+## Resolved review questions
 
-1. Auxiliary grid as the recommended default, neighbor-differencing as fallback?
-2. Metric handling: meters-based local tangent frame (preferred) vs degree-space
-   with `cos φ` correction?
-3. v1 scope: stop at FTLE + eigen fields, defer tensor-line / elliptic LCS?
-4. Tensor storage: component-dim DataArrays (preferred) vs named scalar vars?
+1. Differentiation modes — **both first-class**, no default; modeled as two
+   classes (`NeighborGrid`, `AuxiliaryGrid`).
+2. Metric — **meters-based** local tangent frame; not critical (tiny-separation
+   regime).
+3. v1 scope — **stop at FTLE + eigen fields**; defer tensor-line / elliptic LCS.
+4. Tensor storage — **component-dim DataArrays**.
+5. Where operators live — **composition wrapper classes**, not `xr.Dataset`
+   subclassing and not an accessor.
