@@ -6,11 +6,11 @@
       - xr dataset w/ i j dims and lon(i,j) and lat(i,j) data vars
       - these are the locations on which FTLE etc. will be defined
       - resolution dlon, dlat
-    - optional: displacement grid
-      - dims (di, dj)
-      - displacement dx dy
+    - optional: auxiliary displacement stencil
+      - single displacement dim = [east, north, west, south]
+      - offsets dx, dy in meters (fixed four arms; no center, no diagonals)
   - particle set
-    - stacked i,j or i,j,di,dj dims
+    - stacked i,j or i,j,displacement dims
   - roundtrip necessary (ie need constructor of particle grid from particle set)
 
 - operators

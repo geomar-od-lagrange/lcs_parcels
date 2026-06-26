@@ -33,8 +33,11 @@ human implementation session.
 
 This package is the **diagnostic layer** that sits on top of trajectory
 integration. It contains **no Parcels code**: it emits particle sets and ingests
-results, nothing more. The particle set owns the integration time `$T$`
-(including its sign), so this package never decides integration direction.
+results, nothing more. A seed grid owns its release time `$t_0$`; ingest is given
+the end time `$t_1$` and derives the signed window `$T = t_1 - t_0$`, so
+direction (forward/backward) is implied by `$\operatorname{sign}(T)$` and this
+package never needs a separate direction flag. See
+[`plans/timing-design.md`](timing-design.md).
 
 We provide:
 
@@ -64,7 +67,7 @@ Naming consequence: the sketch's "F ($2\times2$)" is really $\nabla F$. We reser
 ## Data structures
 
 The two differentiation methods are modeled as **two explicit classes**, not as
-runtime inference from dims (no `"di" in ds.dims` sniffing). Both are
+runtime inference from dims (no `"displacement" in ds.dims` sniffing). Both are
 first-class — neither is a default or a fallback.
 
 Each class is a **composition wrapper** around an `xr.Dataset` (it holds a `.ds`;
@@ -91,6 +94,8 @@ ParticleGrid (ABC, composition wrapper around .ds)
 - `.ds`: `xr.Dataset` with logical dims `i, j` and data vars `lon(i, j)`,
   `lat(i, j)` (2D lon/lat, so curvilinear/non-rectangular grids work). These are
   the $x_0$ on which diagnostics are defined.
+- Release time `t0` (`datetime64`), recorded at seeding so the grid owns its own
+  `t0`; see [`plans/timing-design.md`](timing-design.md).
 - Resolution metadata (`dlon`, `dlat`) as coords/attrs.
 
 ### `NeighborGrid`
@@ -98,9 +103,12 @@ ParticleGrid (ABC, composition wrapper around .ds)
   grid points `(i±1, j±1)`.
 
 ### `AuxiliaryGrid`
-- Adds a per-point displacement stencil with dims `(di, dj)` and displacements
-  `dx(di, dj)`, `dy(di, dj)` in **meters** — Haller's auxiliary grid (Eq. 9).
-  Decouples diagnostic resolution from the gradient step.
+- Adds a *fixed* four-arm displacement stencil on a single `displacement` dim
+  (`displacement = ['east', 'north', 'west', 'south']`) with offsets
+  `dx(displacement)`, `dy(displacement)` in **meters** — Haller's auxiliary grid
+  (Eq. 9). No center point (it would duplicate the grid position) and no diagonal
+  corners (unused by central differencing); the shape is enforced in `from_axes`,
+  not left arbitrary. Decouples diagnostic resolution from the gradient step.
 
 ## Round-trip (emit / ingest)
 
@@ -108,12 +116,13 @@ Kept deliberately minimal:
 
 - `to_parcels_pset() -> tuple[list, list]` — flatten to plain `(lon, lat)` lists
   for Parcels. Internally `.stack(particle=('i','j'))` or
-  `(...,'di','dj')`; the `particle` MultiIndex is the lossless inverse.
-- `from_parcels_pset_lon_lat(seed, lon, lat, *, t0, T) -> ParticleGrid` — factory
+  `(...,'displacement')`; the `particle` MultiIndex is the lossless inverse.
+- `from_parcels_pset_lon_lat(seed, lon, lat, *, t1) -> ParticleGrid` — factory
   that reattaches advected positions to the `particle` coord, `.unstack()`s back
-  to the grid, and records the release time `t0` (`datetime64`) and signed
-  integration window `T` (`timedelta64`, needed for FTLE). See
-  `plans/timing-design.md`.
+  to the grid, and records `t0` (from the seed) and the derived signed window
+  `T = t1 - t0` (`timedelta64`, needed for FTLE). Only the end time `t1`
+  (`datetime64`) is passed; the seed owns `t0`. See
+  [`plans/timing-design.md`](timing-design.md).
 
 Multiple release times `t0` and multiple integration times `T` are just extra
 broadcast dimensions — handled by xarray, no special machinery. Particle loss
@@ -141,11 +150,14 @@ This keeps the eigen step a vectorized one-liner.
 
 ## Sphere metric (note, not a blocker)
 
-Haller's math is Cartesian; our grid is lon/lat. The deformation gradient is
-formed from separations in a local tangent frame in **meters**
-($dx = R\cos\phi\,d\lambda$, $dy = R\,d\phi$). Because we operate in the
+Haller's math is Cartesian; our grid is lon/lat. Separations are formed in a
+local tangent frame in **meters** ($dx = R\cos\phi\,d\lambda$, $dy = R\,d\phi$;
+$\lambda$ = longitude, $\phi$ = latitude). Because we operate in the
 tiny-separation regime, a flat-tangent `$\cos\phi$` approximation is adequate in
-practice; this is a convention, not a correctness blocker.
+practice; this is a convention, not a correctness blocker. The metric only
+converts lon/lat separations to meters: the *advected* separations forming the
+numerator of $\nabla F$ are measured from the ingested Parcels outputs, not
+recomputed analytically from $R$ and $\phi$.
 
 ## v1 scope vs later
 
@@ -169,3 +181,11 @@ different problem from pointwise grid algebra.
 4. Tensor storage — **component-dim DataArrays**.
 5. Where operators live — **composition wrapper classes**, not `xr.Dataset`
    subclassing and not an accessor.
+6. Timing input — the seed **owns `t0`** (set in `from_axes`); ingest takes `t1`
+   and derives signed `T = t1 - t0`. Direction is `sign(T)`. See
+   [`plans/timing-design.md`](timing-design.md).
+7. Auxiliary stencil — **fixed four arms** `['east', 'north', 'west', 'south']`
+   on one `displacement` dim, enforced in `from_axes` (no center, no diagonals).
+8. Deformation gradient — the numerator (advected separations) is taken from the
+   **ingested outputs**; the metric only converts the initial separations
+   (denominator) to meters.

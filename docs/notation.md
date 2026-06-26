@@ -20,8 +20,10 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 | $\lambda_1, \lambda_2$ | eigenvalues of $C$ (ordered $0 < \lambda_1 \le \lambda_2$); $\lambda_{\max} = \lambda_2$ | 7 | `lambda` (coord `eig`) |
 | $\xi_1, \xi_2$ | orthonormal eigenvectors of $C$ | 7 | `xi` (coords `comp`, `eig`) |
 | $\Lambda_{t_0}^{t_1}(x_0) = \dfrac{1}{t_1 - t_0}\,\log\sqrt{\lambda_{\max}}$ | finite-time Lyapunov exponent (FTLE); uses the **largest** eigenvalue | §4.1 | `ftle` |
-| $T = t_1 - t_0$ | integration time; its sign (forward/backward) is carried by the particle set | 3 | `T` |
-| $dx = R\cos\phi\,d\lambda,\ \ dy = R\,d\phi$ | local-tangent meters convention (lon/lat $\to$ meters) | — | (internal metric) |
+| $t_0$ | release time of the seed grid; recorded by `from_axes` | 3 | `t0` |
+| $t_1$ | integration end time; supplied at ingest, consumed to derive $T$, not stored | 3 | `t1` (input) |
+| $T = t_1 - t_0$ | integration window, **signed**; derived at ingest from the seed's $t_0$ and the end time $t_1$, its sign sets the integration direction | 3 | `T` |
+| $dx = R\cos\phi\,d\lambda,\ \ dy = R\,d\phi$ | local-tangent meters convention ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ meters) | — | (internal metric) |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 | — |
 | $\eta^\pm(x_0)$ | shear vector field; shrink/stretch/shear lines (**deferred**) | 10, 11, Table 1 | — |
 
@@ -43,18 +45,23 @@ $\nabla F$. We reserve `F` for the map and `gradF` for its gradient.
 ### Computing the deformation gradient (Eq. 9)
 
 $\nabla F$ is estimated by finite differences of final positions with respect to
-initial positions. For a particle at $x_0$ with neighbors offset by
-$(\delta x^1, \delta x^2)$, each column of $\nabla F$ is a centered difference of
-the advected positions divided by the initial separation (Haller's Eq. 9 stencil).
-Two stencil strategies are modeled as separate classes, both first-class:
+initial positions. Each column of $\nabla F$ is a centered difference of the
+*advected* positions (the **numerator**, measured from the ingested Parcels
+outputs) divided by the controlled *initial* separation in meters (the
+**denominator**, from the metric below). The metric only converts lon/lat
+separations to meters; it never supplies the advected displacement (Haller's
+Eq. 9 stencil). Two stencil strategies are modeled as separate classes, both
+first-class:
 
 - **Neighbor differencing** (`NeighborGrid`): the stencil is the neighboring grid
   points $(i\pm 1, j\pm 1)$. No extra dimensions; the diagnostic resolution and
   the gradient step are the same grid.
-- **Auxiliary grid** (`AuxiliaryGrid`): each grid point carries its own small
-  displacement stencil (dims `(di, dj)`, displacements `dx(di, dj)`,
-  `dy(di, dj)` in meters), per Haller Eq. 9. This decouples the gradient step
-  from the diagnostic resolution.
+- **Auxiliary grid** (`AuxiliaryGrid`): each grid point carries a fixed four-arm
+  stencil on a single `displacement` dim
+  (`displacement = ['east', 'north', 'west', 'south']`), with offsets
+  `dx(displacement)`, `dy(displacement)` in meters, per Haller Eq. 9. No center
+  point (it would duplicate the grid position) and no diagonal corners. This
+  decouples the gradient step from the diagnostic resolution.
 
 Cells with a missing stencil point (e.g. a lost particle arriving as NaN) yield
 a NaN $\nabla F$, and that NaN propagates through $C$, the eigen-analysis, and
@@ -75,15 +82,18 @@ $$\Lambda_{t_0}^{t_1}(x_0) = \frac{1}{t_1 - t_0}\,\log\sqrt{\lambda_{\max}}
 
 Note it is the **largest** eigenvalue $\lambda_{\max} = \lambda_2$ (maximum
 stretching) that enters the FTLE, not the smallest. The integration time enters
-as $|T|$; the sign of $T$ (forward vs. backward integration) is owned by the
-particle set, not by this diagnostic.
+as $|T|$; the sign of $T = t_1 - t_0$ encodes forward vs. backward integration,
+and this diagnostic uses only $|T|$.
 
 ### Integration time $T$
 
-$T = t_1 - t_0$ (Eq. 3). This package never chooses the integration direction:
-the particle set is emitted, advected externally, and re-ingested together with
-its $T$ (including sign). Multiple release times $t_0$ and multiple integration
-times $T$ are simply extra broadcast dimensions handled by xarray.
+$T = t_1 - t_0$ (Eq. 3), **signed**. The seed grid owns its release time $t_0$
+(recorded by `from_axes`); the particle set is emitted, advected externally, and
+re-ingested with only the end time $t_1$, from which $T$ is derived and stored.
+This package never chooses the direction — $\operatorname{sign}(T)$ follows from
+$t_1$ relative to $t_0$. Multiple release times $t_0$ and multiple integration
+windows $T$ are simply extra broadcast dimensions handled by xarray. See
+[`plans/timing-design.md`](../plans/timing-design.md).
 
 ### Local-tangent meters convention
 
@@ -113,7 +123,7 @@ dimensions, not as scalar variables (`F11, F12, …`):
 | Object | Code name | Dims | Component coords |
 |---|---|---|---|
 | grid positions $x_0$ | `lon`, `lat` | `(i, j)` | — |
-| auxiliary-grid stencil | `dx`, `dy` | `(di, dj)` | — |
+| auxiliary-grid stencil | `dx`, `dy` | `(displacement,)` | `displacement = ['east','north','west','south']` |
 | deformation gradient $\nabla F$ | `gradF` | `(i, j, row, col)` | `comp = ['x', 'y']` |
 | Cauchy–Green $C$ | `C` | `(i, j, row, col)` | `comp = ['x', 'y']` |
 | eigenvalues $\lambda_i$ | `lambda` | `(i, j, eig)` | — |
@@ -122,8 +132,11 @@ dimensions, not as scalar variables (`F11, F12, …`):
 
 Logical grid dims are `i, j`. The `comp` coordinate labels vector/tensor
 components `['x', 'y']`; `row`/`col` index the two axes of a $2\times 2$ tensor;
-`eig` indexes the two eigenpairs. Extra release-time / integration-time axes
-broadcast on top of these.
+`eig` indexes the two eigenpairs. For `AuxiliaryGrid` the four-arm `displacement`
+dim rides on `(i, j)` (so the ingested arm positions are `lon(i, j, displacement)`,
+`lat(i, j, displacement)`); it is differenced away by `deformation_gradient`, so
+$\nabla F$ and everything downstream are back on `(i, j)`. Extra release-time /
+integration-time axes broadcast on top of these.
 
 Storing tensors with component dims keeps the eigen step compact. Note that
 xarray has no native eigendecomposition: it does not wrap `np.linalg`, so

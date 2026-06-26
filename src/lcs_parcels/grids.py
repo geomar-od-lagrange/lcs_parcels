@@ -12,13 +12,25 @@ modeled as two explicit subclasses, NeighborGrid and AuxiliaryGrid, rather than
 inferred at runtime from the dataset dimensions. Each class is a composition
 wrapper around an xr.Dataset (held in ``.ds``); none subclasses xr.Dataset.
 
+Timing convention
+-----------------
+A seed grid *owns* its release time ``t0`` (recorded by ``from_axes``). Ingest
+(``from_parcels_pset_lon_lat``) is given only the end time ``t1``; the signed
+integration window ``T = t1 - t0`` is derived and stored. Direction is implied
+by ``sign(T)`` (``t1 < t0`` → backward → attracting LCS; ``t1 > t0`` → forward →
+repelling LCS); there is no separate flag and ``t1`` itself is not stored. See
+``plans/timing-design.md``.
+
 Sphere metric convention
 ------------------------
-Haller's math is Cartesian; our grids are lon/lat. The deformation gradient is
-formed from separations in a local tangent frame in meters, using
-``dx = R cos(phi) dlambda`` and ``dy = R dphi`` where ``R`` is the Earth radius,
-``phi`` is latitude (radians) and ``lambda`` is longitude (radians). In the
-tiny-separation regime a flat-tangent ``cos(phi)`` approximation is adequate.
+Haller's math is Cartesian; our grids are lon/lat. Separations are formed in a
+local tangent frame in meters, using ``dx = R cos(phi) dlambda`` and
+``dy = R dphi`` where ``R`` is the Earth radius, ``lambda`` is longitude and
+``phi`` is latitude (both radians). In the tiny-separation regime a flat-tangent
+``cos(phi)`` approximation is adequate. This metric only converts lon/lat
+separations to meters; the *advected* separations that form the numerator of
+grad F are measured from the ingested Parcels output positions, not recomputed
+analytically from ``R`` and ``phi``.
 """
 
 from __future__ import annotations
@@ -52,9 +64,10 @@ class ParticleGrid(abc.ABC):
     Attributes
     ----------
     ds : xr.Dataset
-        Seed positions and any per-class auxiliary state. After ingesting
-        advected positions, also carries the integration time ``T`` (seconds,
-        including sign) needed for the FTLE.
+        Seed positions, the release time ``t0`` (recorded at seeding), and any
+        per-class auxiliary state. After ingesting advected positions, also
+        carries the signed integration window ``T = t1 - t0`` (``timedelta64``,
+        derived from the ingest end time ``t1``) needed for the FTLE.
     """
 
     def __init__(self, ds: xr.Dataset) -> None:
@@ -64,19 +77,21 @@ class ParticleGrid(abc.ABC):
         ----------
         ds : xr.Dataset
             Dataset with dims ``i, j`` and variables ``lon(i, j)``,
-            ``lat(i, j)`` in degrees. Subclasses may require additional
-            variables/dimensions (see their docstrings).
+            ``lat(i, j)`` in degrees, plus the release time ``t0``. Subclasses
+            may require additional variables/dimensions (see their docstrings).
         """
         self.ds = ds
 
     @classmethod
     @abc.abstractmethod
-    def from_axes(cls, lon: np.ndarray, lat: np.ndarray) -> Self:
-        """Build a seed grid from 1-D lon/lat axes.
+    def from_axes(cls, lon: np.ndarray, lat: np.ndarray, *, t0: np.datetime64) -> Self:
+        """Build a seed grid from 1-D lon/lat axes, released at ``t0``.
 
         The 1-D axes are broadcast into curvilinear 2-D fields ``lon(i, j)`` and
         ``lat(i, j)`` (degrees), so that downstream code never special-cases
-        rectangular grids.
+        rectangular grids. The release time ``t0`` is recorded on ``.ds`` so the
+        grid *owns* its own ``t0``; ingest then needs only the end time ``t1``
+        (see :meth:`from_parcels_pset_lon_lat` and ``plans/timing-design.md``).
 
         Parameters
         ----------
@@ -84,12 +99,15 @@ class ParticleGrid(abc.ABC):
             1-D array of longitudes (degrees), length ``Ni``, mapped to dim ``i``.
         lat : np.ndarray
             1-D array of latitudes (degrees), length ``Nj``, mapped to dim ``j``.
+        t0 : np.datetime64
+            Release time of the seed positions (scalar, or array for an ensemble
+            of releases). Recorded as a coordinate on ``.ds``.
 
         Returns
         -------
         Self
             A grid whose ``.ds`` has ``lon`` and ``lat`` with dims ``(i, j)`` and
-            shape ``(Ni, Nj)``.
+            shape ``(Ni, Nj)`` and records ``t0``.
         """
         raise NotImplementedError("from_axes is not implemented (scaffolding only).")
 
@@ -99,7 +117,7 @@ class ParticleGrid(abc.ABC):
 
         Stacks the grid over the particle dimension(s) into a single
         ``particle`` index (``.stack(particle=('i', 'j'))`` for
-        :class:`NeighborGrid`, additionally over ``('di', 'dj')`` for
+        :class:`NeighborGrid`, additionally over ``('displacement',)`` for
         :class:`AuxiliaryGrid`) and returns plain Python lists. The ``particle``
         MultiIndex is the lossless inverse used by
         :meth:`from_parcels_pset_lon_lat` to reattach advected positions.
@@ -121,8 +139,7 @@ class ParticleGrid(abc.ABC):
         lon,
         lat,
         *,
-        t0: np.datetime64,
-        T: np.timedelta64,
+        t1: np.datetime64,
     ) -> Self:
         """Reattach advected flat lon/lat onto a seed grid and record ``t0``, ``T``.
 
@@ -133,29 +150,33 @@ class ParticleGrid(abc.ABC):
         extra broadcast dimensions handled by xarray. See
         ``plans/timing-design.md``.
 
+        The seed already owns its release time ``t0`` (recorded by
+        :meth:`from_axes`), so only the end time ``t1`` is supplied here; the
+        signed window ``T = t1 - t0`` is derived and stored. The caller never
+        passes ``T`` directly.
+
         Parameters
         ----------
         seed : ParticleGrid
             The grid that produced the particle set; supplies the ``particle``
-            MultiIndex used to unstack the flat results back to ``(i, j)``
-            (and ``(di, dj)`` for :class:`AuxiliaryGrid`).
+            MultiIndex used to unstack the flat results back to ``(i, j)`` (and
+            the ``displacement`` arm for :class:`AuxiliaryGrid`), and the
+            release time ``t0``.
         lon, lat : array-like
             Advected longitudes/latitudes (degrees), aligned with the order of
             :meth:`to_parcels_pset` output.
-        t0 : np.datetime64
-            Release time (scalar, or array for an ensemble of releases).
-            Recorded as a coordinate.
-        T : np.timedelta64
-            Integration window, **signed** (the particle set owns integration
-            direction: ``T < 0`` is backward → attracting LCS, ``T > 0`` is
-            forward → repelling LCS). Recorded as a coordinate and used by
-            :meth:`ftle`. The absolute end time ``t1 = t0 + T`` is never stored.
+        t1 : np.datetime64
+            End time of the integration (scalar, or array for an ensemble). The
+            signed window ``T = t1 - seed.t0`` sets the integration direction
+            (``t1 < t0`` → backward → attracting LCS; ``t1 > t0`` → forward →
+            repelling LCS) and is recorded as a coordinate, used by
+            :meth:`ftle`. ``t1`` itself is not stored.
 
         Returns
         -------
         Self
             A grid whose ``.ds`` holds the advected positions on the original
-            grid and records ``t0`` and ``T`` as coordinates.
+            grid and records ``t0`` and the derived signed ``T`` as coordinates.
         """
         raise NotImplementedError(
             "from_parcels_pset_lon_lat is not implemented (scaffolding only)."
@@ -165,12 +186,22 @@ class ParticleGrid(abc.ABC):
     def deformation_gradient(self) -> xr.DataArray:
         """Deformation gradient grad F of the flow map. Haller (2015) Eq. 9.
 
-        The 2x2 tensor ``grad F = d x(t1) / d x_0`` per grid point, finite-
-        differenced in the local-tangent meters frame
-        (``dx = R cos(phi) dlambda``, ``dy = R dphi``). Subclasses define the
-        stencil: neighboring grid points (:class:`NeighborGrid`) or a per-point
-        auxiliary displacement grid (:class:`AuxiliaryGrid`). Cells with a
-        missing stencil point yield NaN.
+        The 2x2 tensor ``grad F = d x(t1) / d x_0`` per grid point, estimated by
+        finite differences as ``(advected separation) / (initial separation)``:
+
+        - **denominator** — the *initial* separation between stencil points, a
+          controlled quantity taken in the local-tangent meters frame
+          (``dx = R cos(phi) dlambda``, ``dy = R dphi``; ``lambda`` = longitude,
+          ``phi`` = latitude);
+        - **numerator** — the corresponding separation of the *advected*
+          positions, measured from the ingested Parcels outputs (converted to
+          meters with the same metric). It is **not** recomputed analytically
+          from ``R`` and ``phi``; only the advected lon/lat carry the flow-map
+          information.
+
+        Subclasses define the stencil: neighboring grid points
+        (:class:`NeighborGrid`) or the fixed four-arm auxiliary stencil
+        (:class:`AuxiliaryGrid`). Cells with a missing stencil point yield NaN.
 
         Returns
         -------
@@ -224,8 +255,9 @@ class ParticleGrid(abc.ABC):
 
         Computes ``Lambda = (1 / |T|) * log(sqrt(lambda_max))`` using the
         *largest* eigenvalue of ``C`` from :meth:`cg_eigen` and the recorded
-        integration window ``T`` (signed ``timedelta64``, converted to seconds;
-        the conversion must be calendar-aware for non-standard model calendars).
+        signed integration window ``T`` (``timedelta64``, derived at ingest as
+        ``t1 - t0`` and converted to seconds; the conversion must be
+        calendar-aware for non-standard model calendars).
 
         Returns
         -------
@@ -251,7 +283,7 @@ class NeighborGrid(ParticleGrid):
     """
 
     @classmethod
-    def from_axes(cls, lon: np.ndarray, lat: np.ndarray) -> Self:
+    def from_axes(cls, lon: np.ndarray, lat: np.ndarray, *, t0: np.datetime64) -> Self:
         """Build a neighbor-stencil seed grid from 1-D lon/lat axes.
 
         See :meth:`ParticleGrid.from_axes`.
@@ -274,8 +306,7 @@ class NeighborGrid(ParticleGrid):
         lon,
         lat,
         *,
-        t0: np.datetime64,
-        T: np.timedelta64,
+        t1: np.datetime64,
     ) -> Self:
         """Reattach advected lon/lat onto the ``('i', 'j')`` MultiIndex.
 
@@ -286,11 +317,13 @@ class NeighborGrid(ParticleGrid):
         )
 
     def deformation_gradient(self) -> xr.DataArray:
-        """grad F differenced against neighboring grid points ``(i +/- 1, j +/- 1)``.
+        """grad F differenced against neighbouring grid points ``(i +/- 1, j +/- 1)``.
 
-        Separations are taken in the local-tangent meters frame
-        (``dx = R cos(phi) dlambda``, ``dy = R dphi``). Boundary cells lacking a
-        neighbor yield NaN. See :meth:`ParticleGrid.deformation_gradient`.
+        The numerator is the separation of the *advected* neighbour positions
+        (from the ingested outputs); the denominator is the *initial* neighbour
+        separation in the local-tangent meters frame (``dx = R cos(phi) dlambda``,
+        ``dy = R dphi``). Boundary cells lacking a neighbour yield NaN. See
+        :meth:`ParticleGrid.deformation_gradient`.
         """
         raise NotImplementedError(
             "deformation_gradient is not implemented (scaffolding only)."
@@ -298,28 +331,54 @@ class NeighborGrid(ParticleGrid):
 
 
 class AuxiliaryGrid(ParticleGrid):
-    """Stencil = per-point auxiliary displacement grid. Haller (2015) Eq. 9.
+    """Stencil = fixed four-arm auxiliary displacement grid. Haller (2015) Eq. 9.
 
-    Adds a per-point displacement stencil with dims ``(di, dj)`` and
-    displacement variables ``dx(di, dj)`` and ``dy(di, dj)`` in **meters**
-    (Haller's auxiliary grid). This decouples the diagnostic / gradient step from
-    the seed grid resolution. The displacements are applied in the local-tangent
-    meters frame (``dx = R cos(phi) dlambda``, ``dy = R dphi``) to produce the
-    auxiliary seed positions surrounding each grid point.
+    Each grid point carries a controlled auxiliary stencil of four neighbours --
+    ``east, north, west, south`` -- on a single ``displacement`` dimension
+    (coordinate ``displacement = ['east', 'north', 'west', 'south']``), with
+    offsets ``dx(displacement)`` and ``dy(displacement)`` in **meters**. The
+    stencil is *fixed at construction* (:meth:`from_axes`), never inferred or
+    left arbitrary: there is no center point (it would duplicate the grid
+    position) and no diagonal corners (unused by central differencing), so the
+    emitted particle set is the minimal four arms per grid point. This decouples
+    the gradient step from the seed grid resolution. The arms are placed in the
+    local-tangent meters frame (``dx = R cos(phi) dlambda``, ``dy = R dphi``)
+    around each grid point.
     """
 
     @classmethod
-    def from_axes(cls, lon: np.ndarray, lat: np.ndarray) -> Self:
+    def from_axes(
+        cls,
+        lon: np.ndarray,
+        lat: np.ndarray,
+        *,
+        t0: np.datetime64,
+        aux_separation_m: float = 1_000.0,
+    ) -> Self:
         """Build an auxiliary-stencil seed grid from 1-D lon/lat axes.
 
-        See :meth:`ParticleGrid.from_axes`. Concrete implementations also
-        populate the ``(di, dj)`` displacement stencil (``dx``, ``dy`` in
-        meters).
+        See :meth:`ParticleGrid.from_axes`. Also populates the fixed four-arm
+        ``displacement = ['east', 'north', 'west', 'south']`` stencil with
+        offsets ``dx``, ``dy`` (meters): ``east = (+s, 0)``, ``north = (0, +s)``,
+        ``west = (-s, 0)``, ``south = (0, -s)`` for ``s = aux_separation_m``. The
+        shape is enforced here, not left to the caller.
+
+        Parameters
+        ----------
+        lon, lat : np.ndarray
+            1-D longitude/latitude axes (degrees); see
+            :meth:`ParticleGrid.from_axes`.
+        t0 : np.datetime64
+            Release time recorded on ``.ds``; see :meth:`ParticleGrid.from_axes`.
+        aux_separation_m : float, optional
+            Controlled auxiliary separation ``s`` (meters) applied to every arm;
+            this is the finite-difference denominator. Chosen small relative to
+            the flow scale.
         """
         raise NotImplementedError("from_axes is not implemented (scaffolding only).")
 
     def to_parcels_pset(self) -> tuple[list[float], list[float]]:
-        """Flatten seed positions over ``('i', 'j', 'di', 'dj')``.
+        """Flatten seed positions over ``('i', 'j', 'displacement')``.
 
         See :meth:`ParticleGrid.to_parcels_pset`.
         """
@@ -334,10 +393,9 @@ class AuxiliaryGrid(ParticleGrid):
         lon,
         lat,
         *,
-        t0: np.datetime64,
-        T: np.timedelta64,
+        t1: np.datetime64,
     ) -> Self:
-        """Reattach advected lon/lat onto the ``('i', 'j', 'di', 'dj')`` MultiIndex.
+        """Reattach advected lon/lat onto the ``('i', 'j', 'displacement')`` MultiIndex.
 
         See :meth:`ParticleGrid.from_parcels_pset_lon_lat`.
         """
@@ -346,12 +404,14 @@ class AuxiliaryGrid(ParticleGrid):
         )
 
     def deformation_gradient(self) -> xr.DataArray:
-        """grad F differenced across the per-point auxiliary stencil.
+        """grad F differenced across the fixed four-arm auxiliary stencil.
 
-        Uses the auxiliary displacements ``dx(di, dj)``, ``dy(di, dj)`` (meters)
-        in the local-tangent frame to finite-difference the flow map at each grid
-        point, decoupling the gradient step from the seed grid spacing. Points
-        with a missing auxiliary neighbor yield NaN. See
+        Central differences of the *advected* arm positions over the
+        ``displacement`` dim -- east minus west for the ``x`` derivative, north
+        minus south for the ``y`` derivative (numerator, from the ingested
+        outputs) -- divided by the controlled initial separations ``dx``, ``dy``
+        (denominator, meters). The per-point stencil makes grad F well-defined at
+        every grid point, including the boundary. See
         :meth:`ParticleGrid.deformation_gradient` and Haller (2015) Eq. 9.
         """
         raise NotImplementedError(

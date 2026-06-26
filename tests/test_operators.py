@@ -10,14 +10,15 @@ For a constant linear flow map ``F(x) = M @ x`` in the local meters tangent
 frame, the deformation gradient ``gradF`` equals ``M`` at every grid point, so
 the whole chain has closed-form answers:
 
-- seed a grid via ``cls.from_axes(lon_axis, lat_axis)``;
+- seed a grid via ``cls.from_axes(lon_axis, lat_axis, t0=...)``, where ``t0`` is
+  a ``datetime64`` release time recorded on the grid;
 - emit its particle set with ``to_parcels_pset()``;
 - advect the flat positions through ``M`` about the grid centre (a helper like
   ``conftest.apply_linear_map_to_pset`` can do this in the meters frame);
 - ingest with
-  ``cls.from_parcels_pset_lon_lat(seed, lon_out, lat_out, t0=..., T=...)``,
-  where ``t0`` is a ``datetime64`` release time and ``T`` a signed
-  ``timedelta64`` integration window (see ``plans/timing-design.md``).
+  ``cls.from_parcels_pset_lon_lat(seed, lon_out, lat_out, t1=...)``, where ``t1``
+  is the ``datetime64`` integration end time; the signed window ``T = t1 - t0``
+  is derived from the seed's ``t0`` (see ``plans/timing-design.md``).
 
 Pick a **non-symmetric** ``M`` (e.g. ``[[2.0, 0.5], [0.0, 3.0]]``) so that
 ``C = M^T M`` is a non-trivial check.

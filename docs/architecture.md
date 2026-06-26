@@ -12,14 +12,16 @@ Visual overview of the diagnostic layer defined in
 follow Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech.
 47:137–162,
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
-Timing conventions (`t0`, signed `T`) follow
-[`plans/timing-design.md`](../plans/timing-design.md); symbols live in
+Timing conventions follow [`plans/timing-design.md`](../plans/timing-design.md):
+a seed grid owns its release time `t0`, ingest is given the end time `t1`, and the
+signed window `T = t1 - t0` is derived and stored. Symbols live in
 [`docs/notation.md`](notation.md).
 
 The package contains no Parcels code: a grid *emits* a particle set
 (`to_parcels_pset`) and *ingests* the advected positions
 (`from_parcels_pset_lon_lat`). Parcels itself sits outside this package and owns
-the integration (including the sign of $T$).
+the integration; direction (the sign of $T$) follows from `t1` relative to the
+seed's `t0`.
 
 ## Class diagram
 
@@ -34,9 +36,9 @@ classDiagram
         <<abstract>>
         +ds : xr.Dataset
         +__init__(ds)
-        +from_axes(lon, lat) Self*
+        +from_axes(lon, lat, t0) Self*
         +to_parcels_pset() tuple*
-        +from_parcels_pset_lon_lat(seed, lon, lat, t0, T) Self*
+        +from_parcels_pset_lon_lat(seed, lon, lat, t1) Self*
         +deformation_gradient() xr.DataArray*
         +cauchy_green() xr.DataArray
         +cg_eigen() xr.Dataset
@@ -44,16 +46,16 @@ classDiagram
     }
 
     class NeighborGrid {
-        +from_axes(lon, lat) Self
+        +from_axes(lon, lat, t0) Self
         +to_parcels_pset() tuple
-        +from_parcels_pset_lon_lat(seed, lon, lat, t0, T) Self
+        +from_parcels_pset_lon_lat(seed, lon, lat, t1) Self
         +deformation_gradient() xr.DataArray
     }
 
     class AuxiliaryGrid {
-        +from_axes(lon, lat) Self
+        +from_axes(lon, lat, t0, aux_separation_m) Self
         +to_parcels_pset() tuple
-        +from_parcels_pset_lon_lat(seed, lon, lat, t0, T) Self
+        +from_parcels_pset_lon_lat(seed, lon, lat, t1) Self
         +deformation_gradient() xr.DataArray
     }
 
@@ -70,7 +72,7 @@ classDiagram
 
     note for ParticleGrid "cauchy_green / cg_eigen / ftle are concrete on the\nbase: defined purely in terms of deformation_gradient()."
     note for NeighborGrid "Stencil = neighbouring seed points (i +/- 1, j +/- 1).\nNo extra dims beyond (i, j). SPASSO / d'Ovidio approach."
-    note for AuxiliaryGrid "Stencil = per-point auxiliary grid.\nAdds dims (di, dj) and dx(di, dj), dy(di, dj) in metres,\ndecoupling the gradient step from seed resolution."
+    note for AuxiliaryGrid "Stencil = fixed four arms east/north/west/south on one\ndisplacement dim, with dx/dy offsets in metres (no centre, no diagonals),\ndecoupling the gradient step from seed resolution."
 ```
 
 In the diagram, `*` marks an abstract method (each concrete subclass overrides
@@ -97,7 +99,7 @@ flowchart TD
     pset["flat particle set<br/>(lon0, lat0)"]
 
     subgraph parcels ["Parcels (external, not driven by this package)"]
-        advect["ParticleSet(lon0, lat0)<br/>execute(advection) over t0, T"]
+        advect["ParticleSet(lon0, lat0)<br/>execute(advection) from t0 to t1"]
         out["advected (lon1, lat1)<br/>flat order preserved"]
     end
 
@@ -107,11 +109,11 @@ flowchart TD
     eig["lambda, xi<br/>(ascending lambda, orthonormal xi)"]
     ftle(["FTLE field<br/>Lambda(i,j) = (1 / |T|) log sqrt(lambda_max)"])
 
-    axes -->|"from_axes(lon, lat)"| seed
+    axes -->|"from_axes(lon, lat, t0=t0)"| seed
     seed -->|"to_parcels_pset()"| pset
     pset --> advect
     advect --> out
-    out -->|"from_parcels_pset_lon_lat(seed, lon1, lat1, t0=t0, T=T)"| grid
+    out -->|"from_parcels_pset_lon_lat(seed, lon1, lat1, t1=t1)"| grid
     grid -->|"deformation_gradient()<br/>Haller Eq. 9"| gradF
     gradF -->|"cauchy_green()<br/>Eq. 6"| C
     C -->|"cg_eigen()<br/>Eq. 7"| eig
@@ -126,8 +128,8 @@ The last four steps (`deformation_gradient` → `cauchy_green` → `cg_eigen` �
 quantity enters.
 
 `AuxiliaryGrid` follows the identical workflow; the only differences are that the
-particle set is additionally stacked over the auxiliary displacement dims
-`(di, dj)`, and `deformation_gradient` differences across that per-point stencil
-rather than against neighbouring seed points. Backward integration (attracting
-LCS) is selected purely by passing a negative `T`; no separate direction flag
-exists.
+particle set is additionally stacked over the four-arm `displacement` dim, and
+`deformation_gradient` differences across that per-point stencil rather than
+against neighbouring seed points. Backward integration (attracting LCS) is
+selected purely by passing `t1` before `t0` (so `T = t1 - t0` is negative); no
+separate direction flag exists.

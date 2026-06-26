@@ -13,28 +13,44 @@ How a flow-map sample carries time. Follows the notation of
 
 ## Decision
 
-Store **two** times on the ingested grid:
+There are two distinct representations and they are deliberately different.
 
-- `t0` — the release time, as **`datetime64`**.
-- `T` — the integration window, as **`timedelta64`**, **signed** (negative `T`
-  is backward integration → attracting LCS; positive → repelling).
+**Input.** The seed grid *owns* its release time `t0` (`datetime64`), recorded at
+construction by `from_axes(..., t0=...)`. Ingest is then given only the **end
+time** `t1` (`datetime64`): `from_parcels_pset_lon_lat(seed, lon, lat, t1=...)`.
+The caller never passes `T` — the seed already knows `t0`, so making the caller
+also supply `T = t1 - t0` would force them to hand back something the seed
+already holds.
 
-`t1` is **not** stored and **not** a concept we work with: we never evaluate the
-flow map at an absolute end time, only over an interval. Anything that would need
-`t1` can derive `t0 + T`, but the API does not expose it.
+**Stored.** On the ingested grid we keep `t0` and the derived, **signed**
+integration window:
 
-This supersedes the earlier "store `t0` and `t1`, derive `T`" sketch.
+- `t0` — the release time (from the seed), as **`datetime64`**.
+- `T = t1 - t0` — the integration window, as **`timedelta64`**, **signed**
+  (negative `T` is backward integration → attracting LCS; positive → repelling).
 
-## Why these two, not `(t0, t1)`
+`t1` is the *input*, not part of the stored model: it is consumed at ingest to
+derive `T` and then dropped. We never evaluate or store the flow map at an
+absolute end time, only over an interval.
 
-- The diagnostics depend on the flow map *over an interval* $F$ acting for a
-  duration; FTLE $= \tfrac{1}{|T|}\log\sqrt{\lambda_{\max}}$ needs $T$ directly,
-  and $\operatorname{sign}(T)$ is the only source of forward/backward direction
-  (the particle set owns this; no separate flag).
-- `(t0, T)` is the compact, fully-used layout for ensembles: every
-  (release, window) pair is a real experiment. `(t0, t1)` as array dimensions
-  would be wasteful — roughly half the rectangle ($t_1$ on the wrong side of
-  $t_0$) is unused, and constant-window slices cut across the diagonal.
+This supersedes the earlier "store `t0` and `t1`, derive `T`" sketch *and* the
+intermediate "pass `(t0, T)` at ingest" form.
+
+## Why input `t1`, stored `T`
+
+- **Input `t1`, not `T`.** The seed grid is released at `t0` and the advection
+  output is naturally timestamped at the model end time `t1`. Both ends are
+  already concrete; `T` is redundant input the seed can compute itself. Passing
+  `t1` (and deriving `T = t1 - seed.t0`) removes a hand-computed, error-prone
+  argument and keeps the seed the single owner of `t0`.
+- **Stored `(t0, T)`, not `(t0, t1)`.** The diagnostics depend on the flow map
+  *over an interval* acting for a duration; FTLE
+  $= \tfrac{1}{|T|}\log\sqrt{\lambda_{\max}}$ needs $T$ directly, and
+  $\operatorname{sign}(T)$ is the only source of forward/backward direction (no
+  separate flag). `(t0, T)` is also the compact, fully-used layout for
+  ensembles: every (release, window) pair is a real experiment, whereas
+  `(t0, t1)` as array dimensions wastes roughly half the rectangle ($t_1$ on the
+  wrong side of $t_0$) and cuts constant-window slices across the diagonal.
 
 ## Footprint
 
@@ -49,23 +65,29 @@ keeps the data array minimal.
 
 - `t0` and `T` are **coordinates** on `.ds`, not attrs (attrs are dropped by most
   xarray operations; coordinates propagate onto derived fields like `ftle`).
+  `t0` is recorded at seeding; `T` is added at ingest.
 - **Single run:** `t0` and `T` are scalar coordinates — zero overhead.
 - **Ensemble:** they promote naturally to **dimension coordinates** `t0` (size
-  $N_0$) and `T` (size $N_T$). FTLE then has dims `(i, j, t0)` for a release
-  series, `(i, j, t0, T)` for releases × windows. This is plain xarray
-  broadcasting — no special machinery (as anticipated in the main plan).
+  $N_0$) and `T` (size $N_T$). The seed may already carry `t0` as a dimension
+  (a release series); ingest supplies `t1` (scalar or array, broadcast against
+  the seed's `t0`), and `T = t1 - t0` lands on the `(t0, T)` axes. FTLE then has
+  dims `(i, j, t0)` for a release series, `(i, j, t0, T)` for releases × windows.
+  This is plain xarray broadcasting — no special machinery.
 - The clean rectangular `T` axis assumes every release uses the **same set of
   windows**. Ragged windows (windows differ per release) are the exception; they
   fall back to per-sample scalar times rather than a shared `T` dimension.
 
 ## API consequence
 
-The ingest factory records `t0` and `T` rather than a bare float:
+`from_axes` records `t0`; the ingest factory takes `t1` and derives `T`:
 
 ```python
-from_parcels_pset_lon_lat(seed, lon, lat, *, t0, T) -> ParticleGrid
-#   t0: datetime64 (scalar or array)
-#   T:  timedelta64, signed (scalar or array)
+from_axes(lon, lat, *, t0) -> ParticleGrid
+#   t0: datetime64 (scalar or array) — recorded on .ds
+
+from_parcels_pset_lon_lat(seed, lon, lat, *, t1) -> ParticleGrid
+#   t1: datetime64 (scalar or array)
+#   stores t0 (from seed) and T = t1 - seed.t0  (signed timedelta64)
 ```
 
 `ftle()` reads `t0`/`T` off the coordinates and divides by `|T|`. Converting `T`
@@ -76,6 +98,8 @@ calendars, cftime where needed).
 
 ## Out of scope
 
-- Evaluating or storing the flow map at an absolute `t1`.
+- Storing `t1` on the grid, or evaluating the flow map at an absolute `t1` as a
+  diagnostic (`t1` enters only as the ingest timestamp from which `T` is
+  derived).
 - Full intermediate-time trajectories (only the interval endpoints matter for
   pointwise FTLE); an `FTLE`-vs-window sweep is just multiple `T` values.

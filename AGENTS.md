@@ -32,13 +32,30 @@ feedback and are binding unless a task explicitly overrides them.
 ## Design & architecture
 
 - **Prefer explicit classes over runtime introspection.** Model distinct
-  concepts as distinct types. Don't branch on `"di" in ds.dims` or similar
-  sniffing to decide behavior.
+  concepts as distinct types. Don't branch on `"displacement" in ds.dims` or
+  similar sniffing to decide behavior.
 - **Keep external dependencies at the boundary.** This package contains no
   Parcels code. Provide objects that *emit* particle sets
   (`.to_parcels_pset()`) and factory methods that *ingest* results
   (`from_parcels_pset_lon_lat(...)`). The package neither imports nor drives
-  Parcels; the particle set decides integration time `T` (including sign).
+  Parcels; the seed grid owns its release time `t0`, and ingest takes the end
+  time `t1` and derives the signed window `T = t1 - t0` (so direction is
+  `sign(T)`).
 - **Avoid over-engineering.** Favor a small, concrete API — a few well-named
   methods — over layered adapters and indirection. Add structure when a concrete
   need appears, not before.
+
+## Process & change discipline
+
+- **Follow through on findings; don't triage.** At this scaffolding/design stage
+  the contract is small and unimplemented, so fixing everything now is cheap and
+  fixing it later is expensive. When you act on review feedback, resolve *all* of
+  it and propagate each change through every file it touches — code, tests,
+  plans, and docs — leaving nothing half-migrated. Prioritizing or deferring
+  issues ("let's do the important ones first") is an antipattern here.
+- **Greenfield: the user is the developer; no backward compatibility.** This is a
+  specialized research tool whose users are (to ~100%) its developers; there is
+  no external user base and no compatibility contract. Change signatures, data
+  layouts, dim names, and file formats freely when the design improves. Do not
+  add deprecation shims, compatibility aliases, migration code, or "legacy"
+  branches — delete the old form outright and update all call sites.

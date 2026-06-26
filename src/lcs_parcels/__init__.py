@@ -10,7 +10,6 @@ Parcels code: it only emits particle sets and ingests their advected positions.
 from __future__ import annotations
 
 from lcs_parcels.grids import (
-    EARTH_RADIUS_M,
     AuxiliaryGrid,
     NeighborGrid,
     ParticleGrid,
@@ -18,8 +17,10 @@ from lcs_parcels.grids import (
 
 __version__ = "0.1.0"
 
+# EARTH_RADIUS_M is an internal constant of the local-tangent meters metric; it
+# stays reachable as lcs_parcels.grids.EARTH_RADIUS_M but is not part of the
+# public surface.
 __all__ = [
-    "EARTH_RADIUS_M",
     "AuxiliaryGrid",
     "NeighborGrid",
     "ParticleGrid",
