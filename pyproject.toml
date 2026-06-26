@@ -30,3 +30,4 @@ lcs_parcels = { path = ".", editable = true }
 pytest = ">=9.0.3,<10"
 numpy = "*"
 xarray = "*"
+ipython = ">=9.14.1,<10"

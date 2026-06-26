@@ -288,16 +288,33 @@ class NeighborGrid(ParticleGrid):
 
         See :meth:`ParticleGrid.from_axes`.
         """
-        raise NotImplementedError("from_axes is not implemented (scaffolding only).")
+        lat_grid, lon_grid = np.meshgrid(lat, lon)
+        ds = xr.Dataset(
+            data_vars={
+                # TODO: Convention: name time evolved locations with upper case
+                # TODO: Let's reconsider notation and API specifics based on this draft implementation
+                "LON": (("i", "j"), lon_grid),
+                "LAT": (("i", "j"), lat_grid),
+            },
+            coords={
+                "i": np.arange(len(lon)),
+                "j": np.arange(len(lat)),
+                # TODO: Convention: name reference locations with lower case
+                # TODO: Let's reconsider notation and API specifics based on this draft implementation
+                "lon": (("i", "j"), lon_grid),
+                "lat": (("i", "j"), lat_grid),
+                "t0": np.datetime64(t0),
+                "t1": np.datetime64(t0),
+            }
+        )
+        return cls(ds)
 
     def to_parcels_pset(self) -> tuple[list[float], list[float]]:
         """Flatten seed positions over ``('i', 'j')``.
 
         See :meth:`ParticleGrid.to_parcels_pset`.
         """
-        raise NotImplementedError(
-            "to_parcels_pset is not implemented (scaffolding only)."
-        )
+        return list(self.ds.stack(particle=["i", "j"]).lon.data), list(self.ds.stack(particle=["i", "j"]).lat.data)
 
     @classmethod
     def from_parcels_pset_lon_lat(
@@ -312,9 +329,19 @@ class NeighborGrid(ParticleGrid):
 
         See :meth:`ParticleGrid.from_parcels_pset_lon_lat`.
         """
-        raise NotImplementedError(
-            "from_parcels_pset_lon_lat is not implemented (scaffolding only)."
+        ds_stacked = seed.ds.copy().stack(particle=["i", "j"])
+
+        lon_stacked = xr.zeros_like(ds_stacked.coords["lon"]) + lon
+        lat_stacked = xr.zeros_like(ds_stacked.coords["lat"]) + lat
+
+        ds_stacked = ds_stacked.assign(
+            LON=lon_stacked,
+            LAT=lat_stacked,
+        ).assign_coords(
+            t1=t1,
         )
+        ds = ds_stacked.unstack("particle")
+        return cls(ds)
 
     def deformation_gradient(self) -> xr.DataArray:
         """grad F differenced against neighbouring grid points ``(i +/- 1, j +/- 1)``.
