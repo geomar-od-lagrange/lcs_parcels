@@ -1,7 +1,6 @@
 """Emit / ingest round-trip: to_parcels_pset <-> from_parcels_pset_lon_lat."""
 
 import numpy as np
-import xarray as xr
 
 from lcs_parcels import AuxiliaryGrid, NeighborGrid
 
@@ -32,19 +31,25 @@ def test_auxiliary_pset_length(lon_axis, lat_axis):
 
 
 def test_neighbor_roundtrip_identity(lon_axis, lat_axis):
-    # TODO: I've changed this roundtrip to t1 = t0 as we're only interested in ensuring that grid - pset - grid roundtrips accurately. time evlution is out of scope for this test.
     seed = NeighborGrid.from_axes(lon_axis, lat_axis, t0=T0)
     lon, lat = seed.to_parcels_pset()
 
     # Reattach the SAME positions: ingest must reproduce the seed grid exactly.
-    advected = NeighborGrid.from_parcels_pset_lon_lat(seed, lon, lat, t1=T0)
+    # This pins the lossless stack -> unstack inverse; the positions are the
+    # identity flow map regardless of t1, so a non-zero window still exercises T.
+    advected = NeighborGrid.from_parcels_pset_lon_lat(seed, lon, lat, t1=T1)
 
-    # ensure lon coords are identical
-    xr.testing.assert_allclose(advected.ds["LON"], seed.ds["LON"])
-    xr.testing.assert_allclose(advected.ds["LAT"], seed.ds["LAT"])
+    # Advected positions land in lon/lat; with identity input they equal the
+    # reference seed positions lon_0/lat_0, which are carried through unchanged.
+    # (compare values; the seed and advected grids differ only in the T coord.)
+    assert np.allclose(advected.ds["lon"], seed.ds["lon_0"])
+    assert np.allclose(advected.ds["lat"], seed.ds["lat_0"])
+    assert np.allclose(advected.ds["lon_0"], seed.ds["lon_0"])
+    assert np.allclose(advected.ds["lat_0"], seed.ds["lat_0"])
 
-    # ensure t0 is correctly inherited
-    assert advected.ds["t0"] == seed.ds["t0"]
+    # t0 carried from the seed; signed window T = t1 - t0 derived and stored.
+    assert advected.ds["t0"] == T0
+    assert advected.ds["T"] == (T1 - T0)
 
 
 def test_auxiliary_roundtrip_identity(lon_axis, lat_axis):

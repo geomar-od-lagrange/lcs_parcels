@@ -60,8 +60,10 @@ classDiagram
     }
 
     class xrDataset["xr.Dataset"] {
-        +lon(i, j)
-        +lat(i, j)
+        +lon_0(i, j)  : reference x_0 (coord)
+        +lat_0(i, j)  : reference x_0 (coord)
+        +lon(i, j)  : advected F(x_0)
+        +lat(i, j)  : advected F(x_0)
         +t0  : datetime64
         +T   : timedelta64 (signed)
     }
@@ -95,7 +97,7 @@ that this package does not drive.
 ```mermaid
 flowchart TD
     axes["1-D lon/lat axes"]
-    seed["seed : NeighborGrid<br/>.ds: lon(i,j), lat(i,j)"]
+    seed["seed : NeighborGrid<br/>.ds: lon/lat = lon_0/lat_0 (identity), T=0"]
     pset["flat particle set<br/>(lon0, lat0)"]
 
     subgraph parcels ["Parcels (external, not driven by this package)"]
@@ -103,7 +105,7 @@ flowchart TD
         out["advected (lon1, lat1)<br/>flat order preserved"]
     end
 
-    grid["advected : NeighborGrid<br/>.ds: advected lon/lat on (i,j)<br/>coords t0, signed T"]
+    grid["advected : NeighborGrid<br/>.ds: lon_0/lat_0 (ref) + lon/lat (advected) on (i,j)<br/>coords t0, signed T"]
     gradF["grad F<br/>(i,j,row,col)"]
     C["C = (grad F)^T grad F<br/>(i,j,row,col)"]
     eig["lambda, xi<br/>(ascending lambda, orthonormal xi)"]

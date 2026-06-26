@@ -91,11 +91,17 @@ ParticleGrid (ABC, composition wrapper around .ds)
 > separation, integration window in days.
 
 ### Common state (base `ParticleGrid`)
-- `.ds`: `xr.Dataset` with logical dims `i, j` and data vars `lon(i, j)`,
-  `lat(i, j)` (2D lon/lat, so curvilinear/non-rectangular grids work). These are
-  the $x_0$ on which diagnostics are defined.
+- `.ds`: `xr.Dataset` with logical dims `i, j` carrying two position pairs (2D
+  lon/lat, so curvilinear/non-rectangular grids work):
+  - reference coordinates `lon_0(i, j)`, `lat_0(i, j)` — the $x_0$ on which
+    diagnostics are defined;
+  - advected data variables `lon(i, j)`, `lat(i, j)` — the flow map
+    $F_{t_0}^{t_1}(x_0)$ (the particle's actual position, as in Parcels).
+    `from_axes` seeds them equal to the reference (the identity
+    $F_{t_0}^{t_0}(x_0) = x_0$); ingest overwrites only these.
 - Release time `t0` (`datetime64`), recorded at seeding so the grid owns its own
-  `t0`; see [`plans/timing-design.md`](timing-design.md).
+  `t0`, and the signed window `T` (`timedelta64`, zero on a seed); see
+  [`plans/timing-design.md`](timing-design.md).
 - Resolution metadata (`dlon`, `dlat`) as coords/attrs.
 
 ### `NeighborGrid`
@@ -114,13 +120,15 @@ ParticleGrid (ABC, composition wrapper around .ds)
 
 Kept deliberately minimal:
 
-- `to_parcels_pset() -> tuple[list, list]` — flatten to plain `(lon, lat)` lists
-  for Parcels. Internally `.stack(particle=('i','j'))` or
-  `(...,'displacement')`; the `particle` MultiIndex is the lossless inverse.
+- `to_parcels_pset() -> tuple[list, list]` — flatten the **reference** positions
+  $x_0$ (`lon_0`, `lat_0`) to plain lists for Parcels. Internally
+  `.stack(particle=('i','j'))` or `(...,'displacement')`; the `particle`
+  MultiIndex is the lossless inverse.
 - `from_parcels_pset_lon_lat(seed, lon, lat, *, t1) -> ParticleGrid` — factory
-  that reattaches advected positions to the `particle` coord, `.unstack()`s back
-  to the grid, and records `t0` (from the seed) and the derived signed window
-  `T = t1 - t0` (`timedelta64`, needed for FTLE). Only the end time `t1`
+  that reattaches advected positions to the `particle` coord as the flow map
+  `lon`/`lat` (leaving the reference `lon_0`/`lat_0` untouched), `.unstack()`s
+  back to the grid, and records `t0` (from the seed) and the derived signed
+  window `T = t1 - t0` (`timedelta64`, needed for FTLE). Only the end time `t1`
   (`datetime64`) is passed; the seed owns `t0`. See
   [`plans/timing-design.md`](timing-design.md).
 

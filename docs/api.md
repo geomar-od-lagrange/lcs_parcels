@@ -3,8 +3,9 @@
 - Data Structures:
   - particle grid
     - particle grid
-      - xr dataset w/ i j dims and lon(i,j) and lat(i,j) data vars
-      - these are the locations on which FTLE etc. will be defined
+      - xr dataset w/ i j dims
+      - reference coords lon_0(i,j), lat_0(i,j) = x_0 (where FTLE etc. is defined)
+      - advected data vars lon(i,j), lat(i,j) = F(x_0)
       - resolution dlon, dlat
     - optional: auxiliary displacement stencil
       - single displacement dim = [east, north, west, south]

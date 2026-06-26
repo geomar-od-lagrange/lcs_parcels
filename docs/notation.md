@@ -12,8 +12,8 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 | Symbol | Meaning | Haller Eq. | Code name |
 |---|---|---|---|
 | $v(x, t)$ | velocity field, with position $x = (x^1, x^2)$ in 2D | 2 | (input, external) |
-| $x_0$ | initial particle position at release time $t_0$; the grid point on which diagnostics are defined | 3 | `lon(i, j)`, `lat(i, j)` |
-| $F_{t_0}^{t}(x_0) = x(t; t_0, x_0)$ | flow **map**: initial position $\to$ position at time $t$ | 3 | `flow_map`, `F` |
+| $x_0$ | initial (reference) particle position at release time $t_0$; the grid point on which diagnostics are defined | 3 | `lon_0(i, j)`, `lat_0(i, j)` |
+| $F_{t_0}^{t}(x_0) = x(t; t_0, x_0)$ | flow **map**: initial position $\to$ position at time $t$; stored as the advected positions $x(t_1)$ | 3 | `lon(i, j)`, `lat(i, j)` |
 | $\nabla F_{t_0}^{t_1}(x_0)$ | deformation gradient (the **gradient** of the flow map; $2\times 2$ in 2D) | 4, 9 | `deformation_gradient`, `gradF` |
 | $C(x_0) = \left(\nabla F_{t_0}^{t_1}\right)^\top \nabla F_{t_0}^{t_1}$ | right Cauchy–Green strain tensor ($2\times 2$, symmetric positive-definite) | 6 | `cauchy_green`, `C` |
 | $C\,\xi_i = \lambda_i\,\xi_i,\ \ 0 < \lambda_1 \le \lambda_2,\ \ \xi_1 \perp \xi_2$ | eigen-decomposition of $C$ | 7 | `cg_eigen` |
@@ -34,8 +34,12 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 These are two distinct objects and the code keeps the names apart:
 
 - $F_{t_0}^{t}(x_0)$ (Eq. 3) is the flow **map** itself — a 2-component vector
-  field giving the final position of a particle released at $x_0$. Code name:
-  `flow_map` / `F`.
+  field giving the final position of a particle released at $x_0$. Its components
+  are stored as the advected positions `lon` / `lat` (data variables; the
+  particle's actual position, as in Parcels), alongside the reference positions
+  $x_0$ = `lon_0` / `lat_0` (coordinates); a seed grid sets them equal
+  ($F_{t_0}^{t_0}(x_0) = x_0$). The symbol `F` / `flow_map` denotes the map as a
+  whole (reserved to contrast with the gradient `gradF`).
 - $\nabla F_{t_0}^{t_1}(x_0)$ (Eq. 4) is the **gradient** of that map — a
   $2\times 2$ matrix at each $x_0$. Code name: `deformation_gradient` / `gradF`.
 
@@ -122,7 +126,8 @@ dimensions, not as scalar variables (`F11, F12, …`):
 
 | Object | Code name | Dims | Component coords |
 |---|---|---|---|
-| grid positions $x_0$ | `lon`, `lat` | `(i, j)` | — |
+| reference grid positions $x_0$ (coords) | `lon_0`, `lat_0` | `(i, j)` | — |
+| advected flow map $F_{t_0}^{t_1}(x_0)$ (data vars) | `lon`, `lat` | `(i, j)` | — |
 | auxiliary-grid stencil | `dx`, `dy` | `(displacement,)` | `displacement = ['east','north','west','south']` |
 | deformation gradient $\nabla F$ | `gradF` | `(i, j, row, col)` | `comp = ['x', 'y']` |
 | Cauchy–Green $C$ | `C` | `(i, j, row, col)` | `comp = ['x', 'y']` |
@@ -133,10 +138,12 @@ dimensions, not as scalar variables (`F11, F12, …`):
 Logical grid dims are `i, j`. The `comp` coordinate labels vector/tensor
 components `['x', 'y']`; `row`/`col` index the two axes of a $2\times 2$ tensor;
 `eig` indexes the two eigenpairs. For `AuxiliaryGrid` the four-arm `displacement`
-dim rides on `(i, j)` (so the ingested arm positions are `lon(i, j, displacement)`,
-`lat(i, j, displacement)`); it is differenced away by `deformation_gradient`, so
-$\nabla F$ and everything downstream are back on `(i, j)`. Extra release-time /
-integration-time axes broadcast on top of these.
+dim rides on `(i, j)` (so the reference and advected arm positions are
+`lon_0(i, j, displacement)` / `lat_0(i, j, displacement)` and
+`lon(i, j, displacement)` / `lat(i, j, displacement)`); it is
+differenced away by `deformation_gradient`, so $\nabla F$ and everything
+downstream are back on `(i, j)`. Extra release-time / integration-time axes
+broadcast on top of these.
 
 Storing tensors with component dims keeps the eigen step compact. Note that
 xarray has no native eigendecomposition: it does not wrap `np.linalg`, so

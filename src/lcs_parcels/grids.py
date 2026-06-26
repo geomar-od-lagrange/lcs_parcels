@@ -21,6 +21,19 @@ by ``sign(T)`` (``t1 < t0`` → backward → attracting LCS; ``t1 > t0`` → for
 repelling LCS); there is no separate flag and ``t1`` itself is not stored. See
 ``plans/timing-design.md``.
 
+Position convention
+-------------------
+Every grid carries two position pairs on ``('i', 'j')``: the *reference* initial
+positions ``lon_0``/``lat_0`` (the initial conditions ``x_0``, held as
+coordinates) and the *advected* positions ``lon``/``lat`` (the flow map
+``F_{t0}^{t1}(x_0)``, i.e. where the particle actually is, held as data
+variables). ``from_axes`` seeds both equal -- the identity
+``F_{t0}^{t0}(x_0) = x_0`` -- and ``from_parcels_pset_lon_lat`` overwrites only
+the advected ``lon``/``lat`` with the ingested Parcels output. The deformation
+gradient is then ``grad F = d(lon, lat) / d(lon_0, lat_0)`` -- advected
+separations (numerator) over reference separations (denominator) -- so both pairs
+must live on the same grid.
+
 Sphere metric convention
 ------------------------
 Haller's math is Cartesian; our grids are lon/lat. Separations are formed in a
@@ -50,10 +63,13 @@ class ParticleGrid(abc.ABC):
 
     The wrapped dataset is held in :attr:`ds` (this class does *not* subclass
     ``xr.Dataset``, which xarray discourages). The dataset has logical grid
-    dimensions ``i, j`` and data variables ``lon(i, j)`` and ``lat(i, j)``
-    (degrees). Two-dimensional lon/lat support curvilinear / non-rectangular
-    grids. These positions are the initial conditions ``x_0`` on which all
-    diagnostics are defined.
+    dimensions ``i, j``; the reference initial positions ``lon_0(i, j)`` and
+    ``lat_0(i, j)`` (degrees) are coordinates, and the advected positions
+    ``lon(i, j)`` and ``lat(i, j)`` are data variables. Two-dimensional lon/lat
+    support curvilinear / non-rectangular grids. The reference positions are the
+    initial conditions ``x_0`` on which all diagnostics are defined; the advected
+    positions are the flow map ``F_{t0}^{t1}(x_0)`` (see the module-level
+    *Position convention*).
 
     Concrete subclasses differ only in how the deformation gradient grad F is
     finite-differenced (see :class:`NeighborGrid` and :class:`AuxiliaryGrid`).
@@ -64,10 +80,11 @@ class ParticleGrid(abc.ABC):
     Attributes
     ----------
     ds : xr.Dataset
-        Seed positions, the release time ``t0`` (recorded at seeding), and any
-        per-class auxiliary state. After ingesting advected positions, also
-        carries the signed integration window ``T = t1 - t0`` (``timedelta64``,
-        derived from the ingest end time ``t1``) needed for the FTLE.
+        Reference initial positions ``lon_0``/``lat_0`` (``x_0``), advected
+        positions ``lon``/``lat`` (``F(x_0)``), the release time ``t0``
+        (recorded at seeding), the signed integration window ``T = t1 - t0``
+        (``timedelta64``; zero on a seed, derived from the ingest end time ``t1``
+        and needed for the FTLE), and any per-class auxiliary state.
     """
 
     def __init__(self, ds: xr.Dataset) -> None:
@@ -76,9 +93,11 @@ class ParticleGrid(abc.ABC):
         Parameters
         ----------
         ds : xr.Dataset
-            Dataset with dims ``i, j`` and variables ``lon(i, j)``,
-            ``lat(i, j)`` in degrees, plus the release time ``t0``. Subclasses
-            may require additional variables/dimensions (see their docstrings).
+            Dataset with dims ``i, j``, reference coordinates ``lon_0(i, j)``,
+            ``lat_0(i, j)`` and advected data variables ``lon(i, j)``,
+            ``lat(i, j)`` (degrees), plus the release time ``t0`` and signed
+            window ``T``. Subclasses may require additional variables/dimensions
+            (see their docstrings).
         """
         self.ds = ds
 
@@ -87,11 +106,14 @@ class ParticleGrid(abc.ABC):
     def from_axes(cls, lon: np.ndarray, lat: np.ndarray, *, t0: np.datetime64) -> Self:
         """Build a seed grid from 1-D lon/lat axes, released at ``t0``.
 
-        The 1-D axes are broadcast into curvilinear 2-D fields ``lon(i, j)`` and
-        ``lat(i, j)`` (degrees), so that downstream code never special-cases
-        rectangular grids. The release time ``t0`` is recorded on ``.ds`` so the
-        grid *owns* its own ``t0``; ingest then needs only the end time ``t1``
-        (see :meth:`from_parcels_pset_lon_lat` and ``plans/timing-design.md``).
+        The 1-D axes are broadcast into curvilinear 2-D reference fields
+        ``lon_0(i, j)`` and ``lat_0(i, j)`` (degrees), so that downstream code
+        never special-cases rectangular grids. The advected ``lon``/``lat`` are
+        seeded equal to the reference (the identity flow map
+        ``F_{t0}^{t0}(x_0) = x_0``) and the signed window ``T`` is zero until
+        ingest. The release time ``t0`` is recorded on ``.ds`` so the grid
+        *owns* its own ``t0``; ingest then needs only the end time ``t1`` (see
+        :meth:`from_parcels_pset_lon_lat` and ``plans/timing-design.md``).
 
         Parameters
         ----------
@@ -106,20 +128,23 @@ class ParticleGrid(abc.ABC):
         Returns
         -------
         Self
-            A grid whose ``.ds`` has ``lon`` and ``lat`` with dims ``(i, j)`` and
-            shape ``(Ni, Nj)`` and records ``t0``.
+            A grid whose ``.ds`` has reference ``lon_0``/``lat_0`` and advected
+            ``lon``/``lat`` with dims ``(i, j)`` and shape ``(Ni, Nj)``, and
+            records ``t0`` and ``T = 0``.
         """
         raise NotImplementedError("from_axes is not implemented (scaffolding only).")
 
     @abc.abstractmethod
     def to_parcels_pset(self) -> tuple[list[float], list[float]]:
-        """Flatten seed positions to plain ``(lon, lat)`` lists for Parcels.
+        """Flatten the reference seed positions ``x_0`` to plain ``(lon, lat)``
+        lists for Parcels.
 
-        Stacks the grid over the particle dimension(s) into a single
-        ``particle`` index (``.stack(particle=('i', 'j'))`` for
-        :class:`NeighborGrid`, additionally over ``('displacement',)`` for
-        :class:`AuxiliaryGrid`) and returns plain Python lists. The ``particle``
-        MultiIndex is the lossless inverse used by
+        Emits the *reference* positions ``lon_0``/``lat_0`` (where particles are
+        released), not the advected positions. Stacks the grid over the particle
+        dimension(s) into a single ``particle`` index
+        (``.stack(particle=('i', 'j'))`` for :class:`NeighborGrid`, additionally
+        over ``('displacement',)`` for :class:`AuxiliaryGrid`) and returns plain
+        Python lists. The ``particle`` MultiIndex is the lossless inverse used by
         :meth:`from_parcels_pset_lon_lat` to reattach advected positions.
 
         Returns
@@ -144,8 +169,10 @@ class ParticleGrid(abc.ABC):
         """Reattach advected flat lon/lat onto a seed grid and record ``t0``, ``T``.
 
         Inverse of :meth:`to_parcels_pset`: the flat advected positions are
-        attached to the ``particle`` MultiIndex of ``seed`` and unstacked back to
-        the grid dims. Lost particles arrive as NaN and propagate naturally.
+        attached to the ``particle`` MultiIndex of ``seed`` as the advected
+        ``lon``/``lat`` and unstacked back to the grid dims; the reference
+        ``lon_0``/``lat_0`` carried from ``seed`` are left untouched.
+        Lost particles arrive as NaN and propagate naturally.
         Multiple release times ``t0`` and integration windows ``T`` are just
         extra broadcast dimensions handled by xarray. See
         ``plans/timing-design.md``.
@@ -175,8 +202,9 @@ class ParticleGrid(abc.ABC):
         Returns
         -------
         Self
-            A grid whose ``.ds`` holds the advected positions on the original
-            grid and records ``t0`` and the derived signed ``T`` as coordinates.
+            A grid whose ``.ds`` holds the advected positions as ``lon``/``lat``
+            on the original grid and records ``t0`` and the derived signed ``T``
+            as coordinates.
         """
         raise NotImplementedError(
             "from_parcels_pset_lon_lat is not implemented (scaffolding only)."
@@ -186,17 +214,18 @@ class ParticleGrid(abc.ABC):
     def deformation_gradient(self) -> xr.DataArray:
         """Deformation gradient grad F of the flow map. Haller (2015) Eq. 9.
 
-        The 2x2 tensor ``grad F = d x(t1) / d x_0`` per grid point, estimated by
-        finite differences as ``(advected separation) / (initial separation)``:
+        The 2x2 tensor ``grad F = d(lon, lat) / d(lon_0, lat_0)`` per grid point,
+        estimated by finite differences as
+        ``(advected separation) / (initial separation)``:
 
-        - **denominator** — the *initial* separation between stencil points, a
-          controlled quantity taken in the local-tangent meters frame
-          (``dx = R cos(phi) dlambda``, ``dy = R dphi``; ``lambda`` = longitude,
-          ``phi`` = latitude);
+        - **denominator** — the *initial* separation of the reference
+          ``lon_0``/``lat_0`` between stencil points, a controlled quantity taken
+          in the local-tangent meters frame (``dx = R cos(phi) dlambda``,
+          ``dy = R dphi``; ``lambda`` = longitude, ``phi`` = latitude);
         - **numerator** — the corresponding separation of the *advected*
-          positions, measured from the ingested Parcels outputs (converted to
+          positions ``lon``/``lat`` (the ingested Parcels outputs, converted to
           meters with the same metric). It is **not** recomputed analytically
-          from ``R`` and ``phi``; only the advected lon/lat carry the flow-map
+          from ``R`` and ``phi``; only the advected positions carry the flow-map
           information.
 
         Subclasses define the stencil: neighboring grid points
@@ -288,33 +317,40 @@ class NeighborGrid(ParticleGrid):
 
         See :meth:`ParticleGrid.from_axes`.
         """
-        lat_grid, lon_grid = np.meshgrid(lat, lon)
+        # Broadcast the 1-D axes into curvilinear 2-D fields on (i, j) with the
+        # high-level API; lon varies along i, lat along j.
+        lon_axis = xr.DataArray(np.asarray(lon, dtype=float), dims="i")
+        lat_axis = xr.DataArray(np.asarray(lat, dtype=float), dims="j")
+        lon2d, lat2d = xr.broadcast(lon_axis, lat_axis)
+
+        t0 = np.datetime64(t0)
         ds = xr.Dataset(
             data_vars={
-                # TODO: Convention: name time evolved locations with upper case
-                # TODO: Let's reconsider notation and API specifics based on this draft implementation
-                "LON": (("i", "j"), lon_grid),
-                "LAT": (("i", "j"), lat_grid),
+                # Advected positions F(x_0). At seeding the flow map is the
+                # identity F_{t0}^{t0}(x_0) = x_0, so they equal the reference.
+                "lon": lon2d,
+                "lat": lat2d,
             },
             coords={
-                "i": np.arange(len(lon)),
-                "j": np.arange(len(lat)),
-                # TODO: Convention: name reference locations with lower case
-                # TODO: Let's reconsider notation and API specifics based on this draft implementation
-                "lon": (("i", "j"), lon_grid),
-                "lat": (("i", "j"), lat_grid),
-                "t0": np.datetime64(t0),
-                "t1": np.datetime64(t0),
-            }
+                "i": np.arange(lon_axis.sizes["i"]),
+                "j": np.arange(lat_axis.sizes["j"]),
+                # Reference initial positions x_0; the grid diagnostics live on.
+                "lon_0": lon2d,
+                "lat_0": lat2d,
+                "t0": t0,
+                # Signed integration window; zero for the un-advected seed.
+                "T": t0 - t0,
+            },
         )
         return cls(ds)
 
     def to_parcels_pset(self) -> tuple[list[float], list[float]]:
-        """Flatten seed positions over ``('i', 'j')``.
+        """Flatten the reference seed positions over ``('i', 'j')``.
 
         See :meth:`ParticleGrid.to_parcels_pset`.
         """
-        return list(self.ds.stack(particle=["i", "j"]).lon.data), list(self.ds.stack(particle=["i", "j"]).lat.data)
+        stacked = self.ds.stack(particle=("i", "j"))
+        return list(stacked["lon_0"].values), list(stacked["lat_0"].values)
 
     @classmethod
     def from_parcels_pset_lon_lat(
@@ -329,19 +365,18 @@ class NeighborGrid(ParticleGrid):
 
         See :meth:`ParticleGrid.from_parcels_pset_lon_lat`.
         """
-        ds_stacked = seed.ds.copy().stack(particle=["i", "j"])
-
-        lon_stacked = xr.zeros_like(ds_stacked.coords["lon"]) + lon
-        lat_stacked = xr.zeros_like(ds_stacked.coords["lat"]) + lat
-
-        ds_stacked = ds_stacked.assign(
-            LON=lon_stacked,
-            LAT=lat_stacked,
-        ).assign_coords(
-            t1=t1,
+        # Reattach the flat advected positions to the seed's particle index as
+        # the flow map F(x_0), leaving the reference positions x_0 untouched.
+        ds = (
+            seed.ds.stack(particle=("i", "j"))
+            .assign(
+                lon=("particle", np.asarray(lon, dtype=float)),
+                lat=("particle", np.asarray(lat, dtype=float)),
+            )
+            .unstack("particle")
         )
-        ds = ds_stacked.unstack("particle")
-        return cls(ds)
+        # Seed owns t0; derive and store the signed window T = t1 - t0.
+        return cls(ds.assign_coords(T=np.datetime64(t1) - seed.ds["t0"]))
 
     def deformation_gradient(self) -> xr.DataArray:
         """grad F differenced against neighbouring grid points ``(i +/- 1, j +/- 1)``.
