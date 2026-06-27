@@ -17,8 +17,8 @@ Timing convention
 A seed grid *owns* its release time ``t0`` (recorded by ``from_axes``). Ingest
 (``from_parcels_pset_lon_lat``) is given only the end time ``t1``; the signed
 integration window ``T = t1 - t0`` is derived and stored. Direction is implied
-by ``sign(T)`` (``t1 < t0`` → backward → attracting LCS; ``t1 > t0`` → forward →
-repelling LCS); there is no separate flag and ``t1`` itself is not stored. See
+by ``sign(T)`` (``t1 < t0`` -> backward -> attracting LCS; ``t1 > t0`` -> forward
+-> repelling LCS); there is no separate flag and ``t1`` itself is not stored. See
 ``plans/timing-design.md``.
 
 Position convention
@@ -32,18 +32,32 @@ variables). ``from_axes`` seeds both equal -- the identity
 the advected ``lon``/``lat`` with the ingested Parcels output. The deformation
 gradient is then ``grad F = d(lon, lat) / d(lon_0, lat_0)`` -- advected
 separations (numerator) over reference separations (denominator) -- so both pairs
-must live on the same grid.
+must share the same dims. ``lon_0``/``lat_0`` are the *release* positions (what
+:meth:`to_parcels_pset` emits); for :class:`NeighborGrid` the release point is the
+grid point itself, so ``lon_0``/``lat_0`` are on ``('i', 'j')``. For
+:class:`AuxiliaryGrid` the release points are the four stencil arms, so
+``lon_0``/``lat_0`` and the advected ``lon``/``lat`` all carry the extra
+``displacement`` dim, i.e. ``('i', 'j', 'displacement')``, and the grid-point
+*centres* on which the diagnostics are reported are kept explicitly as a separate
+pair ``lon_c``/``lat_c`` on ``('i', 'j')``; see its docstring.
 
 Sphere metric convention
 ------------------------
 Haller's math is Cartesian; our grids are lon/lat. Separations are formed in a
-local tangent frame in meters, using ``dx = R cos(phi) dlambda`` and
-``dy = R dphi`` where ``R`` is the Earth radius, ``lambda`` is longitude and
-``phi`` is latitude (both radians). In the tiny-separation regime a flat-tangent
-``cos(phi)`` approximation is adequate. This metric only converts lon/lat
-separations to meters; the *advected* separations that form the numerator of
-grad F are measured from the ingested Parcels output positions, not recomputed
-analytically from ``R`` and ``phi``.
+*single* local tangent frame in meters, anchored at the grid centroid -- the one
+reference longitude/latitude ``lon_ref = lon_0.mean()``,
+``lat_ref = lat_0.mean()``. With ``R`` the Earth radius and ``deg = pi / 180``,
+positions convert as ``X = R cos(phi_ref) (lambda - lambda_ref) deg`` and
+``Y = R (phi - phi_ref) deg`` (``lambda`` longitude, ``phi`` latitude). The
+cosine factor uses that one grid reference latitude ``phi_ref`` for every point,
+*not* a per-point ``cos(phi)``: a single shared frame is what makes the
+off-diagonal deformation-gradient terms exact -- a per-point cosine would corrupt
+them by a cosine ratio -- and in the tiny-separation regime the flat-tangent
+approximation is adequate (a convention, not a correctness blocker). This metric
+only converts lon/lat separations to meters; the *advected* separations that form
+the numerator of grad F are measured from the ingested Parcels output positions,
+not recomputed analytically from ``R`` and ``phi``. Both subclasses share the
+identical metric code (:meth:`ParticleGrid._to_meters`).
 """
 
 from __future__ import annotations
@@ -57,19 +71,70 @@ import xarray as xr
 EARTH_RADIUS_M = 6_371_000.0
 """Mean Earth radius in meters, used for the local-tangent meters convention."""
 
+_DEG = np.pi / 180.0
+"""Degrees-to-radians factor for the local-tangent meters convention."""
+
+
+def _lonlat_to_meters(lon, lat, lon_ref: float, lat_ref: float):
+    """Project lon/lat (degrees) into the local-tangent meters frame.
+
+    Uses a *single* grid reference latitude ``lat_ref`` for the cosine factor
+    (``X = R cos(phi_ref) (lambda - lambda_ref) deg``, ``Y = R (phi - phi_ref) deg``),
+    so the whole grid shares one frame; see the module-level *Sphere metric
+    convention*. Works on plain arrays or label-based xarray objects (the
+    arithmetic is broadcasting only).
+    """
+    c = np.cos(lat_ref * _DEG)
+    x = EARTH_RADIUS_M * c * (lon - lon_ref) * _DEG
+    y = EARTH_RADIUS_M * (lat - lat_ref) * _DEG
+    return x, y
+
+
+def _meters_to_lonlat(x, y, lon_ref: float, lat_ref: float):
+    """Inverse of :func:`_lonlat_to_meters`, sharing the one reference latitude."""
+    c = np.cos(lat_ref * _DEG)
+    lon = lon_ref + x / (EARTH_RADIUS_M * c * _DEG)
+    lat = lat_ref + y / (EARTH_RADIUS_M * _DEG)
+    return lon, lat
+
+
+def _assemble_tensor(
+    fxx: xr.DataArray,
+    fxy: xr.DataArray,
+    fyx: xr.DataArray,
+    fyy: xr.DataArray,
+) -> xr.DataArray:
+    """Pack four scalar ``(i, j)`` component fields into a ``(row, col)`` tensor.
+
+    ``row`` and ``col`` become dimension coordinates valued ``['x', 'y']`` with
+    ``tensor.sel(row=a, col=b)`` holding the ``(a, b)`` component, e.g.
+    ``gradF.sel(row='y', col='x') = dF_y / dx0_x``. The component fields are
+    renamed to a common name so :func:`xarray.concat` does not drop one.
+    """
+    fxx, fxy = fxx.rename("tensor"), fxy.rename("tensor")
+    fyx, fyy = fyx.rename("tensor"), fyy.rename("tensor")
+    row_x = xr.concat([fxx, fxy], dim="col")
+    row_y = xr.concat([fyx, fyy], dim="col")
+    tensor = xr.concat([row_x, row_y], dim="row")
+    return tensor.assign_coords(row=["x", "y"], col=["x", "y"])
+
 
 class ParticleGrid(abc.ABC):
     """Composition wrapper around an ``xr.Dataset`` of seed positions.
 
     The wrapped dataset is held in :attr:`ds` (this class does *not* subclass
     ``xr.Dataset``, which xarray discourages). The dataset has logical grid
-    dimensions ``i, j``; the reference initial positions ``lon_0(i, j)`` and
-    ``lat_0(i, j)`` (degrees) are coordinates, and the advected positions
-    ``lon(i, j)`` and ``lat(i, j)`` are data variables. Two-dimensional lon/lat
-    support curvilinear / non-rectangular grids. The reference positions are the
-    initial conditions ``x_0`` on which all diagnostics are defined; the advected
-    positions are the flow map ``F_{t0}^{t1}(x_0)`` (see the module-level
-    *Position convention*).
+    dimensions ``i, j``; the reference initial (release) positions
+    ``lon_0``/``lat_0`` (degrees) are coordinates and the advected positions
+    ``lon``/``lat`` are data variables, both pairs sharing the same dims.
+    Two-dimensional lon/lat support curvilinear / non-rectangular grids. The
+    reference positions are the initial conditions ``x_0``; the advected positions
+    are the flow map ``F_{t0}^{t1}(x_0)``. For :class:`NeighborGrid` both pairs are
+    on ``(i, j)`` and the grid point is itself the diagnostic location; for
+    :class:`AuxiliaryGrid` both pairs carry an extra ``displacement`` dim (the
+    stencil arms) and the diagnostic *centres* ``lon_c``/``lat_c`` are kept on
+    ``(i, j)`` (see the module-level *Position convention* and the subclass
+    docstrings).
 
     Concrete subclasses differ only in how the deformation gradient grad F is
     finite-differenced (see :class:`NeighborGrid` and :class:`AuxiliaryGrid`).
@@ -100,6 +165,29 @@ class ParticleGrid(abc.ABC):
             (see their docstrings).
         """
         self.ds = ds
+
+    # --- shared local-tangent metric ---------------------------------------
+    #
+    # NeighborGrid and AuxiliaryGrid use these *identical* helpers so that both
+    # read positions in the one frame anchored at the grid centroid (see the
+    # module-level *Sphere metric convention*).
+
+    def _reference_lonlat(self) -> tuple[float, float]:
+        """The single grid reference point ``(lon_ref, lat_ref)`` = centroid means."""
+        return float(self.ds["lon_0"].mean()), float(self.ds["lat_0"].mean())
+
+    def _to_meters(self, lon: xr.DataArray, lat: xr.DataArray):
+        """Project ``lon``/``lat`` into the grid's single local-tangent meters frame."""
+        lon_ref, lat_ref = self._reference_lonlat()
+        return _lonlat_to_meters(lon, lat, lon_ref, lat_ref)
+
+    def _integration_seconds(self) -> float:
+        """``|T|`` in seconds from the stored signed window ``T`` (``timedelta64``).
+
+        Standard ``datetime64`` division suffices here; a calendar-aware
+        conversion would be needed for non-standard model calendars.
+        """
+        return float(np.abs(self.ds["T"] / np.timedelta64(1, "s")))
 
     @classmethod
     @abc.abstractmethod
@@ -132,7 +220,7 @@ class ParticleGrid(abc.ABC):
             ``lon``/``lat`` with dims ``(i, j)`` and shape ``(Ni, Nj)``, and
             records ``t0`` and ``T = 0``.
         """
-        raise NotImplementedError("from_axes is not implemented (scaffolding only).")
+        raise NotImplementedError("abstract method; implemented by subclasses.")
 
     @abc.abstractmethod
     def to_parcels_pset(self) -> tuple[list[float], list[float]]:
@@ -152,9 +240,7 @@ class ParticleGrid(abc.ABC):
         tuple[list[float], list[float]]
             ``(lon, lat)`` as flat lists of degrees, one entry per particle.
         """
-        raise NotImplementedError(
-            "to_parcels_pset is not implemented (scaffolding only)."
-        )
+        raise NotImplementedError("abstract method; implemented by subclasses.")
 
     @classmethod
     @abc.abstractmethod
@@ -195,8 +281,8 @@ class ParticleGrid(abc.ABC):
         t1 : np.datetime64
             End time of the integration (scalar, or array for an ensemble). The
             signed window ``T = t1 - seed.t0`` sets the integration direction
-            (``t1 < t0`` → backward → attracting LCS; ``t1 > t0`` → forward →
-            repelling LCS) and is recorded as a coordinate, used by
+            (``t1 < t0`` -> backward -> attracting LCS; ``t1 > t0`` -> forward
+            -> repelling LCS) and is recorded as a coordinate, used by
             :meth:`ftle`. ``t1`` itself is not stored.
 
         Returns
@@ -206,9 +292,7 @@ class ParticleGrid(abc.ABC):
             on the original grid and records ``t0`` and the derived signed ``T``
             as coordinates.
         """
-        raise NotImplementedError(
-            "from_parcels_pset_lon_lat is not implemented (scaffolding only)."
-        )
+        raise NotImplementedError("abstract method; implemented by subclasses.")
 
     @abc.abstractmethod
     def deformation_gradient(self) -> xr.DataArray:
@@ -220,8 +304,8 @@ class ParticleGrid(abc.ABC):
 
         - **denominator** — the *initial* separation of the reference
           ``lon_0``/``lat_0`` between stencil points, a controlled quantity taken
-          in the local-tangent meters frame (``dx = R cos(phi) dlambda``,
-          ``dy = R dphi``; ``lambda`` = longitude, ``phi`` = latitude);
+          in the shared single-reference-latitude meters frame
+          (:meth:`_to_meters`; one grid ``cos(phi_ref)``, not a per-point cosine);
         - **numerator** — the corresponding separation of the *advected*
           positions ``lon``/``lat`` (the ingested Parcels outputs, converted to
           meters with the same metric). It is **not** recomputed analytically
@@ -235,13 +319,13 @@ class ParticleGrid(abc.ABC):
         Returns
         -------
         xr.DataArray
-            grad F with dims ``(i, j, row, col)`` and a component coordinate
-            ``comp = ['x', 'y']`` labeling both ``row`` and ``col``
-            (dimensionless; meters / meters).
+            grad F with dims ``(i, j, row, col)``; ``row`` and ``col`` are
+            dimension coordinates valued ``['x', 'y']``, with
+            ``grad F.sel(row=a, col=b) = d F_a / d x0_b`` (dimensionless;
+            meters / meters). There is no separate ``comp`` coordinate on the
+            tensor (``comp`` labels the eigenvector component dim).
         """
-        raise NotImplementedError(
-            "deformation_gradient is not implemented (scaffolding only)."
-        )
+        raise NotImplementedError("abstract method; implemented by subclasses.")
 
     def cauchy_green(self) -> xr.DataArray:
         """Right Cauchy-Green strain tensor ``C = (grad F)^T grad F``.
@@ -252,12 +336,15 @@ class ParticleGrid(abc.ABC):
         Returns
         -------
         xr.DataArray
-            ``C`` with dims ``(i, j, row, col)`` and component coordinate
-            ``comp = ['x', 'y']`` (dimensionless).
+            ``C`` with dims ``(i, j, row, col)`` and ``row``/``col`` dimension
+            coordinates valued ``['x', 'y']`` (dimensionless).
         """
-        raise NotImplementedError(
-            "cauchy_green is not implemented (scaffolding only)."
-        )
+        gradF = self.deformation_gradient()
+        # C_{a,b} = sum_k gradF_{k,a} gradF_{k,b}: contract over the shared output
+        # index `row` by label, then relabel the two surviving `col` axes back to
+        # (row, col). Pure label-based arithmetic; no positional indexing.
+        C = xr.dot(gradF, gradF.rename(col="col_b"), dim="row")
+        return C.rename(col="row", col_b="col")
 
     def cg_eigen(self) -> xr.Dataset:
         """Eigen-decomposition of the Cauchy-Green tensor ``C``.
@@ -277,7 +364,20 @@ class ParticleGrid(abc.ABC):
             ``(i, j, comp, eig)`` (orthonormal eigenvectors, component coordinate
             ``comp = ['x', 'y']``).
         """
-        raise NotImplementedError("cg_eigen is not implemented (scaffolding only).")
+        C = self.cauchy_green()
+        # eigh works on the trailing two axes and returns ascending eigenvalues
+        # `w[..., k]` with eigenvector `v[..., :, k]`; apply_ufunc moves the
+        # (row, col) core dims last so the first output axis of `v` is the vector
+        # component and the second selects which eigenpair.
+        lam, vec = xr.apply_ufunc(
+            np.linalg.eigh,
+            C,
+            input_core_dims=[["row", "col"]],
+            output_core_dims=[["eig"], ["comp", "eig"]],
+        )
+        lam = lam.assign_coords(eig=[0, 1])
+        vec = vec.assign_coords(comp=["x", "y"], eig=[0, 1])
+        return xr.Dataset({"lambda": lam, "xi": vec})
 
     def ftle(self) -> xr.DataArray:
         """Finite-time Lyapunov exponent (FTLE). Haller (2015) Sec. 4.1.
@@ -293,7 +393,10 @@ class ParticleGrid(abc.ABC):
         xr.DataArray
             FTLE field with dims ``(i, j)`` in units of 1/second.
         """
-        raise NotImplementedError("ftle is not implemented (scaffolding only).")
+        lambda_max = self.cg_eigen()["lambda"].isel(eig=1)
+        t_sec = self._integration_seconds()
+        # (1 / |T|) log sqrt(lambda_max) = (1 / |T|) * 0.5 * log(lambda_max).
+        return (1.0 / t_sec) * 0.5 * np.log(lambda_max)
 
 
 class NeighborGrid(ParticleGrid):
@@ -383,29 +486,60 @@ class NeighborGrid(ParticleGrid):
 
         The numerator is the separation of the *advected* neighbour positions
         (from the ingested outputs); the denominator is the *initial* neighbour
-        separation in the local-tangent meters frame (``dx = R cos(phi) dlambda``,
-        ``dy = R dphi``). Boundary cells lacking a neighbour yield NaN. See
-        :meth:`ParticleGrid.deformation_gradient`.
+        separation in the shared single-reference-latitude meters frame
+        (:meth:`ParticleGrid._to_meters`). Boundary cells lacking a neighbour
+        yield NaN. See :meth:`ParticleGrid.deformation_gradient`.
         """
-        raise NotImplementedError(
-            "deformation_gradient is not implemented (scaffolding only)."
+        x_adv, y_adv = self._to_meters(self.ds["lon"], self.ds["lat"])
+        x_ref, y_ref = self._to_meters(self.ds["lon_0"], self.ds["lat_0"])
+
+        def central_diff(field: xr.DataArray, dim: str) -> xr.DataArray:
+            # Neighbour difference (index + 1) - (index - 1); .shift fills NaN
+            # past both ends, so the domain edges are legitimately NaN.
+            return field.shift({dim: -1}) - field.shift({dim: +1})
+
+        # lon_0 varies along i, lat_0 along j, so these are the pure x- and y-
+        # reference steps in meters.
+        dx0 = central_diff(x_ref, "i")
+        dy0 = central_diff(y_ref, "j")
+        return _assemble_tensor(
+            fxx=central_diff(x_adv, "i") / dx0,
+            fxy=central_diff(x_adv, "j") / dy0,
+            fyx=central_diff(y_adv, "i") / dx0,
+            fyy=central_diff(y_adv, "j") / dy0,
         )
 
 
 class AuxiliaryGrid(ParticleGrid):
     """Stencil = fixed four-arm auxiliary displacement grid. Haller (2015) Eq. 9.
 
+    Data model. The reference release positions
+    ``lon_0(i, j, displacement)`` / ``lat_0(i, j, displacement)`` (coordinates,
+    degrees) are the explicit per-arm positions -- exactly what
+    :meth:`to_parcels_pset` emits, so the dataset is self-sufficient (no metric
+    convention is needed to recover where particles were released). The advected
+    arm positions ``lon(i, j, displacement)`` / ``lat(i, j, displacement)`` (data
+    variables; equal to ``lon_0`` / ``lat_0`` on a seed) share those dims, so the
+    deformation gradient is the plain ``grad F = d(lon, lat) / d(lon_0, lat_0)``
+    differenced over ``displacement``. The grid-point **centres**
+    ``lon_c(i, j)`` / ``lat_c(i, j)`` (coordinates) are kept explicitly -- the
+    points on which the diagnostics (FTLE, eigenpairs) are reported, and the
+    natural anchor for downstream LCS work. ``t0`` and the signed window ``T`` are
+    coordinates. There is no stored ``dx`` / ``dy``: the stencil lives in the
+    reference positions themselves.
+
     Each grid point carries a controlled auxiliary stencil of four neighbours --
-    ``east, north, west, south`` -- on a single ``displacement`` dimension
-    (coordinate ``displacement = ['east', 'north', 'west', 'south']``), with
-    offsets ``dx(displacement)`` and ``dy(displacement)`` in **meters**. The
-    stencil is *fixed at construction* (:meth:`from_axes`), never inferred or
-    left arbitrary: there is no center point (it would duplicate the grid
-    position) and no diagonal corners (unused by central differencing), so the
-    emitted particle set is the minimal four arms per grid point. This decouples
-    the gradient step from the seed grid resolution. The arms are placed in the
-    local-tangent meters frame (``dx = R cos(phi) dlambda``, ``dy = R dphi``)
-    around each grid point.
+    ``east, north, west, south`` -- with offsets ``east = (+s, 0)``,
+    ``north = (0, +s)``, ``west = (-s, 0)``, ``south = (0, -s)`` for
+    ``s = aux_separation_m``. The stencil is *fixed at construction*
+    (:meth:`from_axes`), never inferred or left arbitrary: there is no center
+    point (it would duplicate the grid position) and no diagonal corners (unused
+    by central differencing), so the emitted particle set is the minimal four
+    arms per grid point. This decouples the gradient step from the seed grid
+    resolution. Arms are placed by offsetting each centre in the *single* grid
+    local-tangent meters frame (one grid reference latitude, not a per-point
+    ``cos(phi)``; see :meth:`ParticleGrid._to_meters` and the module-level
+    *Sphere metric convention*).
     """
 
     @classmethod
@@ -419,11 +553,14 @@ class AuxiliaryGrid(ParticleGrid):
     ) -> Self:
         """Build an auxiliary-stencil seed grid from 1-D lon/lat axes.
 
-        See :meth:`ParticleGrid.from_axes`. Also populates the fixed four-arm
-        ``displacement = ['east', 'north', 'west', 'south']`` stencil with
-        offsets ``dx``, ``dy`` (meters): ``east = (+s, 0)``, ``north = (0, +s)``,
-        ``west = (-s, 0)``, ``south = (0, -s)`` for ``s = aux_separation_m``. The
-        shape is enforced here, not left to the caller.
+        See :meth:`ParticleGrid.from_axes`. The grid-point centres ``lon_c`` /
+        ``lat_c`` are placed on ``(i, j)`` from the axes, then the fixed four-arm
+        ``displacement = ['east', 'north', 'west', 'south']`` stencil is laid out
+        around each centre at offsets ``east = (+s, 0)``, ``north = (0, +s)``,
+        ``west = (-s, 0)``, ``south = (0, -s)`` meters (``s = aux_separation_m``)
+        and stored *explicitly* as the reference release positions
+        ``lon_0`` / ``lat_0`` on ``(i, j, displacement)``. The shape is enforced
+        here, not left to the caller.
 
         Parameters
         ----------
@@ -434,19 +571,71 @@ class AuxiliaryGrid(ParticleGrid):
             Release time recorded on ``.ds``; see :meth:`ParticleGrid.from_axes`.
         aux_separation_m : float, optional
             Controlled auxiliary separation ``s`` (meters) applied to every arm;
-            this is the finite-difference denominator. Chosen small relative to
-            the flow scale.
+            it sets the finite-difference step (the reference arm span is ``2s``).
+            Chosen small relative to the flow scale.
         """
-        raise NotImplementedError("from_axes is not implemented (scaffolding only).")
+        # Broadcast the 1-D axes into curvilinear 2-D centre fields on (i, j);
+        # lon varies along i, lat along j. These are the diagnostic centres.
+        lon_axis = xr.DataArray(np.asarray(lon, dtype=float), dims="i")
+        lat_axis = xr.DataArray(np.asarray(lat, dtype=float), dims="j")
+        lon_c, lat_c = xr.broadcast(lon_axis, lat_axis)
+
+        # Fixed four-arm stencil offsets in meters; shape enforced here.
+        s = float(aux_separation_m)
+        displacement = ["east", "north", "west", "south"]
+        off_x = xr.DataArray(
+            [+s, 0.0, -s, 0.0], dims="displacement", coords={"displacement": displacement}
+        )
+        off_y = xr.DataArray(
+            [0.0, +s, 0.0, -s], dims="displacement", coords={"displacement": displacement}
+        )
+
+        # Place the arms about each centre in the single grid reference frame (one
+        # reference latitude = grid centroid), so meters <-> degrees here matches
+        # ParticleGrid._to_meters exactly. lon_c (i, j) broadcasts with the
+        # (displacement,) offset into the explicit arm positions (i, j, displacement).
+        lon_ref = float(lon_c.mean())
+        lat_ref = float(lat_c.mean())
+        c = np.cos(lat_ref * _DEG)
+        lon_0 = lon_c + off_x / (EARTH_RADIUS_M * c * _DEG)
+        lat_0 = lat_c + off_y / (EARTH_RADIUS_M * _DEG)
+
+        t0 = np.datetime64(t0)
+        ds = xr.Dataset(
+            data_vars={
+                # Advected arm positions F(x_0); identity arms on a seed.
+                "lon": lon_0,
+                "lat": lat_0,
+            },
+            coords={
+                "i": np.arange(lon_axis.sizes["i"]),
+                "j": np.arange(lat_axis.sizes["j"]),
+                "displacement": displacement,
+                # Explicit per-arm reference release positions x_0.
+                "lon_0": lon_0,
+                "lat_0": lat_0,
+                # Diagnostic grid-point centres (no displacement dim).
+                "lon_c": lon_c,
+                "lat_c": lat_c,
+                "t0": t0,
+                # Signed integration window; zero for the un-advected seed.
+                "T": t0 - t0,
+            },
+        )
+        return cls(ds)
 
     def to_parcels_pset(self) -> tuple[list[float], list[float]]:
-        """Flatten seed positions over ``('i', 'j', 'displacement')``.
+        """Flatten the RELEASE arm positions over ``('i', 'j', 'displacement')``.
 
-        See :meth:`ParticleGrid.to_parcels_pset`.
+        Emits the *reference* arm positions ``lon_0``/``lat_0`` directly -- they
+        are stored explicitly, so no metric reconstruction is needed and this is
+        trivially robust on an already-ingested grid (the reference positions are
+        never overwritten). See :meth:`ParticleGrid.to_parcels_pset`.
         """
-        raise NotImplementedError(
-            "to_parcels_pset is not implemented (scaffolding only)."
-        )
+        dims = ("i", "j", "displacement")
+        lon_arm = self.ds["lon_0"].reset_coords(drop=True).stack(particle=dims)
+        lat_arm = self.ds["lat_0"].reset_coords(drop=True).stack(particle=dims)
+        return list(lon_arm.values), list(lat_arm.values)
 
     @classmethod
     def from_parcels_pset_lon_lat(
@@ -459,23 +648,63 @@ class AuxiliaryGrid(ParticleGrid):
     ) -> Self:
         """Reattach advected lon/lat onto the ``('i', 'j', 'displacement')`` MultiIndex.
 
-        See :meth:`ParticleGrid.from_parcels_pset_lon_lat`.
+        Only the *coord-stripped* advected ``lon``/``lat`` are stacked and
+        reattached: stacking the raw seed variables would broadcast the centre
+        coordinates ``lon_c(i, j)`` / ``lat_c(i, j)`` up to
+        ``(i, j, displacement)`` and corrupt the schema. After ingest the centres
+        stay ``(i, j)``, the reference arms ``lon_0``/``lat_0`` (carried from the
+        seed, untouched) stay ``(i, j, displacement)``, and the advected arms are
+        overwritten on ``(i, j, displacement)``. See
+        :meth:`ParticleGrid.from_parcels_pset_lon_lat`.
         """
-        raise NotImplementedError(
-            "from_parcels_pset_lon_lat is not implemented (scaffolding only)."
+        dims = ("i", "j", "displacement")
+        lon_arm = (
+            seed.ds["lon"]
+            .reset_coords(drop=True)
+            .stack(particle=dims)
+            .copy(data=np.asarray(lon, dtype=float))
+            .unstack("particle")
         )
+        lat_arm = (
+            seed.ds["lat"]
+            .reset_coords(drop=True)
+            .stack(particle=dims)
+            .copy(data=np.asarray(lat, dtype=float))
+            .unstack("particle")
+        )
+        # Reference arms lon_0/lat_0 and centres lon_c/lat_c are carried from the
+        # seed untouched; only the advected arms and the derived window change.
+        ds = seed.ds.assign(lon=lon_arm, lat=lat_arm).assign_coords(
+            T=np.datetime64(t1) - seed.ds["t0"]
+        )
+        return cls(ds)
 
     def deformation_gradient(self) -> xr.DataArray:
         """grad F differenced across the fixed four-arm auxiliary stencil.
 
-        Central differences of the *advected* arm positions over the
-        ``displacement`` dim -- east minus west for the ``x`` derivative, north
-        minus south for the ``y`` derivative (numerator, from the ingested
-        outputs) -- divided by the controlled initial separations ``dx``, ``dy``
-        (denominator, meters). The per-point stencil makes grad F well-defined at
-        every grid point, including the boundary. See
+        The plain ``grad F = d(lon, lat) / d(lon_0, lat_0)`` over the
+        ``displacement`` dim: east minus west for the ``x`` derivative, north
+        minus south for the ``y`` derivative. Both the advected separation
+        (numerator) and the *reference* arm separation (denominator) are read from
+        positions in the shared single-reference-latitude meters frame, so the
+        denominator is the explicit ``2s`` reference span -- no separately stored
+        offsets. The per-point stencil makes grad F well-defined at every grid
+        point, including the boundary. See
         :meth:`ParticleGrid.deformation_gradient` and Haller (2015) Eq. 9.
         """
-        raise NotImplementedError(
-            "deformation_gradient is not implemented (scaffolding only)."
+        x_adv, y_adv = self._to_meters(self.ds["lon"], self.ds["lat"])
+        x_ref, y_ref = self._to_meters(self.ds["lon_0"], self.ds["lat_0"])
+
+        def arm_diff(field: xr.DataArray, hi: str, lo: str) -> xr.DataArray:
+            # Difference two opposing arms; the scalar `displacement` label is
+            # dropped on subtraction so the result is back on (i, j).
+            return field.sel(displacement=hi) - field.sel(displacement=lo)
+
+        den_x = arm_diff(x_ref, "east", "west")
+        den_y = arm_diff(y_ref, "north", "south")
+        return _assemble_tensor(
+            fxx=arm_diff(x_adv, "east", "west") / den_x,
+            fxy=arm_diff(x_adv, "north", "south") / den_y,
+            fyx=arm_diff(y_adv, "east", "west") / den_x,
+            fyy=arm_diff(y_adv, "north", "south") / den_y,
         )

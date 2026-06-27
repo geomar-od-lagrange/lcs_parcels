@@ -50,8 +50,6 @@ def test_auxiliary_grid_from_axes_dims(lon_axis, lat_axis):
     g = AuxiliaryGrid.from_axes(lon_axis, lat_axis, t0=T0)
     ds = g.ds
 
-    assert set(ds["lon_0"].dims) == {"i", "j"}
-    assert set(ds["lat_0"].dims) == {"i", "j"}
     assert ds.sizes["i"] == lon_axis.size
     assert ds.sizes["j"] == lat_axis.size
     assert ds["t0"] == T0
@@ -61,14 +59,38 @@ def test_auxiliary_grid_from_axes_dims(lon_axis, lat_axis):
     assert ds.sizes["displacement"] == 4
     assert list(ds["displacement"].values) == ["east", "north", "west", "south"]
 
-    # dx, dy displacement offsets live on `displacement` and are in meters.
-    assert set(ds["dx"].dims) == {"displacement"}
-    assert set(ds["dy"].dims) == {"displacement"}
+    # The reference release positions x_0 are the explicit per-arm positions:
+    # lon_0/lat_0 carry the displacement dim (this is what to_parcels_pset emits,
+    # so the dataset is self-sufficient -- no metric needed to recover them).
+    assert set(ds["lon_0"].dims) == {"i", "j", "displacement"}
+    assert set(ds["lat_0"].dims) == {"i", "j", "displacement"}
+
+    # The grid-point centres on which diagnostics are reported are kept explicitly
+    # on (i, j) (needed for downstream LCS work).
+    assert set(ds["lon_c"].dims) == {"i", "j"}
+    assert set(ds["lat_c"].dims) == {"i", "j"}
+
+    # A seed is the identity sample: advected arms equal the reference arms, the
+    # centre is the mean of its four arms, and the signed window is zero.
+    xr.testing.assert_allclose(ds["lon"], ds["lon_0"])
+    xr.testing.assert_allclose(ds["lat"], ds["lat_0"])
+    xr.testing.assert_allclose(ds["lon_c"], ds["lon_0"].mean("displacement"))
+    xr.testing.assert_allclose(ds["lat_c"], ds["lat_0"].mean("displacement"))
+    assert ds["T"] == (T0 - T0)
 
 
 def test_only_auxiliary_has_stencil(lon_axis, lat_axis):
     ng = NeighborGrid.from_axes(lon_axis, lat_axis, t0=T0)
     ag = AuxiliaryGrid.from_axes(lon_axis, lat_axis, t0=T0)
 
-    assert "dx" not in ng.ds and "dy" not in ng.ds
-    assert "dx" in ag.ds and "dy" in ag.ds
+    # NeighborGrid has no auxiliary stencil: no displacement dim, no centres, and
+    # its reference positions are the grid points themselves on (i, j).
+    assert "displacement" not in ng.ds.dims
+    assert "lon_c" not in ng.ds.coords and "lat_c" not in ng.ds.coords
+    assert set(ng.ds["lon_0"].dims) == {"i", "j"}
+
+    # AuxiliaryGrid carries the four-arm displacement stencil (in its explicit
+    # reference positions) and the separate diagnostic centres.
+    assert ag.ds.sizes["displacement"] == 4
+    assert set(ag.ds["lon_0"].dims) == {"i", "j", "displacement"}
+    assert "lon_c" in ag.ds.coords and "lat_c" in ag.ds.coords

@@ -27,7 +27,8 @@ integration window:
 
 - `t0` — the release time (from the seed), as **`datetime64`**.
 - `T = t1 - t0` — the integration window, as **`timedelta64`**, **signed**
-  (negative `T` is backward integration → attracting LCS; positive → repelling).
+  (negative `T` is backward integration -> attracting LCS; positive ->
+  repelling).
 
 `t1` is the *input*, not part of the stored model: it is consumed at ingest to
 derive `T` and then dropped. We never evaluate or store the flow map at an
@@ -55,7 +56,7 @@ intermediate "pass `(t0, T)` at ingest" form.
 ## Footprint
 
 Footprint is governed by the **data** array, not the time labels. FTLE / eigen
-fields have dims `(i, j, t0, T)` → $N_i N_j N_0 N_T$ values. The time coordinates
+fields have dims `(i, j, t0, T)`, i.e. $N_i N_j N_0 N_T$ values. The time coordinates
 are 1-D side arrays of length $N_0$ and $N_T$ — smaller than the data by the full
 $N_i N_j$ factor, i.e. negligible. So carrying `t0` and `T` as coordinates costs
 effectively nothing; the dimension choice (`(t0, T)`, not `(t0, t1)`) is what
@@ -71,7 +72,7 @@ keeps the data array minimal.
   $N_0$) and `T` (size $N_T$). The seed may already carry `t0` as a dimension
   (a release series); ingest supplies `t1` (scalar or array, broadcast against
   the seed's `t0`), and `T = t1 - t0` lands on the `(t0, T)` axes. FTLE then has
-  dims `(i, j, t0)` for a release series, `(i, j, t0, T)` for releases × windows.
+  dims `(i, j, t0)` for a release series, `(i, j, t0, T)` for releases by windows.
   This is plain xarray broadcasting — no special machinery.
 - The clean rectangular `T` axis assumes every release uses the **same set of
   windows**. Ragged windows (windows differ per release) are the exception; they

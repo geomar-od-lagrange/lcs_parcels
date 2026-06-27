@@ -63,3 +63,25 @@ def apply_linear_map_to_pset(lon, lat, M, origin):
     lon_out = lon0 + dxo / (R * coslat * deg)
     lat_out = lat0 + dyo / (R * deg)
     return list(lon_out), list(lat_out)
+
+
+def advected_grid(cls, lon_axis, lat_axis, M, t0, t1):
+    """Build an advected grid from a constant linear map ``M``.
+
+    Seed ``cls`` from the 1-D axes, emit its particle set, advect every flat
+    position through the constant linear map ``M`` about the grid CENTROID, then
+    ingest the advected positions and return the resulting grid.
+
+    The advection ``origin`` is the grid centroid
+    ``(float(seed.ds['lon_0'].mean()), float(seed.ds['lat_0'].mean()))`` so it
+    coincides with the implementation's single reference longitude/latitude (the
+    local-tangent meters frame is anchored at the same point). Because both the
+    seed separations and the advected separations are then measured in that one
+    frame, the deformation gradient recovers ``M`` exactly -- the off-diagonal
+    terms of ``M`` survive only when the read-back frame matches the map frame.
+    """
+    seed = cls.from_axes(lon_axis, lat_axis, t0=t0)
+    lon, lat = seed.to_parcels_pset()
+    origin = (float(seed.ds["lon_0"].mean()), float(seed.ds["lat_0"].mean()))
+    lon_out, lat_out = apply_linear_map_to_pset(lon, lat, M, origin)
+    return cls.from_parcels_pset_lon_lat(seed, lon_out, lat_out, t1=t1)

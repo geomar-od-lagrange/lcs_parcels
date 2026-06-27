@@ -12,7 +12,8 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 | Symbol | Meaning | Haller Eq. | Code name |
 |---|---|---|---|
 | $v(x, t)$ | velocity field, with position $x = (x^1, x^2)$ in 2D | 2 | (input, external) |
-| $x_0$ | initial (reference) particle position at release time $t_0$; the grid point on which diagnostics are defined | 3 | `lon_0(i, j)`, `lat_0(i, j)` |
+| $x_0$ | initial (reference) particle *release* position at time $t_0$; for `NeighborGrid` the grid point itself, for `AuxiliaryGrid` the explicit stencil arms | 3 | `lon_0`, `lat_0` (`(i, j)`; `(i, j, displacement)` for `AuxiliaryGrid`) |
+| — | grid-point centres where diagnostics are reported (`AuxiliaryGrid` only) | — | `lon_c(i, j)`, `lat_c(i, j)` |
 | $F_{t_0}^{t}(x_0) = x(t; t_0, x_0)$ | flow **map**: initial position $\to$ position at time $t$; stored as the advected positions $x(t_1)$ | 3 | `lon(i, j)`, `lat(i, j)` |
 | $\nabla F_{t_0}^{t_1}(x_0)$ | deformation gradient (the **gradient** of the flow map; $2\times 2$ in 2D) | 4, 9 | `deformation_gradient`, `gradF` |
 | $C(x_0) = \left(\nabla F_{t_0}^{t_1}\right)^\top \nabla F_{t_0}^{t_1}$ | right Cauchy–Green strain tensor ($2\times 2$, symmetric positive-definite) | 6 | `cauchy_green`, `C` |
@@ -23,7 +24,7 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 | $t_0$ | release time of the seed grid; recorded by `from_axes` | 3 | `t0` |
 | $t_1$ | integration end time; supplied at ingest, consumed to derive $T$, not stored | 3 | `t1` (input) |
 | $T = t_1 - t_0$ | integration window, **signed**; derived at ingest from the seed's $t_0$ and the end time $t_1$, its sign sets the integration direction | 3 | `T` |
-| $dx = R\cos\phi\,d\lambda,\ \ dy = R\,d\phi$ | local-tangent meters convention ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ meters) | — | (internal metric) |
+| $dx = R\cos\phi_{\mathrm{ref}}\,d\lambda,\ \ dy = R\,d\phi$ | local-tangent meters convention, anchored at one grid reference latitude $\phi_{\mathrm{ref}}$ ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ meters) | — | (internal metric) |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 | — |
 | $\eta^\pm(x_0)$ | shear vector field; shrink/stretch/shear lines (**deferred**) | 10, 11, Table 1 | — |
 
@@ -62,10 +63,17 @@ first-class:
   the gradient step are the same grid.
 - **Auxiliary grid** (`AuxiliaryGrid`): each grid point carries a fixed four-arm
   stencil on a single `displacement` dim
-  (`displacement = ['east', 'north', 'west', 'south']`), with offsets
-  `dx(displacement)`, `dy(displacement)` in meters, per Haller Eq. 9. No center
-  point (it would duplicate the grid position) and no diagonal corners. This
-  decouples the gradient step from the diagnostic resolution.
+  (`displacement = ['east', 'north', 'west', 'south']`), placed at $\pm s$ meters
+  about the centre (`aux_separation_m`), per Haller Eq. 9. The arms are stored
+  *explicitly* as the reference release positions
+  `lon_0(i, j, displacement)` / `lat_0(i, j, displacement)` (so the dataset is
+  self-sufficient — no metric convention is needed to recover where particles
+  started), and $\nabla F$ is the plain $\partial(\text{lon}, \text{lat}) /
+  \partial(\text{lon}_0, \text{lat}_0)$ differenced over `displacement`. The
+  grid-point centres `lon_c(i, j)` / `lat_c(i, j)` (where diagnostics are
+  reported) are kept separately. No center arm (it would duplicate the grid
+  position) and no diagonal corners. This decouples the gradient step from the
+  diagnostic resolution.
 
 Cells with a missing stencil point (e.g. a lost particle arriving as NaN) yield
 a NaN $\nabla F$, and that NaN propagates through $C$, the eigen-analysis, and
@@ -101,14 +109,23 @@ windows $T$ are simply extra broadcast dimensions handled by xarray. See
 
 ### Local-tangent meters convention
 
-Haller's math is Cartesian, but the grid is lon/lat. Separations are converted to
-a local tangent frame in meters before differencing:
+Haller's math is Cartesian, but the grid is lon/lat. Positions are converted to a
+**single** local tangent frame in meters before differencing, anchored at the
+grid centroid — the one reference point
+$\lambda_{\mathrm{ref}} = \overline{\lambda_0}$, $\phi_{\mathrm{ref}} = \overline{\phi_0}$
+(the means of `lon_0`/`lat_0`):
 
-$$dx = R\cos\phi\,d\lambda, \qquad dy = R\,d\phi,$$
+$$X = R\cos\phi_{\mathrm{ref}}\,(\lambda - \lambda_{\mathrm{ref}})\,\tfrac{\pi}{180},
+\qquad Y = R\,(\phi - \phi_{\mathrm{ref}})\,\tfrac{\pi}{180},$$
 
-with $R$ the Earth radius, $\phi$ latitude, $\lambda$ longitude. In the
-tiny-separation regime a flat-tangent $\cos\phi$ approximation is adequate; this
-is a convention, not a correctness blocker.
+with $R$ the Earth radius, $\phi$ latitude, $\lambda$ longitude. The cosine
+factor uses that **one** grid reference latitude $\phi_{\mathrm{ref}}$ for every
+point, not a per-point $\cos\phi$: a single shared frame is what makes the
+off-diagonal $\nabla F$ terms exact — a per-point cosine would corrupt them by a
+cosine ratio. In the tiny-separation regime this flat-tangent approximation is
+adequate; it is a convention, not a correctness blocker. Both `NeighborGrid` and
+`AuxiliaryGrid` share the identical metric code, so positions are read back in the
+same frame the seed was emitted in.
 
 ### Deferred symbols
 
@@ -126,21 +143,24 @@ dimensions, not as scalar variables (`F11, F12, …`):
 
 | Object | Code name | Dims | Component coords |
 |---|---|---|---|
-| reference grid positions $x_0$ (coords) | `lon_0`, `lat_0` | `(i, j)` | — |
-| advected flow map $F_{t_0}^{t_1}(x_0)$ (data vars) | `lon`, `lat` | `(i, j)` | — |
-| auxiliary-grid stencil | `dx`, `dy` | `(displacement,)` | `displacement = ['east','north','west','south']` |
-| deformation gradient $\nabla F$ | `gradF` | `(i, j, row, col)` | `comp = ['x', 'y']` |
-| Cauchy–Green $C$ | `C` | `(i, j, row, col)` | `comp = ['x', 'y']` |
+| reference release positions $x_0$ (coords) | `lon_0`, `lat_0` | `(i, j)`; `(i, j, displacement)` for `AuxiliaryGrid` | — |
+| advected flow map $F_{t_0}^{t_1}(x_0)$ (data vars) | `lon`, `lat` | same dims as `lon_0`/`lat_0` | — |
+| grid-point centres (`AuxiliaryGrid` only, coords) | `lon_c`, `lat_c` | `(i, j)` | — |
+| auxiliary-grid stencil axis | — | `(displacement,)` | `displacement = ['east','north','west','south']` |
+| deformation gradient $\nabla F$ | `gradF` | `(i, j, row, col)` | `row, col = ['x', 'y']` |
+| Cauchy–Green $C$ | `C` | `(i, j, row, col)` | `row, col = ['x', 'y']` |
 | eigenvalues $\lambda_i$ | `lambda` | `(i, j, eig)` | — |
 | eigenvectors $\xi_i$ | `xi` | `(i, j, comp, eig)` | `comp = ['x', 'y']` |
 | FTLE $\Lambda$ | `ftle` | `(i, j)` | — |
 
 Logical grid dims are `i, j`. The `comp` coordinate labels vector/tensor
-components `['x', 'y']`; `row`/`col` index the two axes of a $2\times 2$ tensor;
-`eig` indexes the two eigenpairs. For `AuxiliaryGrid` the four-arm `displacement`
-dim rides on `(i, j)` (so the reference and advected arm positions are
-`lon_0(i, j, displacement)` / `lat_0(i, j, displacement)` and
-`lon(i, j, displacement)` / `lat(i, j, displacement)`); it is
+components `['x', 'y']`; `row`/`col` (dimension coordinates valued `['x', 'y']`)
+index the two axes of a $2\times 2$ tensor; `eig` indexes the two eigenpairs. For
+`AuxiliaryGrid` the reference release positions
+`lon_0(i, j, displacement)` / `lat_0(i, j, displacement)` *are* the explicit
+stencil arms and the advected arms `lon(i, j, displacement)` /
+`lat(i, j, displacement)` share those dims; the diagnostic centres
+`lon_c(i, j)` / `lat_c(i, j)` are kept separately. The `displacement` dim is
 differenced away by `deformation_gradient`, so $\nabla F$ and everything
 downstream are back on `(i, j)`. Extra release-time / integration-time axes
 broadcast on top of these.

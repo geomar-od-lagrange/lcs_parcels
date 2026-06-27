@@ -1,5 +1,5 @@
 <!--
-Visual overview of the particle-grid API scaffolded in
+Visual overview of the particle-grid API implemented in
 src/lcs_parcels/grids.py. Diagrams are kept in sync with the code; when the
 class surface changes, update the class diagram, and when the workflow changes,
 update the flow chart.
@@ -60,10 +60,9 @@ classDiagram
     }
 
     class xrDataset["xr.Dataset"] {
-        +lon_0(i, j)  : reference x_0 (coord)
-        +lat_0(i, j)  : reference x_0 (coord)
-        +lon(i, j)  : advected F(x_0)
-        +lat(i, j)  : advected F(x_0)
+        +lon_0/lat_0  : reference release x_0 (coord)
+        +lon/lat  : advected F(x_0) (same dims as lon_0/lat_0)
+        +lon_c/lat_c(i, j)  : centres, AuxiliaryGrid only (coord)
         +t0  : datetime64
         +T   : timedelta64 (signed)
     }
@@ -74,7 +73,7 @@ classDiagram
 
     note for ParticleGrid "cauchy_green / cg_eigen / ftle are concrete on the\nbase: defined purely in terms of deformation_gradient()."
     note for NeighborGrid "Stencil = neighbouring seed points (i +/- 1, j +/- 1).\nNo extra dims beyond (i, j). SPASSO / d'Ovidio approach."
-    note for AuxiliaryGrid "Stencil = fixed four arms east/north/west/south on one\ndisplacement dim, with dx/dy offsets in metres (no centre, no diagonals),\ndecoupling the gradient step from seed resolution."
+    note for AuxiliaryGrid "Stencil = fixed four arms east/north/west/south on one\ndisplacement dim, stored explicitly as the reference positions lon_0/lat_0\n(plus separate centres lon_c/lat_c); no centre arm, no diagonals; decouples\nthe gradient step from seed resolution."
 ```
 
 In the diagram, `*` marks an abstract method (each concrete subclass overrides
@@ -124,7 +123,7 @@ flowchart TD
     style parcels stroke-dasharray: 5 5
 ```
 
-The last four steps (`deformation_gradient` → `cauchy_green` → `cg_eigen` →
+The last four steps (`deformation_gradient` -> `cauchy_green` -> `cg_eigen` ->
 `ftle`) are the concrete base-class chain invoked under the hood by a single
 `advected.ftle()` call; they are drawn explicitly to show where each Haller
 quantity enters.

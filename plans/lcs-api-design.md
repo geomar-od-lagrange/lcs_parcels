@@ -6,28 +6,27 @@ the `docs/api.md` sketch with a real API doc once the code exists.
 
 # LCS-Parcels API design plan
 
-Status: draft for review.
+Status: implemented. The design below is realized in
+[`src/lcs_parcels/grids.py`](../src/lcs_parcels/grids.py) with a green test
+suite (`tests/`). This document records the design rationale; the live API
+reference is [`docs/api.md`](../docs/api.md) and the symbol table is
+[`docs/notation.md`](../docs/notation.md).
 
-This plan turns the sketch in `docs/api.md` into a concrete design. It follows
+This plan turns the original sketch into a concrete design. It follows
 Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech.
 47:137–162, [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322),
 for naming and notation.
 
-## What this PR delivers (pedagogical scaffolding)
+## What this design delivers
 
-This PR is scaffolding, built to be read and then filled in during a human pair
-programming session. It provides:
+The realized package provides:
 
 - class definitions, method **signatures**, and **type hints**;
 - **docstrings** stating intent, units, shapes, and the relevant Haller equation;
-- **tests** that pin the intended behavior (shapes, dims, round-trip, simple
-  analytic cases);
-- the notation doc.
-
-It deliberately does **not** provide the numerical implementation. Method bodies
-are placeholders (`raise NotImplementedError`). Tests are real and **left red**:
-no `xfail`, no `skip`. A true red suite is the intended starting point for the
-human implementation session.
+- the numerical implementation of the operator chain (deformation gradient
+  through FTLE);
+- **tests** that pin the behavior (shapes, dims, round-trip, analytic cases);
+- the notation doc and the API doc.
 
 ## Scope
 
@@ -43,7 +42,7 @@ We provide:
 
 1. Seeding — build seed positions from a structured grid.
 2. Round-trip — emit a particle set, ingest advected lon/lat back onto the grid.
-3. Operators — deformation gradient → Cauchy–Green → eigen-analysis.
+3. Operators — deformation gradient -> Cauchy–Green -> eigen-analysis.
 4. Diagnostics — FTLE and eigen-derived scalar fields.
 
 ## Notation (Haller 2015)
@@ -77,7 +76,7 @@ xarray API (`.isel`, `.sel`, named dims), never positional indexing.
 
 ```
 ParticleGrid (ABC, composition wrapper around .ds)
-├── NeighborGrid     # stencil = neighboring grid points (i±1, j±1)
+├── NeighborGrid     # stencil = neighboring grid points (i +/- 1, j +/- 1)
 └── AuxiliaryGrid    # stencil = per-point displacement grid (Haller Eq. 9)
 ```
 
@@ -93,8 +92,10 @@ ParticleGrid (ABC, composition wrapper around .ds)
 ### Common state (base `ParticleGrid`)
 - `.ds`: `xr.Dataset` with logical dims `i, j` carrying two position pairs (2D
   lon/lat, so curvilinear/non-rectangular grids work):
-  - reference coordinates `lon_0(i, j)`, `lat_0(i, j)` — the $x_0$ on which
-    diagnostics are defined;
+  - reference coordinates `lon_0(i, j)`, `lat_0(i, j)` — the release positions
+    $x_0$ (for `NeighborGrid` the grid points themselves; `AuxiliaryGrid`
+    elaborates these onto a `displacement` arm dim and keeps the diagnostic
+    centres as a separate `lon_c`/`lat_c` pair — see below);
   - advected data variables `lon(i, j)`, `lat(i, j)` — the flow map
     $F_{t_0}^{t_1}(x_0)$ (the particle's actual position, as in Parcels).
     `from_axes` seeds them equal to the reference (the identity
@@ -106,15 +107,21 @@ ParticleGrid (ABC, composition wrapper around .ds)
 
 ### `NeighborGrid`
 - No extra dims. The deformation gradient is differenced against neighboring
-  grid points `(i±1, j±1)`.
+  grid points `(i +/- 1, j +/- 1)`.
 
 ### `AuxiliaryGrid`
 - Adds a *fixed* four-arm displacement stencil on a single `displacement` dim
-  (`displacement = ['east', 'north', 'west', 'south']`) with offsets
-  `dx(displacement)`, `dy(displacement)` in **meters** — Haller's auxiliary grid
-  (Eq. 9). No center point (it would duplicate the grid position) and no diagonal
-  corners (unused by central differencing); the shape is enforced in `from_axes`,
-  not left arbitrary. Decouples diagnostic resolution from the gradient step.
+  (`displacement = ['east', 'north', 'west', 'south']`) placed at $\pm s$ meters
+  about each centre (`aux_separation_m`) — Haller's auxiliary grid (Eq. 9). The
+  arms are stored **explicitly** as the reference release positions
+  `lon_0(i, j, displacement)`, `lat_0(i, j, displacement)` (so the dataset is
+  self-sufficient — no metric convention is needed to recover where particles
+  started), and the advected `lon`/`lat` share those dims. The grid-point
+  **centres** `lon_c(i, j)`, `lat_c(i, j)` — where diagnostics are reported and
+  the anchor for downstream LCS work — are kept separately. No center arm (it
+  would duplicate the grid position) and no diagonal corners (unused by central
+  differencing); the shape is enforced in `from_axes`, not left arbitrary.
+  Decouples diagnostic resolution from the gradient step.
 
 ## Round-trip (emit / ingest)
 
@@ -141,37 +148,44 @@ yield NaN `$\nabla F$`.
 
 - `deformation_gradient() -> DataArray` — `$\nabla F$`, dims `(i, j, row, col)`.
 - `cauchy_green() -> DataArray` — `$C = (\nabla F)^\top \nabla F$`, same dims.
-- `cg_eigen() -> Dataset` — eigenvalues `λ` on `(i, j, eig)` and eigenvectors
-  `ξ` on `(i, j, comp, eig)`, via
+- `cg_eigen() -> Dataset` — eigenvalues $\lambda$ on `(i, j, eig)` and
+  eigenvectors $\xi$ on `(i, j, comp, eig)`, via
   `xr.apply_ufunc(np.linalg.eigh, C, input_core_dims=[['row','col']], ...)`.
 - `ftle() -> DataArray` — `$\Lambda = \tfrac{1}{|T|}\log\sqrt{\lambda_{\max}}$`.
 - (optional) generalized Green–Lagrange `$E_\lambda$` (Eq. 8).
 
 ## Tensor representation
 
-2×2 tensors and 2-vectors are **single DataArrays with component dims**, not
+$2\times 2$ tensors and 2-vectors are **single DataArrays with component dims**, not
 scalar vars (`F11, F12, …`):
-- `gradF`, `C`: dims `(i, j, row, col)`, labeled coord `comp = ['x', 'y']`.
-- eigen output: `λ` on `(i, j, eig)`, `ξ` on `(i, j, comp, eig)`.
+- `gradF`, `C`: dims `(i, j, row, col)`, with `row, col = ['x', 'y']` (dimension
+  coordinates indexing the two tensor axes). The tensors carry **no** `comp`
+  coord — `comp` is reserved for the eigenvector component dim.
+- eigen output: $\lambda$ on `(i, j, eig)`, $\xi$ on `(i, j, comp, eig)` with
+  `comp = ['x', 'y']`.
 
 This keeps the eigen step a vectorized one-liner.
 
 ## Sphere metric (note, not a blocker)
 
 Haller's math is Cartesian; our grid is lon/lat. Separations are formed in a
-local tangent frame in **meters** ($dx = R\cos\phi\,d\lambda$, $dy = R\,d\phi$;
-$\lambda$ = longitude, $\phi$ = latitude). Because we operate in the
-tiny-separation regime, a flat-tangent `$\cos\phi$` approximation is adequate in
-practice; this is a convention, not a correctness blocker. The metric only
-converts lon/lat separations to meters: the *advected* separations forming the
-numerator of $\nabla F$ are measured from the ingested Parcels outputs, not
-recomputed analytically from $R$ and $\phi$.
+**single** local tangent frame in **meters**, anchored at the grid centroid
+($dx = R\cos\phi_{\mathrm{ref}}\,d\lambda$, $dy = R\,d\phi$; $\lambda$ =
+longitude, $\phi$ = latitude). The cosine factor uses the *one* grid reference
+latitude $\phi_{\mathrm{ref}} = \overline{\phi_0}$ for every point, **not** a
+per-point $\cos\phi$: a single shared frame is what makes the off-diagonal
+$\nabla F$ terms exact (a per-point cosine corrupts them by a cosine ratio). In
+the tiny-separation regime this flat-tangent approximation is adequate; it is a
+convention, not a correctness blocker. The metric only converts lon/lat
+separations to meters: the *advected* separations forming the numerator of
+$\nabla F$ are measured from the ingested Parcels outputs, not recomputed
+analytically from $R$ and $\phi$.
 
 ## v1 scope vs later
 
-**v1 (this PR):** seed → deformation gradient → `$C$` → eigen → FTLE and
-eigen-derived scalar fields, as scaffolding (signatures, types, docstrings,
-tests; no implementation). Both `NeighborGrid` and `AuxiliaryGrid` are
+**v1 (implemented):** seed -> deformation gradient -> $C$ -> eigen -> FTLE and
+eigen-derived scalar fields (signatures, types, docstrings, tests, and the
+numerical implementation). Both `NeighborGrid` and `AuxiliaryGrid` are
 first-class.
 
 **Deferred (separate module):** the geometric LCS layer — shrink/stretch/shear
