@@ -69,16 +69,22 @@ The types are connected by two factories; **neither holds a reference to the
 other**.
 
 ```python
-Seed.ingest(lon, lat, *, t1) -> FlowMap     # boundary -> diagnostics
-FlowMap.to_seed(*, t0=None)   -> Seed       # diagnostics -> boundary
+Seed.pset_to_flowmap(lon, lat, *, t1) -> FlowMap   # boundary -> diagnostics
+FlowMap.to_seed(*, t0=None)            -> Seed      # diagnostics -> boundary
 ```
 
-- **`Seed.ingest`** replaces today's `from_parcels_pset_lon_lat` classmethod.
-  Ingest is a *behaviour of the seed*: it needs exactly what the seed already
-  owns — the reference positions, the `particle` MultiIndex, and `t0` — so it
-  lives there, not as a `FlowMap` constructor reaching into a foreign object. It
-  keeps emit and ingest symmetric on one type, so a round-trip test stays on a
-  single object: `fm = seed.ingest(*seed.to_parcels_pset(), t1=...)`.
+- **`Seed.pset_to_flowmap`** replaces today's `from_parcels_pset_lon_lat`
+  classmethod. The name states both ends of the transformation (pset ->
+  flowmap), and it marks this as a *data-consuming* factory, unlike the
+  self-contained `to_parcels_pset`/`to_seed` converters. It is a *behaviour of
+  the seed*: it needs exactly what the seed already owns — the reference
+  positions, the `particle` MultiIndex, and `t0` — so it lives there, not as a
+  `FlowMap` constructor reaching into a foreign object. It keeps emit and ingest
+  symmetric on one type, so a round-trip test stays on a single object:
+  `fm = seed.pset_to_flowmap(*seed.to_parcels_pset(), t1=...)`. The `lon`/`lat`
+  argument is the advected flat arrays pulled off the returned Parcels
+  `ParticleSet` — never a Parcels object itself, keeping Parcels at the
+  boundary.
 - **`FlowMap.to_seed`** answers "does a `FlowMap` need a back-link to its
   `Seed`?" — no; it reconstructs one. Ingest never overwrites the reference
   `lon_0`/`lat_0` (nor, for Auxiliary, the arm geometry or centres), so a
@@ -91,7 +97,8 @@ FlowMap.to_seed(*, t0=None)   -> Seed       # diagnostics -> boundary
   there is the entry point to the release-series ensemble.
 
 The re-run workflow (same grid, sweep `t1`, or re-release at a new `t0`) is
-therefore "`to_seed()` then `ingest(..., t1=...)`", with no shared state.
+therefore "`to_seed()` then `pset_to_flowmap(..., t1=...)`", with no shared
+state.
 
 ## Lifecycle invariant makes the stacking problem disappear
 
@@ -168,9 +175,9 @@ per-stencil.
 
 - **`Seed` (ABC)**: `from_axes` (abstract classmethod, per stencil);
   `to_parcels_pset` (concrete — generic stack over `lon_0.dims` (+ `t0`),
-  coord-stripped via `reset_coords(drop=True)`); `ingest` (concrete — reattach
-  advected onto the `particle` index, `unstack`, set `T = t1 - t0`, construct
-  `self._flowmap_cls(ds)`). Concrete seeds set `_flowmap_cls`.
+  coord-stripped via `reset_coords(drop=True)`); `pset_to_flowmap` (concrete —
+  reattach advected onto the `particle` index, `unstack`, set `T = t1 - t0`,
+  construct `self._flowmap_cls(ds)`). Concrete seeds set `_flowmap_cls`.
 - **`FlowMap` (ABC)**: `deformation_gradient` (abstract, per stencil);
   `cauchy_green`, `cg_eigen`, `ftle` (concrete on the base, unchanged from
   today); `to_seed` (concrete — drop advected `lon`/`lat` and `T`, optional
@@ -195,12 +202,12 @@ grids); no file split.
   AuxiliarySeed, FlowMap, NeighborFlowMap, AuxiliaryFlowMap`; drop the
   `ParticleGrid`/`NeighborGrid`/`AuxiliaryGrid` names.
 - **`tests/conftest.py`** — the `advected_grid` helper becomes
-  `seed = NeighborSeed.from_axes(...); fm = seed.ingest(lon_out, lat_out, t1=...)`.
+  `seed = NeighborSeed.from_axes(...); fm = seed.pset_to_flowmap(lon_out, lat_out, t1=...)`.
 - **`tests/test_grids.py`** — split into seed-shape tests (no `lon`/`lat`, no
   `T` on a seed) and flow-map-shape tests; drop the identity (`lon == lon_0`)
   and `T == t0 - t0` assertions (they no longer exist on a seed).
 - **`tests/test_roundtrip.py`** — `seed.to_parcels_pset()` then
-  `seed.ingest(..., t1=)`; identity round-trip asserts `fm.ds["lon"] ≈
+  `seed.pset_to_flowmap(..., t1=)`; identity round-trip asserts `fm.ds["lon"] ≈
   seed.ds["lon_0"]`; the emit-ingest-emit losslessness test re-emits via
   `fm.to_seed().to_parcels_pset()`. Unpack the 3-tuple if the emit-time decision
   lands.
@@ -209,12 +216,13 @@ grids); no file split.
 - **`tests/test_lcs_parcels.py`** — assert the two new hierarchies instead of
   the `ParticleGrid` base.
 - **`examples/example_grid_pset.py`** (jupytext `.py`/`.md`/`.ipynb` triple) —
-  rewrite to the `Seed` → `ingest` → `FlowMap` flow and re-`jupytext --sync`;
+  rewrite to the `Seed` → `pset_to_flowmap` → `FlowMap` flow and
+  re-`jupytext --sync`;
   commit the `.ipynb` code-only.
 - **`AGENTS.md`** — update the boundary convention: emit via
-  `Seed.to_parcels_pset()` and ingest via `Seed.ingest(lon, lat, *, t1)`
-  returning a `FlowMap`; the seed owns `t0`, ingest takes `t1` and derives
-  `T = t1 - t0`.
+  `Seed.to_parcels_pset()` and ingest via
+  `Seed.pset_to_flowmap(lon, lat, *, t1)` returning a `FlowMap`; the seed owns
+  `t0`, ingest takes `t1` and derives `T = t1 - t0`.
 - **`docs/api.md`, `docs/architecture.md`, `docs/notation.md`** — replace the
   `ParticleGrid` description and the class diagram with the Seed/FlowMap pair
   and the two crossings.
