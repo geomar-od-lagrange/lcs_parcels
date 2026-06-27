@@ -146,9 +146,29 @@ A release series (sweep `t0`) is therefore an *external loop* over scalar `t0`:
 each release is advected independently and ingested to a scalar-`(t0, T)`
 `FlowMap`, then assembled with `xr.concat`/`combine_by_coords` into the
 `(i, j, t0, T)` cube — the same self-aligning assembly the lifecycle-invariant
-section relies on. This matches "scalar at the boundary, dims in the cube":
-independent FTLE runs are naturally separate Parcels psets anyway, so nothing is
-lost by not packing a `t0` dim into a single emit.
+section relies on. This matches "scalar at the boundary, dims in the cube". The
+flow maps of a sweep are *diagnostically* independent regardless (each `t0`
+needs its own coherent stencil to finite-difference), so the loop costs nothing
+mathematically. It does forgo Parcels' native staggered/continuous release in a
+*single* `execute` — but that is an emit-side convenience only: a caller who
+wants one run can still replicate the emitted `(lon, lat)` across `K` release
+stamps themselves, then call `pset_to_flowmap` once per `t0`-subgroup at ingest
+(the `particle` MultiIndex partitions cleanly). Time-free `Seed` neither
+requires nor forbids that; it just keeps emit a flat 2-tuple.
+
+**Contract — `t0` must agree at both ends.** Because the seed no longer owns
+`t0`, the release time is consumed in *two* places the package cannot tie
+together: the caller builds the Parcels `ParticleSet` at release time `t0` (and
+integrates with `dt` of sign `sign(t1 - t0)`), and ingest is told `t0`/`t1`
+again. The `t0` passed to `pset_to_flowmap` **must equal** the release time used
+to build the `ParticleSet`, and `sign(t1 - t0)` **must match** the integration
+direction — otherwise the FTLE normalization `1/|T|` and the attracting/repelling
+polarity `sign(T)` are silently wrong about the very quantity that also selected
+the sampled velocity field. In the recommended external loop the loop variable
+threads into both calls, so it is named once in practice; the example must show
+exactly that. (An explicit per-release binding object — `Release(seed, t0)` that
+both emits and ingests — would re-anchor `t0` to one place, but is deferred as
+over-engineering until the loop discipline proves insufficient.)
 
 ## Dataset schemas
 
@@ -163,8 +183,11 @@ variables**; `t0`/`T` are coordinates (so they propagate onto derived fields).
 | `AuxiliaryFlowMap` | `i, j, displacement` (+ `t0, T`) | `lon_0, lat_0 (i,j,displacement)`, `lon_c, lat_c (i,j)`, `displacement`, `t0, T` | `lon, lat (i,j,displacement…)` |
 
 A `Seed` is "all coordinates" (no data vars) — its payload is the release
-positions $x_0$. A `FlowMap` adds the advected $F_{t_0}^{t_1}(x_0)$ as the only
-data vars and the derived signed `T`.
+positions $x_0$. A `FlowMap` adds the advected $F_{t_0}^{t_1}(x_0)$ as its only
+data vars, plus `t0` and the derived signed `T` as coordinates. (A single
+`FlowMap` carries `t0`/`T` as *scalar* coords; they become the `t0`/`T` axes
+only in the assembled cube. `t1` is not stored — it is recoverable as
+`t0 + T`.)
 
 ## Class structure
 
@@ -181,15 +204,21 @@ per-stencil.
   `_flowmap_cls`.
 - **`FlowMap` (ABC)**: `deformation_gradient` (abstract, per stencil);
   `cauchy_green`, `cg_eigen`, `ftle` (concrete on the base, unchanged from
-  today); `to_seed` (concrete — drop advected `lon`/`lat`, `t0`, and `T`,
-  construct `self._seed_cls(ds)`). Concrete flow maps set `_seed_cls`.
-- **Shared infrastructure** stays module-level functions, used by both families
-  without duplication: `EARTH_RADIUS_M`, `_lonlat_to_meters`,
-  `_meters_to_lonlat`, `_assemble_tensor`, and the centroid metric helpers
-  (`_reference_lonlat`, `_to_meters`). The metric is needed by `AuxiliarySeed`
-  (arm layout in meters) *and* both `FlowMap`s (the grad F denominator), so it
-  cannot belong to either base alone. Module-level keeps it shared with no
-  adapter layer.
+  today); `_integration_seconds` (concrete — reads `self.ds["T"]`, so it moves
+  here from today's `ParticleGrid`; it is `T`-dependent and cannot live on a
+  time-free `Seed`); `to_seed` (concrete — drop advected `lon`/`lat`, `t0`, and
+  `T`, construct `self._seed_cls(ds)`). Concrete flow maps set `_seed_cls`.
+- **Shared infrastructure** becomes module-level functions, used by both
+  families without duplication: `EARTH_RADIUS_M`, `_DEG`, `_lonlat_to_meters`,
+  `_meters_to_lonlat`, `_assemble_tensor` (already module-level today), and the
+  centroid metric helpers `_reference_lonlat` and `_to_meters` (currently
+  *instance methods* on `ParticleGrid` — they must be **lifted to module-level
+  functions taking explicit `(lon_ref, lat_ref)`** as part of this migration).
+  The metric is needed by `AuxiliarySeed` (arm layout in meters) *and* both
+  `FlowMap`s (the grad F denominator), so it cannot belong to either base alone.
+  Module-level keeps it shared with no adapter layer. Carrying `lon_0`/`lat_0`
+  untouched across `pset_to_flowmap` keeps the centroid reference bit-identical
+  between a seed's arm layout and its flow map's `grad F` denominator.
 
 Keep everything in `src/lcs_parcels/grids.py` (the module still holds particle
 grids); no file split.
@@ -197,15 +226,27 @@ grids); no file split.
 ## Migration (follow through — leave nothing half-done)
 
 - **`src/lcs_parcels/grids.py`** — implement the four classes + two ABCs as
-  above; delete `ParticleGrid` and the identity/`T=0` seeding.
+  above; delete `ParticleGrid` and the identity/`T=0` seeding. Drop the `t0`
+  parameter from `from_axes` (the seed is time-free). Lift `_reference_lonlat`
+  and `_to_meters` from instance methods to module-level functions, and move
+  `_integration_seconds` onto the `FlowMap` base. Guard ingest against `T == 0`
+  (raise, or at minimum let `ftle` not silently divide by zero) — the identity
+  round-trip `pset_to_flowmap(*to_parcels_pset(), t0=t, t1=t)` is one keystroke
+  from it, and removing that footgun is the whole point of the split. Update the
+  `from_parcels_pset_lon_lat` docstring's "multiple release times … are just
+  extra broadcast dimensions" claim, which the external-loop model retires.
 - **`src/lcs_parcels/__init__.py`** — export `Seed, NeighborSeed,
   AuxiliarySeed, FlowMap, NeighborFlowMap, AuxiliaryFlowMap`; drop the
   `ParticleGrid`/`NeighborGrid`/`AuxiliaryGrid` names.
 - **`tests/conftest.py`** — the `advected_grid` helper becomes
   `seed = NeighborSeed.from_axes(...); fm = seed.pset_to_flowmap(lon_out, lat_out, t0=..., t1=...)`.
+  Note `from_axes` no longer takes `t0=` — drop it at every call site (conftest,
+  `test_grids.py`, `test_roundtrip.py`, `example_grid_pset.py`); `t0` now appears
+  only at the `pset_to_flowmap` call.
 - **`tests/test_grids.py`** — split into seed-shape tests (no `lon`/`lat`, no
-  `T` on a seed) and flow-map-shape tests; drop the identity (`lon == lon_0`)
-  and `T == t0 - t0` assertions (they no longer exist on a seed).
+  `t0`, no `T` on a seed) and flow-map-shape tests; drop the identity
+  (`lon == lon_0`), the `T == t0 - t0`, **and** the `ds["t0"] == t0` seed
+  assertions (none exist on a time-free seed).
 - **`tests/test_roundtrip.py`** — `seed.to_parcels_pset()` then
   `seed.pset_to_flowmap(..., t0=, t1=)`; identity round-trip asserts
   `fm.ds["lon"] ≈ seed.ds["lon_0"]`; the emit-ingest-emit losslessness test
@@ -224,20 +265,31 @@ grids); no file split.
   `Seed.pset_to_flowmap(lon, lat, *, t0, t1)` returning a `FlowMap`; the seed is
   **time-free**, ingest takes both `t0` and `t1` and derives `T = t1 - t0`.
   Replaces the current "the seed grid owns its release time `t0`" wording.
-- **`docs/api.md`, `docs/architecture.md`, `docs/notation.md`** — replace the
-  `ParticleGrid` description and the class diagram with the Seed/FlowMap pair
+- **`docs/api.md`, `docs/architecture.md`** — replace the `ParticleGrid`
+  description and the `architecture.md` class diagram with the Seed/FlowMap pair
   and the two crossings.
+- **`docs/notation.md`** — no `ParticleGrid` description or class diagram lives
+  here; it only references `NeighborGrid`/`AuxiliaryGrid` in the symbol and
+  data-model tables. Rename those two concrete classes to the
+  Seed/FlowMap pair and update the data-model rows so `t0`/`T` sit on the flow
+  map, not the seed.
 - **`plans/lcs-api-design.md`, `plans/timing-design.md`** — mark the
-  single-`ParticleGrid` framing as superseded by this note; the timing model
-  (release time enters at ingest, derive signed `T`, scalar-at-boundary) is
-  unchanged in substance, now enforced structurally by a time-free `Seed`.
+  single-`ParticleGrid` framing as superseded by this note. The signed-`T`,
+  scalar-at-boundary core is unchanged, but the release-series mechanism is
+  **not**: both plans currently describe multiple `t0` as "extra broadcast
+  dimensions … no special machinery" on the seed, which a time-free `Seed`
+  replaces with an external loop + `xr.concat`. Rewrite that prose (don't just
+  stamp "superseded") so the repo isn't left internally contradictory.
 
 ## Verification
 
 - `pixi run -e dev pytest` green (seed-shape, flow-map-shape, round-trip
   including `to_seed` re-emit, operators, backward integration, NaN
-  propagation).
+  propagation, and the new `T == 0` ingest guard).
 - `ruff` clean.
 - `jupytext --sync examples/example_grid_pset.py` then execute the notebook;
   confirm the printed identity round-trip and the FTLE field come out as the
-  prose claims (no claimed result that hasn't actually run).
+  prose claims (no claimed result that hasn't actually run). The example must
+  thread one `t0` variable into *both* the (mocked) release and the
+  `pset_to_flowmap(t0=...)` call, demonstrating the "agree at both ends"
+  contract rather than hard-coding `t0` twice.
