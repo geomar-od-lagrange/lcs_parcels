@@ -7,7 +7,6 @@ objects, per AGENTS.md.
 
 import numpy as np
 import pytest
-import xarray as xr
 
 
 # --- synthetic axis inputs -------------------------------------------------
@@ -65,14 +64,17 @@ def apply_linear_map_to_pset(lon, lat, M, origin):
     return list(lon_out), list(lat_out)
 
 
-def advected_grid(cls, lon_axis, lat_axis, M, t0, t1):
-    """Build an advected grid from a constant linear map ``M``.
+def advected_flowmap(seed_cls, lon_axis, lat_axis, M, t0, t1):
+    """Build an advected ``FlowMap`` from a constant linear map ``M``.
 
-    Seed ``cls`` from the 1-D axes, emit its particle set, advect every flat
-    position through the constant linear map ``M`` about the grid CENTROID, then
-    ingest the advected positions and return the resulting grid.
+    Seed ``seed_cls`` from the 1-D axes (the seed is TIME-FREE, so ``from_axes``
+    takes no ``t0``), emit its particle set, advect every flat position through
+    the constant linear map ``M`` about the seed CENTROID, then ingest the
+    advected positions via ``seed.pset_to_flowmap`` -- where the window enters as
+    ``t0`` (release time) and ``t1`` (end time), from which the signed
+    ``T = t1 - t0`` is derived -- and return the resulting ``FlowMap``.
 
-    The advection ``origin`` is the grid centroid
+    The advection ``origin`` is the seed centroid
     ``(float(seed.ds['lon_0'].mean()), float(seed.ds['lat_0'].mean()))`` so it
     coincides with the implementation's single reference longitude/latitude (the
     local-tangent meters frame is anchored at the same point). Because both the
@@ -80,8 +82,8 @@ def advected_grid(cls, lon_axis, lat_axis, M, t0, t1):
     frame, the deformation gradient recovers ``M`` exactly -- the off-diagonal
     terms of ``M`` survive only when the read-back frame matches the map frame.
     """
-    seed = cls.from_axes(lon_axis, lat_axis, t0=t0)
+    seed = seed_cls.from_axes(lon_axis, lat_axis)
     lon, lat = seed.to_parcels_pset()
     origin = (float(seed.ds["lon_0"].mean()), float(seed.ds["lat_0"].mean()))
     lon_out, lat_out = apply_linear_map_to_pset(lon, lat, M, origin)
-    return cls.from_parcels_pset_lon_lat(seed, lon_out, lat_out, t1=t1)
+    return seed.pset_to_flowmap(lon_out, lat_out, t0=t0, t1=t1)

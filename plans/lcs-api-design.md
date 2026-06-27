@@ -6,6 +6,17 @@ the `docs/api.md` sketch with a real API doc once the code exists.
 
 # LCS-Parcels API design plan
 
+> **Superseded by [`plans/seed-flowmap-design.md`](seed-flowmap-design.md) for
+> the class structure and timing.** The single `ParticleGrid` hierarchy
+> (`NeighborGrid`/`AuxiliaryGrid`) described below has been split into two
+> sibling families: a time-free `Seed` family (`Seed`, `NeighborSeed`,
+> `AuxiliarySeed`) and a `FlowMap` family (`FlowMap`, `NeighborFlowMap`,
+> `AuxiliaryFlowMap`). The seed carries no time; both `t0` and `t1` enter at
+> ingest (`Seed.pset_to_flowmap(lon, lat, *, t0, t1)`). The signed-`T`,
+> scalar-at-boundary core is unchanged in substance. Read the seed/flow-map note
+> for the current design; the prose below has been corrected for the split but is
+> otherwise a historical record.
+
 Status: implemented. The design below is realized in
 [`src/lcs_parcels/grids.py`](../src/lcs_parcels/grids.py) with a green test
 suite (`tests/`). This document records the design rationale; the live API
@@ -32,10 +43,11 @@ The realized package provides:
 
 This package is the **diagnostic layer** that sits on top of trajectory
 integration. It contains **no Parcels code**: it emits particle sets and ingests
-results, nothing more. A seed grid owns its release time `$t_0$`; ingest is given
-the end time `$t_1$` and derives the signed window `$T = t_1 - t_0$`, so
-direction (forward/backward) is implied by `$\operatorname{sign}(T)$` and this
-package never needs a separate direction flag. See
+results, nothing more. A `Seed` is time-free; ingest
+(`pset_to_flowmap(lon, lat, *, t0, t1)`) is given both the release time $t_0$ and
+the end time $t_1$ and derives the signed window $T = t_1 - t_0$, so direction
+(forward/backward) is implied by $\operatorname{sign}(T)$ and this package never
+needs a separate direction flag. See
 [`plans/timing-design.md`](timing-design.md).
 
 We provide:
@@ -74,6 +86,12 @@ it does not subclass `xr.Dataset`, which xarray discourages). Operators are
 methods on these classes. All internal access uses the high-level, label-based
 xarray API (`.isel`, `.sel`, named dims), never positional indexing.
 
+> Superseded structure (see [`plans/seed-flowmap-design.md`](seed-flowmap-design.md)):
+> the single `ParticleGrid` hierarchy below is now two sibling families. Read
+> `Seed`/`NeighborSeed`/`AuxiliarySeed` (time-free, emit) wherever the text says
+> `ParticleGrid`/`NeighborGrid`/`AuxiliaryGrid` *before* advection, and
+> `FlowMap`/`NeighborFlowMap`/`AuxiliaryFlowMap` (advected, diagnostics) *after*.
+
 ```
 ParticleGrid (ABC, composition wrapper around .ds)
 ├── NeighborGrid     # stencil = neighboring grid points (i +/- 1, j +/- 1)
@@ -90,26 +108,30 @@ ParticleGrid (ABC, composition wrapper around .ds)
 > separation, integration window in days.
 
 ### Common state (base `ParticleGrid`)
-- `.ds`: `xr.Dataset` with logical dims `i, j` carrying two position pairs (2D
-  lon/lat, so curvilinear/non-rectangular grids work):
+- `.ds`: `xr.Dataset` with logical dims `i, j`. A `Seed` carries only the
+  reference release positions; the advected positions appear on the `FlowMap`
+  produced at ingest (2D lon/lat, so curvilinear/non-rectangular grids work):
   - reference coordinates `lon_0(i, j)`, `lat_0(i, j)` — the release positions
-    $x_0$ (for `NeighborGrid` the grid points themselves; `AuxiliaryGrid`
+    $x_0$ (for `NeighborSeed` the grid points themselves; `AuxiliarySeed`
     elaborates these onto a `displacement` arm dim and keeps the diagnostic
-    centres as a separate `lon_c`/`lat_c` pair — see below);
+    centres as a separate `lon_c`/`lat_c` pair — see below). These live on both
+    the seed and the flow map.
   - advected data variables `lon(i, j)`, `lat(i, j)` — the flow map
-    $F_{t_0}^{t_1}(x_0)$ (the particle's actual position, as in Parcels).
-    `from_axes` seeds them equal to the reference (the identity
-    $F_{t_0}^{t_0}(x_0) = x_0$); ingest overwrites only these.
-- Release time `t0` (`datetime64`), recorded at seeding so the grid owns its own
-  `t0`, and the signed window `T` (`timedelta64`, zero on a seed); see
+    $F_{t_0}^{t_1}(x_0)$ (the particle's actual position, as in Parcels). These
+    exist **only on the `FlowMap`**, set at ingest. A `Seed` has no advected
+    positions and no identity-seeded `lon`/`lat`; the old $F_{t_0}^{t_0}(x_0) = x_0$
+    fiction is gone.
+- The release time `t0` (`datetime64`) and the signed window `T` (`timedelta64`)
+  live **only on the `FlowMap`**, both derived at ingest from the `(t0, t1)`
+  arguments — the seed is time-free; see
   [`plans/timing-design.md`](timing-design.md).
 - Resolution metadata (`dlon`, `dlat`) as coords/attrs.
 
-### `NeighborGrid`
+### `NeighborSeed` / `NeighborFlowMap`
 - No extra dims. The deformation gradient is differenced against neighboring
   grid points `(i +/- 1, j +/- 1)`.
 
-### `AuxiliaryGrid`
+### `AuxiliarySeed` / `AuxiliaryFlowMap`
 - Adds a *fixed* four-arm displacement stencil on a single `displacement` dim
   (`displacement = ['east', 'north', 'west', 'south']`) placed at $\pm s$ meters
   about each centre (`aux_separation_m`) — Haller's auxiliary grid (Eq. 9). The
@@ -127,22 +149,29 @@ ParticleGrid (ABC, composition wrapper around .ds)
 
 Kept deliberately minimal:
 
-- `to_parcels_pset() -> tuple[list, list]` — flatten the **reference** positions
-  $x_0$ (`lon_0`, `lat_0`) to plain lists for Parcels. Internally
+- `Seed.to_parcels_pset() -> tuple[list, list]` — flatten the **reference**
+  positions $x_0$ (`lon_0`, `lat_0`) to plain lists for Parcels. Internally
   `.stack(particle=('i','j'))` or `(...,'displacement')`; the `particle`
   MultiIndex is the lossless inverse.
-- `from_parcels_pset_lon_lat(seed, lon, lat, *, t1) -> ParticleGrid` — factory
-  that reattaches advected positions to the `particle` coord as the flow map
-  `lon`/`lat` (leaving the reference `lon_0`/`lat_0` untouched), `.unstack()`s
-  back to the grid, and records `t0` (from the seed) and the derived signed
-  window `T = t1 - t0` (`timedelta64`, needed for FTLE). Only the end time `t1`
-  (`datetime64`) is passed; the seed owns `t0`. See
+- `Seed.pset_to_flowmap(lon, lat, *, t0, t1) -> FlowMap` — ingest factory
+  (a behaviour of the seed) that reattaches advected positions to the `particle`
+  coord as the flow map `lon`/`lat` (leaving the reference `lon_0`/`lat_0`
+  untouched), `.unstack()`s back to the grid, and records `t0` and the derived
+  signed window `T = t1 - t0` (`timedelta64`, needed for FTLE) on the returned
+  `FlowMap`. **Both** the release time `t0` and the end time `t1` (`datetime64`)
+  are passed here — the seed is time-free. `FlowMap.to_seed()` collapses an
+  advected flow map back to a time-free seed. See
   [`plans/timing-design.md`](timing-design.md).
 
-Multiple release times `t0` and multiple integration times `T` are just extra
-broadcast dimensions — handled by xarray, no special machinery. Particle loss
-arrives as NaN and propagates naturally; cells with a missing stencil point
-yield NaN `$\nabla F$`.
+A single `FlowMap` carries scalar `t0`/`T`. A release series (sweep `t0`) or a
+window sweep (`T`) is an **external loop**: each release is emitted, advected
+independently, and ingested via `pset_to_flowmap(..., t0=, t1=)` to a
+scalar-`(t0, T)` `FlowMap`, then the per-run flow maps are assembled into the
+`(i, j, t0, T)` cube with `xr.concat`/`combine_by_coords` (self-aligning, since
+each carries its own scalar `t0`/`T`). The time-free seed cannot carry a `t0`
+dimension, so this is no longer "extra broadcast dimensions on the seed". Particle
+loss arrives as NaN and propagates naturally; cells with a missing stencil point
+yield NaN $\nabla F$.
 
 ## Operators (methods)
 
@@ -185,8 +214,8 @@ analytically from $R$ and $\phi$.
 
 **v1 (implemented):** seed -> deformation gradient -> $C$ -> eigen -> FTLE and
 eigen-derived scalar fields (signatures, types, docstrings, tests, and the
-numerical implementation). Both `NeighborGrid` and `AuxiliaryGrid` are
-first-class.
+numerical implementation). Both stencils (`Neighbor*` and `Auxiliary*`, across
+the `Seed`/`FlowMap` families) are first-class.
 
 **Deferred (separate module):** the geometric LCS layer — shrink/stretch/shear
 lines, elliptic (vortex) LCS via closed shear lines (Eqs. 10–11, Table 1). This
@@ -195,16 +224,18 @@ different problem from pointwise grid algebra.
 
 ## Resolved review questions
 
-1. Differentiation modes — **both first-class**, no default; modeled as two
-   classes (`NeighborGrid`, `AuxiliaryGrid`).
+1. Differentiation modes — **both first-class**, no default; modeled as the two
+   stencils (`Neighbor*`, `Auxiliary*`) on each of the `Seed`/`FlowMap`
+   families.
 2. Metric — **meters-based** local tangent frame; not critical (tiny-separation
    regime).
 3. v1 scope — **stop at FTLE + eigen fields**; defer tensor-line / elliptic LCS.
 4. Tensor storage — **component-dim DataArrays**.
 5. Where operators live — **composition wrapper classes**, not `xr.Dataset`
    subclassing and not an accessor.
-6. Timing input — the seed **owns `t0`** (set in `from_axes`); ingest takes `t1`
-   and derives signed `T = t1 - t0`. Direction is `sign(T)`. See
+6. Timing input — the seed is **time-free**; ingest
+   (`pset_to_flowmap(lon, lat, *, t0, t1)`) takes **both** `t0` and `t1` and
+   derives signed `T = t1 - t0` on the `FlowMap`. Direction is `sign(T)`. See
    [`plans/timing-design.md`](timing-design.md).
 7. Auxiliary stencil — **fixed four arms** `['east', 'north', 'west', 'south']`
    on one `displacement` dim, enforced in `from_axes` (no center, no diagonals).

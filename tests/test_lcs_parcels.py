@@ -1,11 +1,19 @@
-"""Package-level sanity checks: import, version, and class hierarchy."""
+"""Package-level sanity checks: import, version, and class hierarchies."""
 
 import inspect
 
 import pytest
+import xarray as xr
 
 import lcs_parcels
-from lcs_parcels import AuxiliaryGrid, NeighborGrid, ParticleGrid
+from lcs_parcels import (
+    AuxiliaryFlowMap,
+    AuxiliarySeed,
+    FlowMap,
+    NeighborFlowMap,
+    NeighborSeed,
+    Seed,
+)
 
 
 def test_version():
@@ -13,25 +21,49 @@ def test_version():
 
 
 def test_public_classes_importable():
-    # The three public classes are exported from the top-level package.
-    assert inspect.isclass(ParticleGrid)
-    assert inspect.isclass(NeighborGrid)
-    assert inspect.isclass(AuxiliaryGrid)
+    # Both ABCs and all four concrete classes are exported from the top level.
+    for cls in (
+        Seed,
+        NeighborSeed,
+        AuxiliarySeed,
+        FlowMap,
+        NeighborFlowMap,
+        AuxiliaryFlowMap,
+    ):
+        assert inspect.isclass(cls)
 
 
-def test_class_hierarchy():
-    # Both concrete grids are subclasses of the abstract base.
-    assert issubclass(NeighborGrid, ParticleGrid)
-    assert issubclass(AuxiliaryGrid, ParticleGrid)
+def test_seed_hierarchy():
+    # Both concrete seeds subclass the abstract Seed base.
+    assert issubclass(NeighborSeed, Seed)
+    assert issubclass(AuxiliarySeed, Seed)
     # They are distinct, first-class types (no default / fallback).
-    assert NeighborGrid is not AuxiliaryGrid
+    assert NeighborSeed is not AuxiliarySeed
 
 
-def test_particle_grid_is_abstract():
-    # ParticleGrid is an ABC: its abstract methods (from_axes, to_parcels_pset,
-    # from_parcels_pset_lon_lat, deformation_gradient) make it non-instantiable,
-    # so only the concrete grids can be seeded.
-    import xarray as xr
+def test_flowmap_hierarchy():
+    # Both concrete flow maps subclass the abstract FlowMap base.
+    assert issubclass(NeighborFlowMap, FlowMap)
+    assert issubclass(AuxiliaryFlowMap, FlowMap)
+    assert NeighborFlowMap is not AuxiliaryFlowMap
 
+
+def test_families_are_disjoint():
+    # Seed and FlowMap are sibling families, not an inheritance pair: a FlowMap
+    # is not a kind of Seed (it emits nothing) and vice versa.
+    assert not issubclass(FlowMap, Seed)
+    assert not issubclass(Seed, FlowMap)
+
+
+def test_seed_is_abstract():
+    # Seed is an ABC: its abstract method (from_axes) makes it non-instantiable,
+    # so only the concrete seeds can be built.
     with pytest.raises(TypeError):
-        ParticleGrid(xr.Dataset())
+        Seed(xr.Dataset())
+
+
+def test_flowmap_is_abstract():
+    # FlowMap is an ABC: its abstract method (deformation_gradient) makes it
+    # non-instantiable, so only the concrete flow maps can be built.
+    with pytest.raises(TypeError):
+        FlowMap(xr.Dataset())

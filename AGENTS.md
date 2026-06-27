@@ -59,12 +59,12 @@ feedback and are binding unless a task explicitly overrides them.
   concepts as distinct types. Don't branch on `"displacement" in ds.dims` or
   similar sniffing to decide behavior.
 - **Keep external dependencies at the boundary.** This package contains no
-  Parcels code. Provide objects that *emit* particle sets
-  (`.to_parcels_pset()`) and factory methods that *ingest* results
-  (`from_parcels_pset_lon_lat(...)`). The package neither imports nor drives
-  Parcels; the seed grid owns its release time `t0`, and ingest takes the end
-  time `t1` and derives the signed window `T = t1 - t0` (so direction is
-  `sign(T)`).
+  Parcels code. A `Seed` is **time-free** and *emits* a particle set via
+  `Seed.to_parcels_pset()` (a 2-tuple `(lon, lat)`); ingest is
+  `Seed.pset_to_flowmap(lon, lat, *, t0, t1) -> FlowMap`, which takes **both**
+  `t0` and `t1` and derives the signed window $T = t_1 - t_0$ (so direction is
+  `sign(T)`). A `FlowMap` collapses back to a time-free seed via
+  `FlowMap.to_seed()`. The package neither imports nor drives Parcels.
 - **Avoid over-engineering.** Favor a small, concrete API — a few well-named
   methods — over layered adapters and indirection. Add structure when a concrete
   need appears, not before.

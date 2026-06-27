@@ -10,9 +10,12 @@ Parcels code: it only emits particle sets and ingests their advected positions.
 from __future__ import annotations
 
 from lcs_parcels.grids import (
-    AuxiliaryGrid,
-    NeighborGrid,
-    ParticleGrid,
+    AuxiliaryFlowMap,
+    AuxiliarySeed,
+    FlowMap,
+    NeighborFlowMap,
+    NeighborSeed,
+    Seed,
 )
 
 __version__ = "0.1.0"
@@ -21,7 +24,10 @@ __version__ = "0.1.0"
 # stays reachable as lcs_parcels.grids.EARTH_RADIUS_M but is not part of the
 # public surface.
 __all__ = [
-    "AuxiliaryGrid",
-    "NeighborGrid",
-    "ParticleGrid",
+    "AuxiliaryFlowMap",
+    "AuxiliarySeed",
+    "FlowMap",
+    "NeighborFlowMap",
+    "NeighborSeed",
+    "Seed",
 ]
