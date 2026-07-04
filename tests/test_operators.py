@@ -28,8 +28,9 @@ indexing.
 import numpy as np
 import xarray as xr
 
-from conftest import advected_flowmap
+from conftest import advected_flowmap, advected_flowmap_f
 from lcs_parcels import AuxiliarySeed, NeighborSeed
+from lcs_parcels.grids import _lonlat_to_meters
 
 # Release time recorded on the seed and integration end time supplied at ingest;
 # the signed window T = T1 - T0 spans one day (|T| = 86400 s). See
@@ -107,6 +108,48 @@ def test_deformation_gradient_equals_M_auxiliary(lon_axis, lat_axis):
 
     assert bool(gradF.notnull().all())
     assert float(abs(gradF - M_TENSOR).max()) < 1e-6
+
+
+def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
+    """AuxiliarySeed: gradF equals a spatially-VARYING analytic Jacobian.
+
+    Every other operator test drives a constant linear map ``M``, for which
+    ``gradF == M`` at every point regardless of the arm span, grid position, or
+    metric scale (the meters/meters ratio cancels it out). That leaves the
+    auxiliary stencil's per-point differencing unpinned. Here the map is quadratic
+    in the meters frame, ``f(dx, dy) = (dx + a*dx**2, dy + b*dy**2)``, whose exact
+    Jacobian is ``diag(1 + 2*a*X, 1 + 2*b*Y)`` with ``(X, Y)`` each grid centre's
+    meters position from the centroid. Central differencing is EXACT for a
+    quadratic (the third derivative vanishes) and the auxiliary gradient divides by
+    the actual read-back reference span, so gradF must match the analytic per-point
+    Jacobian to ~1e-6 -- pinning genuine per-point differencing, not a global
+    constant.
+    """
+    a, b = 1.0e-6, -0.8e-6
+
+    def f(dx, dy):
+        return dx + a * dx**2, dy + b * dy**2
+
+    g = advected_flowmap_f(AuxiliarySeed, lon_axis, lat_axis, f, T0, T1)
+    gradF = g.deformation_gradient()
+
+    lon_c, lat_c = g.ds["lon_c"], g.ds["lat_c"]
+    lon0 = float(g.ds["lon_0"].mean())
+    lat0 = float(g.ds["lat_0"].mean())
+    X, Y = _lonlat_to_meters(lon_c, lat_c, lon0, lat0)  # centre meters, dims (i, j)
+    fxx = 1 + 2 * a * X
+    fyy = 1 + 2 * b * Y
+    zero = xr.zeros_like(X)
+    row_x = xr.concat([fxx, zero], dim="col")
+    row_y = xr.concat([zero, fyy], dim="col")
+    expected = xr.concat([row_x, row_y], dim="row").assign_coords(
+        row=["x", "y"], col=["x", "y"]
+    )
+    assert float(abs(gradF - expected).max()) < 1e-6
+
+    # sanity: the Jacobian genuinely VARIES across the grid (not the constant-M
+    # case), so this test exercises per-point differencing.
+    assert float(fxx.max() - fxx.min()) > 0.1
 
 
 # --- Cauchy-Green ----------------------------------------------------------

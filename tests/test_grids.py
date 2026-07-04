@@ -11,6 +11,7 @@ which returns a ``FlowMap`` carrying scalar ``t0``/``T`` coords and ``lon``/
 import numpy as np
 
 from lcs_parcels import AuxiliarySeed, NeighborSeed
+from lcs_parcels.grids import _lonlat_to_meters
 
 # Release/end times supplied only at ingest (the seed itself is time-free).
 T0 = np.datetime64("2020-01-01")
@@ -103,6 +104,39 @@ def test_only_auxiliary_has_stencil(lon_axis, lat_axis):
     assert aus.ds.sizes["displacement"] == 4
     assert set(aus.ds["lon_0"].dims) == {"i", "j", "displacement"}
     assert "lon_c" in aus.ds.coords and "lat_c" in aus.ds.coords
+
+
+def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
+    """AuxiliarySeed places its four arms at exactly +/- ``aux_separation_m``.
+
+    Pins the arm placement AND the ``aux_separation_m`` parameter -- both of which
+    the affine operator tests cancel out (for a constant linear map ``gradF == M``
+    regardless of the arm span, so a wrong ``s`` or a mislabelled/miswired arm goes
+    unnoticed). Here we read the arm positions back into the single grid-reference
+    meters frame (:func:`_lonlat_to_meters`) with a NON-DEFAULT separation and
+    assert: the east-west and north-south spans are each exactly ``2s``, opposing
+    arms share the centre on the other axis (no cross-offset), and the geographic
+    direction of each labelled arm is correct.
+    """
+    s = 2_500.0  # non-default aux_separation_m
+    seed = AuxiliarySeed.from_axes(lon_axis, lat_axis, aux_separation_m=s)
+    lon0, lat0 = seed.ds["lon_0"], seed.ds["lat_0"]
+    lon_c, lat_c = seed.ds["lon_c"], seed.ds["lat_c"]
+    lon_ref, lat_ref = float(lon_c.mean()), float(lat_c.mean())
+    x, y = _lonlat_to_meters(lon0, lat0, lon_ref, lat_ref)  # dims (i, j, displacement)
+
+    ew = x.sel(displacement="east") - x.sel(displacement="west")
+    ns = y.sel(displacement="north") - y.sel(displacement="south")
+    assert float(abs(ew - 2 * s).max()) < 1e-6  # east-west span == 2s
+    assert float(abs(ns - 2 * s).max()) < 1e-6  # north-south span == 2s
+
+    # opposing arms share the centre on the OTHER axis (no cross-offset)
+    assert float(abs(y.sel(displacement="east") - y.sel(displacement="west")).max()) < 1e-6
+    assert float(abs(x.sel(displacement="north") - x.sel(displacement="south")).max()) < 1e-6
+
+    # geographic direction is correct
+    assert float((lon0.sel(displacement="east") - lon0.sel(displacement="west")).min()) > 0
+    assert float((lat0.sel(displacement="north") - lat0.sel(displacement="south")).min()) > 0
 
 
 # --- flow-map shape --------------------------------------------------------

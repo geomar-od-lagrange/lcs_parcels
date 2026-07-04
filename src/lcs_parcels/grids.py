@@ -111,14 +111,6 @@ def _lonlat_to_meters(lon, lat, lon_ref: float, lat_ref: float):
     return x, y
 
 
-def _meters_to_lonlat(x, y, lon_ref: float, lat_ref: float):
-    """Inverse of :func:`_lonlat_to_meters`, sharing the one reference latitude."""
-    c = np.cos(lat_ref * _DEG)
-    lon = lon_ref + x / (EARTH_RADIUS_M * c * _DEG)
-    lat = lat_ref + y / (EARTH_RADIUS_M * _DEG)
-    return lon, lat
-
-
 def _reference_lonlat(lon_0: xr.DataArray, lat_0: xr.DataArray) -> tuple[float, float]:
     """The single grid reference point ``(lon_ref, lat_ref)`` = centroid means.
 
@@ -173,8 +165,12 @@ class Seed(abc.ABC):
     dataset is held in :attr:`ds` (this class does *not* subclass ``xr.Dataset``,
     which xarray discourages).
 
-    The dataset has logical grid dimensions ``i, j``; two-dimensional lon/lat
-    support curvilinear / non-rectangular grids. For :class:`NeighborSeed` the
+    The dataset has logical grid dimensions ``i, j``; the two-dimensional
+    ``lon_0``/``lat_0`` fields can represent curvilinear / non-rectangular grids.
+    Operator-level support depends on the stencil: :class:`AuxiliaryFlowMap`
+    handles genuinely curvilinear grids, whereas :class:`NeighborFlowMap` assumes
+    an axis-aligned (rectilinear) reference grid (see its docstring). For
+    :class:`NeighborSeed` the
     grid point is itself the release/diagnostic location, so ``lon_0``/``lat_0``
     are on ``(i, j)``; for :class:`AuxiliarySeed` they carry an extra
     ``displacement`` dim (the stencil arms) and the diagnostic centres
@@ -268,11 +264,13 @@ class Seed(abc.ABC):
         (and any auxiliary geometry) carried from the seed are left untouched.
         Lost particles arrive as NaN and propagate naturally. The release time
         ``t0`` and the derived signed window ``T = t1 - t0`` are recorded as
-        scalar coordinates (multiple releases/windows are just extra broadcast
-        dimensions handled by xarray). The ``reset_coords(drop=True)`` before
-        stacking is what keeps auxiliary centres ``lon_c``/``lat_c`` on ``(i, j)``
-        -- stacking the raw coord would broadcast them up to
-        ``(i, j, displacement)``.
+        scalar coordinates on the single returned flow map; a release/window
+        sweep is an *external* loop that assembles many scalar-``(t0, T)`` flow
+        maps into an ``(i, j, t0, T)`` cube via ``xr.concat`` /
+        ``combine_by_coords`` (see ``plans/seed-flowmap-design.md``). The
+        ``reset_coords(drop=True)`` before stacking is what keeps auxiliary
+        centres ``lon_c``/``lat_c`` on ``(i, j)`` -- stacking the raw coord would
+        broadcast them up to ``(i, j, displacement)``.
 
         Parameters
         ----------
@@ -518,12 +516,13 @@ class NeighborSeed(Seed):
     def from_axes(cls, lon: np.ndarray, lat: np.ndarray) -> Self:
         """Build a neighbour-stencil seed from 1-D lon/lat axes.
 
-        See :meth:`Seed.from_axes`. The 1-D axes are broadcast into curvilinear
-        2-D reference fields ``lon_0(i, j)`` / ``lat_0(i, j)`` (lon varies along
-        ``i``, lat along ``j``), held as the dataset's only coordinates -- no data
-        variables, no time.
+        See :meth:`Seed.from_axes`. The 1-D axes are broadcast into axis-aligned
+        (rectilinear) 2-D reference fields ``lon_0(i, j)`` / ``lat_0(i, j)`` (lon
+        varies along ``i``, lat along ``j``) -- the layout the paired
+        :class:`NeighborFlowMap` gradient assumes -- held as the dataset's only
+        coordinates; no data variables, no time.
         """
-        # Broadcast the 1-D axes into curvilinear 2-D fields on (i, j) with the
+        # Broadcast the 1-D axes into axis-aligned 2-D fields on (i, j) with the
         # high-level API; lon varies along i, lat along j.
         lon_axis = xr.DataArray(np.asarray(lon, dtype=float), dims="i")
         lat_axis = xr.DataArray(np.asarray(lat, dtype=float), dims="j")
@@ -648,6 +647,17 @@ class NeighborFlowMap(FlowMap):
     neighbouring grid points ``(i +/- 1, j +/- 1)``, so boundary cells lacking a
     neighbour are legitimately NaN. See Haller (2015) Eq. 9 and the paired
     :class:`NeighborSeed`.
+
+    Axis-aligned grids only. The neighbour gradient assumes the reference grid is
+    axis-aligned (rectilinear) -- ``lon_0`` varies only along ``i`` and ``lat_0``
+    only along ``j`` -- so each tensor column can be divided by a single axis
+    step. It drops the off-diagonal metric terms (``d lon_0 / d j`` and
+    ``d lat_0 / d i``) and is therefore *not* correct for a genuinely curvilinear
+    reference grid. :meth:`Seed.from_axes` always builds an axis-aligned grid, but
+    :meth:`FlowMap.__init__` accepts an arbitrary dataset, so the limitation is
+    latent rather than impossible. Use :class:`AuxiliaryFlowMap` for curvilinear
+    reference grids -- its arms are read in the single global meters frame, so it
+    stays exact regardless of grid orientation.
     """
 
     def deformation_gradient(self) -> xr.DataArray:
@@ -656,7 +666,13 @@ class NeighborFlowMap(FlowMap):
         The numerator is the separation of the *advected* neighbour positions
         (from the ingested outputs); the denominator is the *initial* neighbour
         separation in the shared single-reference-latitude meters frame
-        (:func:`_to_meters`). Boundary cells lacking a neighbour yield NaN. See
+        (:func:`_to_meters`). Boundary cells lacking a neighbour yield NaN.
+
+        Assumes an axis-aligned (rectilinear) reference grid: each column is
+        divided by a single axis step (``dx0`` along ``i``, ``dy0`` along ``j``),
+        exact only when ``lon_0`` varies solely along ``i`` and ``lat_0`` solely
+        along ``j`` so the cross-metric steps vanish. For a genuinely curvilinear
+        grid use :class:`AuxiliaryFlowMap` instead. See
         :meth:`FlowMap.deformation_gradient`.
         """
         x_adv, y_adv = _to_meters(

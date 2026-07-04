@@ -210,7 +210,7 @@ per-stencil.
   `T`, construct `self._seed_cls(ds)`). Concrete flow maps set `_seed_cls`.
 - **Shared infrastructure** becomes module-level functions, used by both
   families without duplication: `EARTH_RADIUS_M`, `_DEG`, `_lonlat_to_meters`,
-  `_meters_to_lonlat`, `_assemble_tensor` (already module-level today), and the
+  `_assemble_tensor` (already module-level today), and the
   centroid metric helpers `_reference_lonlat` and `_to_meters` (currently
   *instance methods* on `ParticleGrid` — they must be **lifted to module-level
   functions taking explicit `(lon_ref, lat_ref)`** as part of this migration).
