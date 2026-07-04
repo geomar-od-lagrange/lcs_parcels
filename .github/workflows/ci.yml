@@ -11,8 +11,14 @@ concurrency:
 
 jobs:
   test:
-    # macos-latest is Apple Silicon (arm64), matching the osx-arm64 pixi.lock.
-    runs-on: macos-latest
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Linux gates; macOS (Apple Silicon, osx-arm64) is an allowed-to-fail bonus.
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
