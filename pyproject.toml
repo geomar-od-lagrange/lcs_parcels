@@ -25,6 +25,9 @@ platforms = ["osx-arm64"]
 lcs_parcels = { path = ".", editable = true }
 
 [tool.pixi.tasks]
+test = "pytest"
+# Re-run the example against the current API; a stale example fails here.
+check-example = "jupytext --to notebook --execute examples/example_grid_pset.py --output /tmp/lcs_parcels_example_check.ipynb"
 
 [tool.pixi.dependencies]
 pytest = ">=9.0.3,<10"

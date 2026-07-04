@@ -8,7 +8,7 @@ ParticleGrid descriptions with the Seed/FlowMap pair.
 
 # Seed / FlowMap lifecycle split
 
-Status: decided (design); not yet implemented.
+Status: implemented (see `src/lcs_parcels/grids.py`).
 
 Follows the notation of [docs/notation.md](../docs/notation.md) and Haller (2015),
 *Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech. 47:137–162,
