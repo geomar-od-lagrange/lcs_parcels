@@ -41,10 +41,8 @@ def test_neighbor_roundtrip_identity(lon_axis, lat_axis):
     seed = NeighborSeed.from_axes(lon_axis, lat_axis)
     lon, lat = seed.to_parcels_pset()
 
-    # Reattach the SAME positions: ingest must reproduce the seed positions
-    # exactly. This pins the lossless stack -> unstack inverse; the positions are
-    # the identity flow map regardless of t1, so a non-zero window still
-    # exercises T.
+    # Reattach the SAME positions (identity flow map): ingest must reproduce the
+    # seed positions exactly, pinning the lossless stack -> unstack inverse.
     fm = seed.pset_to_flowmap(lon, lat, t0=T0, t1=T1)
 
     # Advected positions land in lon/lat; with identity input they equal the
@@ -98,7 +96,7 @@ def test_roundtrip_preserves_grid_dims(lon_axis, lat_axis):
 
 def test_zero_window_raises(lon_axis, lat_axis):
     """Ingesting with t1 == t0 (zero window) must raise -- FTLE's 1/|T| would
-    otherwise divide by zero. Removing that footgun is the point of the split."""
+    otherwise divide by zero."""
     seed = NeighborSeed.from_axes(lon_axis, lat_axis)
     lon, lat = seed.to_parcels_pset()
 

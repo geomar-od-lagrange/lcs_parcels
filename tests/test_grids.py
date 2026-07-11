@@ -1,11 +1,10 @@
 """Shape / dim / coord contracts for the Seed and FlowMap families.
 
-A ``Seed`` (``NeighborSeed`` / ``AuxiliarySeed``) is TIME-FREE: ``from_axes``
-takes no ``t0``, and the resulting dataset is all-coordinates -- no ``t0``, no
-``T``, and no advected ``lon``/``lat`` data vars. Time and the advected
-positions enter only at ingest, ``seed.pset_to_flowmap(lon, lat, *, t0, t1)``,
-which returns a ``FlowMap`` carrying scalar ``t0``/``T`` coords and ``lon``/
-``lat`` data vars.
+A ``Seed`` is time-free: ``from_axes`` takes no ``t0``, and the dataset is
+all-coordinates (no ``t0``/``T``, no advected ``lon``/``lat``). Time and the
+advected positions enter at ingest, ``seed.pset_to_flowmap(lon, lat, *, t0,
+t1)``, which returns a ``FlowMap`` carrying scalar ``t0``/``T`` coords and
+``lon``/``lat`` data vars.
 """
 
 import numpy as np
@@ -64,19 +63,17 @@ def test_auxiliary_seed_from_axes_dims(lon_axis, lat_axis):
     assert ds.sizes["i"] == lon_axis.size
     assert ds.sizes["j"] == lat_axis.size
 
-    # AuxiliarySeed adds a fixed four-arm stencil on a single `displacement` dim
-    # (no center, no diagonals; the shape is enforced, not arbitrary).
+    # AuxiliarySeed adds a four-arm stencil on the `displacement` dim (no centre,
+    # no diagonals).
     assert ds.sizes["displacement"] == 4
     assert list(ds["displacement"].values) == ["east", "north", "west", "south"]
 
-    # The reference release positions x_0 are the explicit per-arm positions:
-    # lon_0/lat_0 carry the displacement dim (this is what to_parcels_pset emits,
-    # so the dataset is self-sufficient -- no metric needed to recover them).
+    # The reference positions x_0 are the explicit per-arm positions: lon_0/lat_0
+    # carry the displacement dim.
     assert set(ds["lon_0"].dims) == {"i", "j", "displacement"}
     assert set(ds["lat_0"].dims) == {"i", "j", "displacement"}
 
-    # The grid-point centres on which diagnostics are reported are kept explicitly
-    # on (i, j) (needed for downstream LCS work).
+    # The diagnostic grid-point centres are kept on (i, j).
     assert set(ds["lon_c"].dims) == {"i", "j"}
     assert set(ds["lat_c"].dims) == {"i", "j"}
 
@@ -99,8 +96,8 @@ def test_only_auxiliary_has_stencil(lon_axis, lat_axis):
     assert "lon_c" not in ns.ds.coords and "lat_c" not in ns.ds.coords
     assert set(ns.ds["lon_0"].dims) == {"i", "j"}
 
-    # AuxiliarySeed carries the four-arm displacement stencil (in its explicit
-    # reference positions) and the separate diagnostic centres.
+    # AuxiliarySeed carries the four-arm displacement stencil and the separate
+    # diagnostic centres.
     assert aus.ds.sizes["displacement"] == 4
     assert set(aus.ds["lon_0"].dims) == {"i", "j", "displacement"}
     assert "lon_c" in aus.ds.coords and "lat_c" in aus.ds.coords
@@ -109,14 +106,11 @@ def test_only_auxiliary_has_stencil(lon_axis, lat_axis):
 def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
     """AuxiliarySeed places its four arms at exactly +/- ``aux_separation_m``.
 
-    Pins the arm placement AND the ``aux_separation_m`` parameter -- both of which
-    the affine operator tests cancel out (for a constant linear map ``gradF == M``
-    regardless of the arm span, so a wrong ``s`` or a mislabelled/miswired arm goes
-    unnoticed). Here we read the arm positions back into the single grid-reference
-    meters frame (:func:`_lonlat_to_meters`) with a NON-DEFAULT separation and
-    assert: the east-west and north-south spans are each exactly ``2s``, opposing
-    arms share the centre on the other axis (no cross-offset), and the geographic
-    direction of each labelled arm is correct.
+    Read the arm positions back into the meters frame
+    (:func:`_lonlat_to_meters`) with a non-default separation and assert: the
+    east-west and north-south spans are each exactly ``2s``, opposing arms share
+    the centre on the other axis (no cross-offset), and the geographic direction
+    of each labelled arm is correct.
     """
     s = 2_500.0  # non-default aux_separation_m
     seed = AuxiliarySeed.from_axes(lon_axis, lat_axis, aux_separation_m=s)

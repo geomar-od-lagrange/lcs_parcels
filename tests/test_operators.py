@@ -1,28 +1,14 @@
 """Operator tests: gradF -> C -> eigen -> FTLE (diagnostics on a FlowMap).
 
-For a constant linear flow map ``F(x) = M @ x`` in the local meters tangent
-frame, the deformation gradient ``gradF`` equals ``M`` at every grid point, so
-the whole chain has closed-form answers:
+For a constant linear flow map ``F(x) = M @ x`` in the local meters frame,
+``gradF`` equals ``M`` at every grid point, so the whole chain has closed-form
+answers. The ``conftest.advected_flowmap`` helper seeds a time-free grid, emits
+its particle set, advects through ``M`` about the seed centroid, and ingests via
+``seed.pset_to_flowmap(..., t0, t1)`` (the signed window ``T = t1 - t0`` lands on
+the ``FlowMap``).
 
-- seed a TIME-FREE grid via ``seed_cls.from_axes(lon_axis, lat_axis)`` (no
-  ``t0``);
-- emit its particle set with ``to_parcels_pset()``;
-- advect the flat positions through ``M`` about the seed centroid (the
-  ``conftest.advected_flowmap`` helper does this in the meters frame, anchored
-  at the same single reference point the implementation uses);
-- ingest with ``seed.pset_to_flowmap(lon_out, lat_out, t0=..., t1=...)``, where
-  ``t0`` is the ``datetime64`` release time and ``t1`` the integration end time;
-  the signed window ``T = t1 - t0`` is derived and lands on the returned
-  ``FlowMap`` (see ``plans/seed-flowmap-design.md``).
-
-The diagnostics (``deformation_gradient`` / ``cauchy_green`` / ``cg_eigen`` /
-``ftle``) live on the ``FlowMap``, never on the time-free seed.
-
-A **non-symmetric** ``M = [[2.0, 0.5], [0.0, 3.0]]`` is used for the general
-tests so that ``C = M^T M`` is a non-trivial check.  Only the high-level,
-label-based xarray API is used in assertions (``.isel`` / ``.sel`` / named dims
-/ broadcasting / ``xr.dot`` / ``xr.testing.assert_allclose``), never positional
-indexing.
+A non-symmetric ``M = [[2.0, 0.5], [0.0, 3.0]]`` is used for the general tests so
+that ``C = M^T M`` is a non-trivial check.
 """
 
 import numpy as np
@@ -32,9 +18,8 @@ from conftest import advected_flowmap, advected_flowmap_f
 from lcs_parcels import AuxiliarySeed, NeighborSeed
 from lcs_parcels.grids import _lonlat_to_meters
 
-# Release time recorded on the seed and integration end time supplied at ingest;
-# the signed window T = T1 - T0 spans one day (|T| = 86400 s). See
-# plans/timing-design.md.
+# Release time and integration end time; the signed window T = T1 - T0 spans one
+# day (|T| = 86400 s).
 T0 = np.datetime64("2020-01-01")
 T1 = np.datetime64("2020-01-02")
 
@@ -57,10 +42,9 @@ T_SEC = abs((T1 - T0) / np.timedelta64(1, "s"))
 def test_deformation_gradient_dims_and_coords(lon_axis, lat_axis):
     """gradF has dims ``(i, j, row, col)`` with ``row``/``col`` valued ['x', 'y'].
 
-    Assert the tensor layout contract: ``row`` and ``col`` are dimension
-    coordinates of size 2 valued ``['x', 'y']``. This pins the storage
-    convention the rest of the operators rely on; ``comp`` is reserved for the
-    eigenvector component dim, so the tensor itself carries no ``comp`` coord.
+    ``row`` and ``col`` are dimension coordinates of size 2 valued
+    ``['x', 'y']``; the tensor carries no ``comp`` coord (``comp`` is the
+    eigenvector component dim).
     """
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     gradF = g.deformation_gradient()
@@ -77,9 +61,8 @@ def test_deformation_gradient_equals_M_neighbor(lon_axis, lat_axis):
     """NeighborSeed: gradF == M at every *interior* grid point.
 
     Neighbour differencing has no stencil at the domain edge, so boundary cells
-    are legitimately NaN. Select the interior (``isel(i=slice(1, -1),
-    j=slice(1, -1))``) and check each component against ``M`` to ~1e-6; the
-    edges carry NaN where their stencil step is missing.
+    are NaN. Check the interior against ``M`` to ~1e-6; assert the edges are NaN
+    where their stencil step is missing.
     """
     g = advected_flowmap(NeighborSeed, lon_axis, lat_axis, M, T0, T1)
     gradF = g.deformation_gradient()
@@ -113,17 +96,12 @@ def test_deformation_gradient_equals_M_auxiliary(lon_axis, lat_axis):
 def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
     """AuxiliarySeed: gradF equals a spatially-VARYING analytic Jacobian.
 
-    Every other operator test drives a constant linear map ``M``, for which
-    ``gradF == M`` at every point regardless of the arm span, grid position, or
-    metric scale (the meters/meters ratio cancels it out). That leaves the
-    auxiliary stencil's per-point differencing unpinned. Here the map is quadratic
-    in the meters frame, ``f(dx, dy) = (dx + a*dx**2, dy + b*dy**2)``, whose exact
-    Jacobian is ``diag(1 + 2*a*X, 1 + 2*b*Y)`` with ``(X, Y)`` each grid centre's
-    meters position from the centroid. Central differencing is EXACT for a
-    quadratic (the third derivative vanishes) and the auxiliary gradient divides by
-    the actual read-back reference span, so gradF must match the analytic per-point
-    Jacobian to ~1e-6 -- pinning genuine per-point differencing, not a global
-    constant.
+    The map is quadratic in the meters frame,
+    ``f(dx, dy) = (dx + a*dx**2, dy + b*dy**2)``, whose exact Jacobian is
+    ``diag(1 + 2*a*X, 1 + 2*b*Y)`` with ``(X, Y)`` each grid centre's meters
+    position from the centroid. Central differencing is exact for a quadratic, so
+    gradF must match the analytic per-point Jacobian to ~1e-6 -- exercising
+    per-point differencing, not the constant-``M`` case.
     """
     a, b = 1.0e-6, -0.8e-6
 
@@ -158,9 +136,8 @@ def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
 def test_cauchy_green_symmetry(lon_axis, lat_axis):
     """C is symmetric: ``C == C`` transposed over ``(row, col)``.
 
-    Compare ``C`` with its ``(row, col)`` transpose (rename the two axes, then
-    restore the dim order) via ``xr.testing.assert_allclose``. True for any
-    gradF, so it does not need the analytic value of ``M``.
+    Compare ``C`` with its ``(row, col)`` transpose via
+    ``xr.testing.assert_allclose``. True for any gradF.
     """
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     C = g.cauchy_green()
@@ -172,9 +149,9 @@ def test_cauchy_green_symmetry(lon_axis, lat_axis):
 def test_cauchy_green_equals_MT_M(lon_axis, lat_axis):
     """C == M^T M for the linear flow map.
 
-    With ``gradF == M`` everywhere, ``C = (grad F)^T grad F`` must equal the
-    constant ``M.T @ M`` at every grid point. Use AuxiliarySeed to avoid NaN
-    edges. Check each component to ~1e-6.
+    With ``gradF == M`` everywhere, ``C = (grad F)^T grad F`` equals the constant
+    ``M.T @ M`` at every grid point. Use AuxiliarySeed to avoid NaN edges; check
+    to ~1e-6.
     """
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     C = g.cauchy_green()
@@ -191,9 +168,8 @@ def test_cauchy_green_equals_MT_M(lon_axis, lat_axis):
 def test_cg_eigen_shapes_and_order(lon_axis, lat_axis):
     """cg_eigen returns ``lambda`` (i,j,eig) and ``xi`` (i,j,comp,eig), ascending.
 
-    Assert dims/sizes (``eig`` size 2, ``comp`` size 2) and that eigenvalues are
-    sorted ascending along ``eig`` (``lambda.isel(eig=1) >= lambda.isel(eig=0)``
-    everywhere).
+    Assert dims/sizes (``eig`` and ``comp`` size 2) and that eigenvalues are
+    ascending along ``eig`` (``lambda.isel(eig=1) >= lambda.isel(eig=0)``).
     """
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     eigen = g.cg_eigen()
@@ -211,16 +187,11 @@ def test_cg_eigen_shapes_and_order(lon_axis, lat_axis):
 def test_cg_eigen_relation(lon_axis, lat_axis):
     """The eigenpairs satisfy ``C @ xi == lambda * xi`` with orthonormal ``xi``.
 
-    Contract ``C``'s ``col`` against ``xi``'s ``comp`` with ``xr.dot`` over the
-    shared component dim, relabel the surviving output axis back to ``comp``, and
-    compare to ``lambda * xi``. This validates eigenvectors independently of any
-    analytic value.
-
-    The eigen-relation ``C xi = lambda xi`` is scale-invariant (it holds for any
-    multiple of an eigenvector), so it alone does *not* pin normalization. Pin it
-    separately: the Gram matrix ``xi^T xi`` must be the identity over ``eig`` --
-    eigenvectors are unit-norm and mutually orthogonal -- which a closed-form 2x2
-    solver that forgot to normalize would otherwise fail.
+    Contract ``C``'s ``col`` against ``xi``'s ``comp`` with ``xr.dot``, relabel
+    the surviving axis back to ``comp``, and compare to ``lambda * xi``. The
+    eigen-relation is scale-invariant, so pin normalization separately: the Gram
+    matrix ``xi^T xi`` must be the identity over ``eig`` (unit-norm, mutually
+    orthogonal).
     """
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     C = g.cauchy_green()
@@ -246,8 +217,8 @@ def test_cg_eigen_relation(lon_axis, lat_axis):
 def test_cg_eigen_values_match_analytic(lon_axis, lat_axis):
     """Eigenvalues equal ``eigvalsh(M^T M)`` for the linear map.
 
-    Compare ``lambda`` (ascending) against ``numpy.linalg.eigvalsh(M.T @ M)`` at
-    every grid point to ~1e-6.
+    Compare ``lambda`` (ascending) against ``numpy.linalg.eigvalsh(M.T @ M)`` to
+    ~1e-6.
     """
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     lam = g.cg_eigen()["lambda"]
@@ -265,9 +236,8 @@ def test_ftle_pure_stretch(lon_axis, lat_axis):
     """Pure stretch ``M = diag(a, b)`` gives a constant analytic FTLE.
 
     Then ``lambda_max = max(a, b)**2`` and
-    ``ftle == (1 / |T|) * log(sqrt(lambda_max)) == (1 / |T|) * log(max(a, b))``
-    at every grid point. Use AuxiliarySeed so the field is NaN-free, and assert
-    dims ``(i, j)`` and the constant value.
+    ``ftle == (1 / |T|) * log(max(a, b))``. Use AuxiliarySeed so the field is
+    NaN-free; assert dims ``(i, j)`` and the constant value.
     """
     a, b = 2.0, 3.0
     M_stretch = np.array([[a, 0.0], [0.0, b]])
@@ -283,8 +253,7 @@ def test_ftle_matches_eigen(lon_axis, lat_axis):
     """ftle is consistent with cg_eigen's largest eigenvalue.
 
     For a general ``M``, ``ftle == (1 / |T|) * log(sqrt(lambda.isel(eig=1)))``.
-    Cross-checks the FTLE definition against the eigen step using the *largest*
-    eigenvalue. Use AuxiliarySeed so both fields are NaN-free.
+    Use AuxiliarySeed so both fields are NaN-free.
     """
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     ftle = g.ftle()
@@ -297,11 +266,10 @@ def test_ftle_matches_eigen(lon_axis, lat_axis):
 def test_ftle_backward_equals_forward(lon_axis, lat_axis):
     """Backward integration (``t1 < t0``, negative ``T``) gives the same FTLE.
 
-    The FTLE divides by ``|T|``, so only the magnitude of the signed window
-    enters; the *sign* of ``T`` selects attracting vs. repelling LCS but must not
-    change the FTLE value. Ingesting the same advected positions with the time
-    bounds swapped (``t0=T1``, ``t1=T0`` -> ``T = T0 - T1 < 0``) must reproduce
-    the forward field exactly.
+    The FTLE divides by ``|T|``, so the sign of ``T`` (attracting vs. repelling)
+    must not change its value. Ingesting the same advected positions with the
+    bounds swapped (``t0=T1``, ``t1=T0`` -> ``T < 0``) must reproduce the forward
+    field exactly.
     """
     g_fwd = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     g_bwd = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T1, T0)
@@ -320,12 +288,11 @@ def test_ftle_backward_equals_forward(lon_axis, lat_axis):
 def test_nan_propagates_through_chain(lon_axis, lat_axis):
     """A lost particle (NaN) flows ``gradF -> C -> eigen -> ftle`` and isolates.
 
-    Knock out a single arm of one ``AuxiliarySeed`` cell (label-based) so its
-    stencil is incomplete. With no special-casing, that one cell's FTLE must be
-    NaN while every other cell stays finite -- pinning both that the NaN
-    propagates the whole chain *and* that it does not leak to neighbours. This
-    also guards the (version-dependent) requirement that ``np.linalg.eigh``
-    returns NaN rather than raising ``LinAlgError`` on a NaN sub-matrix.
+    Knock out a single arm of one ``AuxiliarySeed`` cell so its stencil is
+    incomplete. That one cell's FTLE must be NaN while every other cell stays
+    finite -- the NaN propagates the whole chain and does not leak to neighbours.
+    Also guards that ``np.linalg.eigh`` returns NaN rather than raising
+    ``LinAlgError`` on a NaN sub-matrix.
     """
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     # Drop the 'south' arm of cell (i=0, j=1) -> NaN advected position there.

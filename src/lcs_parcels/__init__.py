@@ -20,9 +20,7 @@ from lcs_parcels.grids import (
 
 __version__ = "0.1.0"
 
-# EARTH_RADIUS_M is an internal constant of the local-tangent meters metric; it
-# stays reachable as lcs_parcels.grids.EARTH_RADIUS_M but is not part of the
-# public surface.
+# EARTH_RADIUS_M is an internal constant, not part of the public surface.
 __all__ = [
     "AuxiliaryFlowMap",
     "AuxiliarySeed",

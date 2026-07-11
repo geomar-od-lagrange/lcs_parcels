@@ -1,84 +1,63 @@
 """Seed and flow-map classes for Lagrangian coherent structure (LCS) diagnostics.
 
-This module is the diagnostic layer that sits on top of trajectory integration.
-It contains no Parcels code: it only emits particle sets and ingests their
-advected positions. Conventions and notation follow Haller (2015),
-*Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech. 47:137-162,
-doi:10.1146/annurev-fluid-010313-141322
+The diagnostic layer on top of trajectory integration. It contains no Parcels
+code: it emits particle sets and ingests their advected positions. Notation
+follows Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech.
+47:137-162, doi:10.1146/annurev-fluid-010313-141322
 (https://doi.org/10.1146/annurev-fluid-010313-141322).
 
 Seed / flow-map split
 ---------------------
-The lifecycle is split into two sibling families of composition wrappers around
-an ``xr.Dataset`` (held in ``.ds``; neither subclasses ``xr.Dataset``):
+Two sibling families of composition wrappers around an ``xr.Dataset`` (held in
+``.ds``; neither subclasses ``xr.Dataset``):
 
-- a :class:`Seed` is *time-free*. It holds only the reference release positions
-  ``lon_0``/``lat_0`` (the initial conditions ``x_0``, held as coordinates) and,
-  for :class:`AuxiliarySeed`, the per-arm stencil geometry and grid-point
-  centres. A seed carries no ``t0``, no ``T``, no advected ``lon``/``lat``, and
-  no data variables at all. It emits a particle set (:meth:`Seed.to_parcels_pset`)
-  and ingests advected positions (:meth:`Seed.pset_to_flowmap`).
+- a :class:`Seed` is time-free: it holds only the reference release positions
+  ``lon_0``/``lat_0`` (initial conditions ``x_0``, coordinates) and -- for
+  :class:`AuxiliarySeed` -- the per-arm stencil geometry and grid-point centres.
+  No ``t0``, no ``T``, no advected ``lon``/``lat``, no data variables. It emits
+  a particle set (:meth:`Seed.to_parcels_pset`) and ingests advected positions
+  (:meth:`Seed.pset_to_flowmap`).
 - a :class:`FlowMap` holds the reference positions *and* the advected positions
-  ``lon``/``lat`` (the flow map ``F_{t0}^{t1}(x_0)``, held as data variables),
-  together with a scalar release time ``t0`` and the signed integration window
-  ``T = t1 - t0``. It computes the diagnostics (deformation gradient,
-  Cauchy-Green tensor, eigen-analysis, FTLE).
+  ``lon``/``lat`` (the flow map ``F_{t0}^{t1}(x_0)``, data variables), plus a
+  scalar release time ``t0`` and the signed window ``T = t1 - t0``. It computes
+  the diagnostics (deformation gradient, Cauchy-Green tensor, eigen-analysis,
+  FTLE).
 
-The two families are siblings, not an inheritance pair: a :class:`FlowMap` is
-not a kind of :class:`Seed` (it emits nothing to Parcels) and a :class:`Seed`
-is not a kind of :class:`FlowMap` (it has no advected positions or window).
-Shared computation lives in the module-level helpers below, not in a common
-base class. Each family has the two explicit finite-difference strategies for
-the deformation gradient ``grad F`` modeled as distinct concrete subclasses
-(``Neighbor*`` and ``Auxiliary*``), never inferred at runtime from the dataset
-dimensions.
+Each family has two concrete subclasses for the two finite-difference stencils
+(``Neighbor*`` and ``Auxiliary*``); the stencil is a distinct type, never
+inferred from the dataset dims.
 
 Timing convention
 -----------------
-Time enters only at ingest. :meth:`Seed.pset_to_flowmap` is given the release
-time ``t0`` and the integration end time ``t1``; the signed window
-``T = t1 - t0`` is derived and stored on the returned :class:`FlowMap` as a
-scalar coordinate (``t1`` itself is not stored, being recoverable as
-``t0 + T``). Direction is implied by ``sign(T)`` (``t1 < t0`` -> backward ->
-attracting LCS; ``t1 > t0`` -> forward -> repelling LCS); there is no separate
-flag. A zero window (``t1 == t0``) is rejected: the FTLE's ``1 / |T|`` would
-divide by zero. See ``plans/seed-flowmap-design.md``.
+Time enters only at ingest. :meth:`Seed.pset_to_flowmap` takes the release time
+``t0`` and end time ``t1``; the signed window ``T = t1 - t0`` is derived and
+stored as a scalar coordinate (``t1`` is recoverable as ``t0 + T``). Direction
+is ``sign(T)``: ``t1 < t0`` backward/attracting, ``t1 > t0`` forward/repelling.
+A zero window (``t1 == t0``) is rejected. See ``plans/seed-flowmap-design.md``.
 
 Position convention
 -------------------
-The *reference* initial positions ``lon_0``/``lat_0`` (the initial conditions
-``x_0``, held as coordinates) are what :meth:`Seed.to_parcels_pset` emits and
-:meth:`FlowMap.deformation_gradient` differences against. The *advected*
-positions ``lon``/``lat`` (the flow map ``F_{t0}^{t1}(x_0)``, held as data
-variables on a :class:`FlowMap`) are where the particles actually end up. The
-deformation gradient is ``grad F = d(lon, lat) / d(lon_0, lat_0)`` -- advected
-separations (numerator) over reference separations (denominator) -- so both
-pairs must share the same dims. For :class:`NeighborSeed` / :class:`NeighborFlowMap`
-the release point is the grid point itself, so ``lon_0``/``lat_0`` (and the
-advected ``lon``/``lat``) are on ``('i', 'j')``. For :class:`AuxiliarySeed` /
-:class:`AuxiliaryFlowMap` the release points are the four stencil arms, so
-``lon_0``/``lat_0`` and the advected ``lon``/``lat`` all carry the extra
-``displacement`` dim, i.e. ``('i', 'j', 'displacement')``, and the grid-point
-*centres* on which the diagnostics are reported are kept explicitly as a
-separate pair ``lon_c``/``lat_c`` on ``('i', 'j')``.
+Reference positions ``lon_0``/``lat_0`` (``x_0``, coordinates) are what
+:meth:`Seed.to_parcels_pset` emits and the deformation gradient differences
+against; advected positions ``lon``/``lat`` (``F_{t0}^{t1}(x_0)``, data
+variables on a :class:`FlowMap`) are where particles end up. The deformation
+gradient is ``grad F = d(lon, lat) / d(lon_0, lat_0)``, so both pairs share the
+same dims: ``(i, j)`` for :class:`NeighborSeed` / :class:`NeighborFlowMap`;
+``(i, j, displacement)`` for :class:`AuxiliarySeed` / :class:`AuxiliaryFlowMap`,
+which additionally keep the diagnostic grid-point centres ``lon_c``/``lat_c`` on
+``(i, j)``.
 
 Sphere metric convention
 ------------------------
-Haller's math is Cartesian; our grids are lon/lat. Separations are formed in a
-*single* local tangent frame in meters, anchored at the grid centroid -- the one
-reference longitude/latitude ``lon_ref = lon_0.mean()``,
-``lat_ref = lat_0.mean()``. With ``R`` the Earth radius and ``deg = pi / 180``,
-positions convert as ``X = R cos(phi_ref) (lambda - lambda_ref) deg`` and
-``Y = R (phi - phi_ref) deg`` (``lambda`` longitude, ``phi`` latitude). The
-cosine factor uses that one grid reference latitude ``phi_ref`` for every point,
-*not* a per-point ``cos(phi)``: a single shared frame is what makes the
-off-diagonal deformation-gradient terms exact -- a per-point cosine would corrupt
-them by a cosine ratio -- and in the tiny-separation regime the flat-tangent
-approximation is adequate (a convention, not a correctness blocker). This metric
-only converts lon/lat separations to meters; the *advected* separations that form
-the numerator of grad F are measured from the ingested Parcels output positions,
-not recomputed analytically from ``R`` and ``phi``. Both flow-map subclasses
-share the identical metric code (the module-level :func:`_to_meters`).
+Separations are formed in a single local-tangent meters frame anchored at the
+grid centroid ``lon_ref = lon_0.mean()``, ``lat_ref = lat_0.mean()``. With ``R``
+the Earth radius and ``deg = pi / 180``:
+``X = R cos(phi_ref) (lambda - lambda_ref) deg`` and
+``Y = R (phi - phi_ref) deg``. The cosine factor uses the one reference latitude
+``phi_ref`` for every point, not a per-point ``cos(phi)``. The metric only
+converts lon/lat separations to meters; advected separations come from the
+ingested positions, not from ``R`` and ``phi``. Both flow-map subclasses use the
+module-level :func:`_to_meters`.
 """
 
 from __future__ import annotations
@@ -99,11 +78,9 @@ _DEG = np.pi / 180.0
 def _lonlat_to_meters(lon, lat, lon_ref: float, lat_ref: float):
     """Project lon/lat (degrees) into the local-tangent meters frame.
 
-    Uses a *single* grid reference latitude ``lat_ref`` for the cosine factor
-    (``X = R cos(phi_ref) (lambda - lambda_ref) deg``, ``Y = R (phi - phi_ref) deg``),
-    so the whole grid shares one frame; see the module-level *Sphere metric
-    convention*. Works on plain arrays or label-based xarray objects (the
-    arithmetic is broadcasting only).
+    Uses the single reference latitude ``lat_ref`` for the cosine factor
+    (``X = R cos(phi_ref) (lambda - lambda_ref) deg``, ``Y = R (phi - phi_ref) deg``).
+    Works on plain arrays or xarray objects.
     """
     c = np.cos(lat_ref * _DEG)
     x = EARTH_RADIUS_M * c * (lon - lon_ref) * _DEG
@@ -112,21 +89,13 @@ def _lonlat_to_meters(lon, lat, lon_ref: float, lat_ref: float):
 
 
 def _reference_lonlat(lon_0: xr.DataArray, lat_0: xr.DataArray) -> tuple[float, float]:
-    """The single grid reference point ``(lon_ref, lat_ref)`` = centroid means.
-
-    Takes the reference-source arrays explicitly (the seed/flow-map reference
-    positions ``lon_0``/``lat_0``) and returns the one shared frame anchor; see
-    the module-level *Sphere metric convention*.
-    """
+    """The single reference point ``(lon_ref, lat_ref)`` = means of ``lon_0``/``lat_0``."""
     return float(lon_0.mean()), float(lat_0.mean())
 
 
 def _to_meters(lon: xr.DataArray, lat: xr.DataArray, lon_0: xr.DataArray, lat_0: xr.DataArray):
-    """Project ``lon``/``lat`` into the single local-tangent meters frame.
-
-    The frame is anchored at the centroid of the reference-source arrays
-    ``lon_0``/``lat_0`` (one ``cos(phi_ref)``, not a per-point cosine), so every
-    position read by a given flow map shares one frame.
+    """Project ``lon``/``lat`` into the meters frame anchored at the centroid of
+    ``lon_0``/``lat_0`` (one ``cos(phi_ref)``, not a per-point cosine).
     """
     lon_ref, lat_ref = _reference_lonlat(lon_0, lat_0)
     return _lonlat_to_meters(lon, lat, lon_ref, lat_ref)
@@ -141,9 +110,9 @@ def _assemble_tensor(
     """Pack four scalar ``(i, j)`` component fields into a ``(row, col)`` tensor.
 
     ``row`` and ``col`` become dimension coordinates valued ``['x', 'y']`` with
-    ``tensor.sel(row=a, col=b)`` holding the ``(a, b)`` component, e.g.
-    ``gradF.sel(row='y', col='x') = dF_y / dx0_x``. The component fields are
-    renamed to a common name so :func:`xarray.concat` does not drop one.
+    ``tensor.sel(row=a, col=b)`` the ``(a, b)`` component, e.g.
+    ``gradF.sel(row='y', col='x') = dF_y / dx0_x``. The fields are renamed to a
+    common name so :func:`xarray.concat` does not drop one.
     """
     fxx, fxy = fxx.rename("tensor"), fxy.rename("tensor")
     fyx, fyy = fyx.rename("tensor"), fyy.rename("tensor")
@@ -154,32 +123,21 @@ def _assemble_tensor(
 
 
 class Seed(abc.ABC):
-    """Time-free composition wrapper around an ``xr.Dataset`` of seed positions.
+    """Time-free wrapper around an ``xr.Dataset`` of seed positions.
 
-    A seed holds *only* the reference release positions ``lon_0``/``lat_0`` (the
-    initial conditions ``x_0``, degrees, held as coordinates) and -- for
-    :class:`AuxiliarySeed` -- the per-arm stencil geometry and grid-point centres.
-    It carries no ``t0``, no ``T``, no advected ``lon``/``lat``, and no data
-    variables at all; time and the advected positions enter only at ingest via
-    :meth:`pset_to_flowmap`, which produces a :class:`FlowMap`. The wrapped
-    dataset is held in :attr:`ds` (this class does *not* subclass ``xr.Dataset``,
-    which xarray discourages).
+    Holds only the reference release positions ``lon_0``/``lat_0`` (``x_0``,
+    degrees, coordinates) and -- for :class:`AuxiliarySeed` -- the per-arm
+    stencil geometry and grid-point centres. No ``t0``, no ``T``, no advected
+    ``lon``/``lat``, no data variables; time and advected positions enter at
+    ingest via :meth:`pset_to_flowmap`, which produces a :class:`FlowMap`. The
+    dataset is held in :attr:`ds`.
 
-    The dataset has logical grid dimensions ``i, j``; the two-dimensional
-    ``lon_0``/``lat_0`` fields can represent curvilinear / non-rectangular grids.
-    Operator-level support depends on the stencil: :class:`AuxiliaryFlowMap`
-    handles genuinely curvilinear grids, whereas :class:`NeighborFlowMap` assumes
-    an axis-aligned (rectilinear) reference grid (see its docstring). For
-    :class:`NeighborSeed` the
-    grid point is itself the release/diagnostic location, so ``lon_0``/``lat_0``
-    are on ``(i, j)``; for :class:`AuxiliarySeed` they carry an extra
-    ``displacement`` dim (the stencil arms) and the diagnostic centres
-    ``lon_c``/``lat_c`` are kept on ``(i, j)`` (see the subclass docstrings).
-
-    Concrete subclasses differ only in the stencil they lay down in
-    :meth:`from_axes`. All internal access uses the high-level, label-based
-    xarray API (``.isel``, ``.sel``, named dims, broadcasting, ``.where``), never
-    positional indexing.
+    Logical grid dims are ``i, j``; the 2-D ``lon_0``/``lat_0`` can represent
+    curvilinear grids. For :class:`NeighborSeed` the grid point is the
+    release/diagnostic location, so ``lon_0``/``lat_0`` are on ``(i, j)``; for
+    :class:`AuxiliarySeed` they carry an extra ``displacement`` dim and the
+    centres ``lon_c``/``lat_c`` are on ``(i, j)``. Concrete subclasses differ
+    only in the stencil laid down in :meth:`from_axes`.
 
     Attributes
     ----------
@@ -189,7 +147,6 @@ class Seed(abc.ABC):
     """
 
     #: The paired :class:`FlowMap` subclass produced by :meth:`pset_to_flowmap`.
-    #: Set per concrete seed in the paired class-attribute block below.
     _flowmap_cls: type[FlowMap]
 
     def __init__(self, ds: xr.Dataset) -> None:
@@ -200,8 +157,7 @@ class Seed(abc.ABC):
         ds : xr.Dataset
             Dataset with dims ``i, j`` and reference coordinates ``lon_0``,
             ``lat_0`` (degrees). Subclasses may require additional
-            coordinates/dimensions (see their docstrings). The dataset holds no
-            data variables and no ``t0``/``T``.
+            coordinates/dimensions. No data variables, no ``t0``/``T``.
         """
         self.ds = ds
 
@@ -210,10 +166,9 @@ class Seed(abc.ABC):
     def from_axes(cls, lon: np.ndarray, lat: np.ndarray) -> Self:
         """Build a time-free seed from 1-D lon/lat axes.
 
-        The 1-D axes are broadcast into curvilinear 2-D reference fields
-        ``lon_0``/``lat_0`` (degrees), so downstream code never special-cases
-        rectangular grids. No time is recorded -- the seed is time-free; ``t0``
-        and the window ``T`` enter only at :meth:`pset_to_flowmap`.
+        The 1-D axes are broadcast into 2-D reference fields ``lon_0``/``lat_0``
+        (degrees). No time is recorded; ``t0`` and ``T`` enter only at
+        :meth:`pset_to_flowmap`.
 
         Parameters
         ----------
@@ -234,13 +189,10 @@ class Seed(abc.ABC):
     def to_parcels_pset(self) -> tuple[list[float], list[float]]:
         """Flatten the reference seed positions ``x_0`` to ``(lon, lat)`` lists.
 
-        Emits the *reference* release positions ``lon_0``/``lat_0`` (where
-        particles are released), stacking the grid over all of ``lon_0``'s dims
-        into a single ``particle`` index and returning plain Python lists. The
-        ``reset_coords(drop=True)`` strips ancillary coords so stacking does not
-        broadcast, e.g., the auxiliary centres up the ``displacement`` dim; the
-        ``particle`` order is the lossless inverse used by :meth:`pset_to_flowmap`
-        to reattach advected positions.
+        Emits the reference release positions ``lon_0``/``lat_0``, stacking the
+        grid over all of ``lon_0``'s dims into a single ``particle`` index. The
+        ``particle`` order is the lossless inverse used by
+        :meth:`pset_to_flowmap` to reattach advected positions.
 
         Returns
         -------
@@ -261,16 +213,10 @@ class Seed(abc.ABC):
         Inverse of :meth:`to_parcels_pset`: the flat advected positions are
         attached to the seed's ``particle`` index as the advected ``lon``/``lat``
         and unstacked back to the grid dims; the reference ``lon_0``/``lat_0``
-        (and any auxiliary geometry) carried from the seed are left untouched.
-        Lost particles arrive as NaN and propagate naturally. The release time
-        ``t0`` and the derived signed window ``T = t1 - t0`` are recorded as
-        scalar coordinates on the single returned flow map; a release/window
-        sweep is an *external* loop that assembles many scalar-``(t0, T)`` flow
-        maps into an ``(i, j, t0, T)`` cube via ``xr.concat`` /
-        ``combine_by_coords`` (see ``plans/seed-flowmap-design.md``). The
-        ``reset_coords(drop=True)`` before stacking is what keeps auxiliary
-        centres ``lon_c``/``lat_c`` on ``(i, j)`` -- stacking the raw coord would
-        broadcast them up to ``(i, j, displacement)``.
+        (and any auxiliary geometry) are carried through unchanged. Lost
+        particles arrive as NaN and propagate. The release time ``t0`` and the
+        derived signed window ``T = t1 - t0`` are recorded as scalar coordinates
+        on the returned flow map.
 
         Parameters
         ----------
@@ -281,9 +227,8 @@ class Seed(abc.ABC):
             Release time of the seed positions.
         t1 : datetime64-like
             End time of the integration. The signed window ``T = t1 - t0`` sets
-            the integration direction (``t1 < t0`` -> backward -> attracting LCS;
-            ``t1 > t0`` -> forward -> repelling LCS), used by :meth:`FlowMap.ftle`.
-            ``t1`` itself is not stored (recoverable as ``t0 + T``).
+            the direction (``t1 < t0`` backward/attracting; ``t1 > t0``
+            forward/repelling). ``t1`` is not stored (recoverable as ``t0 + T``).
 
         Returns
         -------
@@ -323,35 +268,30 @@ class Seed(abc.ABC):
 
 
 class FlowMap(abc.ABC):
-    """Composition wrapper around an advected ``xr.Dataset``; computes diagnostics.
+    """Wrapper around an advected ``xr.Dataset``; computes the diagnostics.
 
-    A flow map holds the reference release positions ``lon_0``/``lat_0`` (``x_0``,
+    Holds the reference release positions ``lon_0``/``lat_0`` (``x_0``,
     coordinates) *and* the advected positions ``lon``/``lat`` (the flow map
     ``F_{t0}^{t1}(x_0)``, data variables), plus a scalar release time ``t0`` and
-    the signed integration window ``T = t1 - t0`` (``timedelta64``). It never
-    talks to Parcels; it is produced by :meth:`Seed.pset_to_flowmap`. The wrapped
-    dataset is held in :attr:`ds` (this class does *not* subclass ``xr.Dataset``).
+    the signed window ``T = t1 - t0`` (``timedelta64``). Produced by
+    :meth:`Seed.pset_to_flowmap`; the dataset is held in :attr:`ds`.
 
-    Both position pairs share the same dims so that the deformation gradient
-    ``grad F = d(lon, lat) / d(lon_0, lat_0)`` is well-defined: ``(i, j)`` for
-    :class:`NeighborFlowMap`, ``(i, j, displacement)`` for
-    :class:`AuxiliaryFlowMap` (with diagnostic centres ``lon_c``/``lat_c`` on
-    ``(i, j)``). Concrete subclasses differ only in how ``grad F`` is
-    finite-differenced (see :class:`NeighborFlowMap` and
-    :class:`AuxiliaryFlowMap`). All internal access uses the high-level,
-    label-based xarray API, never positional indexing.
+    Both position pairs share the same dims so ``grad F = d(lon, lat) /
+    d(lon_0, lat_0)`` is well-defined: ``(i, j)`` for :class:`NeighborFlowMap`,
+    ``(i, j, displacement)`` for :class:`AuxiliaryFlowMap` (with diagnostic
+    centres ``lon_c``/``lat_c`` on ``(i, j)``). Concrete subclasses differ only
+    in how ``grad F`` is finite-differenced.
 
     Attributes
     ----------
     ds : xr.Dataset
         Reference positions ``lon_0``/``lat_0`` (``x_0``), advected positions
         ``lon``/``lat`` (``F(x_0)``), the scalar release time ``t0``, the signed
-        window ``T = t1 - t0`` (``timedelta64``; needed for the FTLE), and any
-        per-class auxiliary state.
+        window ``T = t1 - t0`` (``timedelta64``), and any per-class auxiliary
+        state.
     """
 
     #: The paired :class:`Seed` subclass produced by :meth:`to_seed`.
-    #: Set per concrete flow map in the paired class-attribute block below.
     _seed_cls: type[Seed]
 
     def __init__(self, ds: xr.Dataset) -> None:
@@ -363,16 +303,12 @@ class FlowMap(abc.ABC):
             Dataset with dims ``i, j``, reference coordinates ``lon_0``/``lat_0``,
             advected data variables ``lon``/``lat`` (degrees), and scalar ``t0``
             and signed ``T`` coordinates. Subclasses may require additional
-            variables/dimensions (see their docstrings).
+            variables/dimensions.
         """
         self.ds = ds
 
     def _integration_seconds(self) -> float:
-        """``|T|`` in seconds from the stored signed window ``T`` (``timedelta64``).
-
-        Standard ``datetime64`` division suffices here; a calendar-aware
-        conversion would be needed for non-standard model calendars.
-        """
+        """``|T|`` in seconds from the stored signed window ``T`` (``timedelta64``)."""
         return float(np.abs(self.ds["T"] / np.timedelta64(1, "s")))
 
     @abc.abstractmethod
@@ -380,20 +316,10 @@ class FlowMap(abc.ABC):
         """Deformation gradient grad F of the flow map. Haller (2015) Eq. 9.
 
         The 2x2 tensor ``grad F = d(lon, lat) / d(lon_0, lat_0)`` per grid point,
-        estimated by finite differences as
-        ``(advected separation) / (initial separation)``:
-
-        - **denominator** — the *initial* separation of the reference
-          ``lon_0``/``lat_0`` between stencil points, a controlled quantity taken
-          in the shared single-reference-latitude meters frame (:func:`_to_meters`;
-          one grid ``cos(phi_ref)``, not a per-point cosine);
-        - **numerator** — the corresponding separation of the *advected*
-          positions ``lon``/``lat`` (the ingested Parcels outputs, converted to
-          meters with the same metric). It is **not** recomputed analytically
-          from ``R`` and ``phi``; only the advected positions carry the flow-map
-          information.
-
-        Subclasses define the stencil: neighbouring grid points
+        finite-differenced as ``(advected separation) / (initial separation)``,
+        both taken in the meters frame (:func:`_to_meters`): the denominator from
+        the reference ``lon_0``/``lat_0``, the numerator from the advected
+        ``lon``/``lat``. Subclasses define the stencil: neighbouring grid points
         (:class:`NeighborFlowMap`) or the fixed four-arm auxiliary stencil
         (:class:`AuxiliaryFlowMap`). Cells with a missing stencil point yield NaN.
 
@@ -403,8 +329,8 @@ class FlowMap(abc.ABC):
             grad F with dims ``(i, j, row, col)``; ``row`` and ``col`` are
             dimension coordinates valued ``['x', 'y']``, with
             ``grad F.sel(row=a, col=b) = d F_a / d x0_b`` (dimensionless;
-            meters / meters). There is no separate ``comp`` coordinate on the
-            tensor (``comp`` labels the eigenvector component dim).
+            meters / meters). The tensor carries no ``comp`` coordinate (``comp``
+            labels the eigenvector component dim).
         """
         raise NotImplementedError("abstract method; implemented by subclasses.")
 
@@ -432,10 +358,7 @@ class FlowMap(abc.ABC):
 
         Haller (2015) Eq. 7. Solves ``C xi_i = lambda_i xi_i`` with
         ``0 < lambda_1 <= lambda_2`` and orthonormal eigenvectors
-        ``xi_1 perp xi_2``. Implementable either via
-        ``xr.apply_ufunc(np.linalg.eigh, C, input_core_dims=[['row', 'col']], ...)``
-        or a closed-form 2x2 symmetric solver in pure xarray arithmetic (xarray
-        has no native eig); see ``docs/notation.md``.
+        ``xi_1 perp xi_2``.
 
         Returns
         -------
@@ -464,10 +387,8 @@ class FlowMap(abc.ABC):
         """Finite-time Lyapunov exponent (FTLE). Haller (2015) Sec. 4.1.
 
         Computes ``Lambda = (1 / |T|) * log(sqrt(lambda_max))`` using the
-        *largest* eigenvalue of ``C`` from :meth:`cg_eigen` and the recorded
-        signed integration window ``T`` (``timedelta64``, derived at ingest as
-        ``t1 - t0`` and converted to seconds; the conversion must be
-        calendar-aware for non-standard model calendars).
+        *largest* eigenvalue of ``C`` from :meth:`cg_eigen` and ``|T|`` in
+        seconds from the recorded signed window.
 
         Returns
         -------
@@ -483,9 +404,9 @@ class FlowMap(abc.ABC):
         """Drop the advected positions and time, recovering a time-free seed.
 
         Lossless inverse of :meth:`Seed.pset_to_flowmap`: removes the advected
-        ``lon``/``lat`` and the scalar ``t0``/``T`` coords, leaving only the
-        reference positions (and any auxiliary geometry). Re-emitting the result
-        reproduces the same flat particle set.
+        ``lon``/``lat`` and the scalar ``t0``/``T`` coords, leaving the reference
+        positions (and any auxiliary geometry). Re-emitting reproduces the same
+        flat particle set.
 
         Returns
         -------
@@ -500,16 +421,11 @@ class NeighborSeed(Seed):
     """Time-free seed whose stencil is the neighbouring grid points.
 
     The release point is the grid point itself, so ``.ds`` carries only the
-    reference positions ``lon_0``/``lat_0`` on ``(i, j)`` -- no auxiliary
-    displacement dim. The paired :class:`NeighborFlowMap` differences ``grad F``
-    against neighbouring grid points ``(i +/- 1, j +/- 1)``, coupling the
-    diagnostic resolution to the seed grid resolution.
-
-    This is the SPASSO / d'Ovidio approach to FTLE: particles are seeded once on
-    a single regular grid (one per output cell) and the flow-map gradient is
-    taken by neighbour-differencing those positions, with no controlled auxiliary
-    separation. See SPASSO, ``src/Diagnostics.py``
-    (https://github.com/OceanCruises/SPASSO).
+    reference positions ``lon_0``/``lat_0`` on ``(i, j)`` -- no displacement dim.
+    The paired :class:`NeighborFlowMap` differences ``grad F`` against
+    neighbouring grid points ``(i +/- 1, j +/- 1)``, coupling the diagnostic
+    resolution to the seed grid resolution. This is the SPASSO approach; see
+    ``src/Diagnostics.py`` at https://github.com/OceanCruises/SPASSO.
     """
 
     @classmethod
@@ -519,8 +435,7 @@ class NeighborSeed(Seed):
         See :meth:`Seed.from_axes`. The 1-D axes are broadcast into axis-aligned
         (rectilinear) 2-D reference fields ``lon_0(i, j)`` / ``lat_0(i, j)`` (lon
         varies along ``i``, lat along ``j``) -- the layout the paired
-        :class:`NeighborFlowMap` gradient assumes -- held as the dataset's only
-        coordinates; no data variables, no time.
+        :class:`NeighborFlowMap` gradient assumes.
         """
         # Broadcast the 1-D axes into axis-aligned 2-D fields on (i, j) with the
         # high-level API; lon varies along i, lat along j.
@@ -543,29 +458,20 @@ class NeighborSeed(Seed):
 class AuxiliarySeed(Seed):
     """Time-free seed with a fixed four-arm auxiliary displacement stencil.
 
-    Data model. The reference release positions
-    ``lon_0(i, j, displacement)`` / ``lat_0(i, j, displacement)`` (coordinates,
-    degrees) are the explicit per-arm positions -- exactly what
-    :meth:`Seed.to_parcels_pset` emits, so the dataset is self-sufficient (no
-    metric convention is needed to recover where particles were released). The
-    grid-point **centres** ``lon_c(i, j)`` / ``lat_c(i, j)`` (coordinates) are
-    kept explicitly -- the points on which the diagnostics (FTLE, eigenpairs) are
-    reported, and the natural anchor for downstream LCS work. There is no stored
-    ``dx`` / ``dy``: the stencil lives in the reference positions themselves. The
-    seed holds no data variables and no time.
+    The reference release positions ``lon_0(i, j, displacement)`` /
+    ``lat_0(i, j, displacement)`` (coordinates, degrees) are the explicit per-arm
+    positions -- exactly what :meth:`Seed.to_parcels_pset` emits, so the dataset
+    is self-sufficient. The grid-point centres ``lon_c(i, j)`` / ``lat_c(i, j)``
+    (coordinates) -- the points on which the diagnostics are reported -- are kept
+    explicitly. There is no stored ``dx``/``dy``: the stencil lives in the
+    reference positions themselves.
 
-    Each grid point carries a controlled auxiliary stencil of four neighbours --
-    ``east, north, west, south`` -- with offsets ``east = (+s, 0)``,
-    ``north = (0, +s)``, ``west = (-s, 0)``, ``south = (0, -s)`` for
-    ``s = aux_separation_m``. The stencil is *fixed at construction*
-    (:meth:`from_axes`), never inferred or left arbitrary: there is no center
-    point (it would duplicate the grid position) and no diagonal corners (unused
-    by central differencing), so the emitted particle set is the minimal four
-    arms per grid point. This decouples the gradient step from the seed grid
-    resolution. Arms are placed by offsetting each centre in the *single* grid
-    local-tangent meters frame (one grid reference latitude, not a per-point
-    ``cos(phi)``; see :func:`_to_meters` and the module-level *Sphere metric
-    convention*). The paired :class:`AuxiliaryFlowMap` differences ``grad F``
+    Each grid point carries four arms ``east, north, west, south`` at offsets
+    ``east = (+s, 0)``, ``north = (0, +s)``, ``west = (-s, 0)``,
+    ``south = (0, -s)`` for ``s = aux_separation_m`` -- no centre point, no
+    diagonals. The arms are placed in the single grid local-tangent meters frame
+    (see :func:`_to_meters`), decoupling the gradient step from the seed grid
+    resolution. The paired :class:`AuxiliaryFlowMap` differences ``grad F``
     across the four arms (east-west, north-south).
     """
 
@@ -580,23 +486,21 @@ class AuxiliarySeed(Seed):
         """Build an auxiliary-stencil seed from 1-D lon/lat axes.
 
         See :meth:`Seed.from_axes`. The grid-point centres ``lon_c`` / ``lat_c``
-        are placed on ``(i, j)`` from the axes, then the fixed four-arm
+        are placed on ``(i, j)`` from the axes, then the four-arm
         ``displacement = ['east', 'north', 'west', 'south']`` stencil is laid out
         around each centre at offsets ``east = (+s, 0)``, ``north = (0, +s)``,
         ``west = (-s, 0)``, ``south = (0, -s)`` meters (``s = aux_separation_m``)
-        and stored *explicitly* as the reference release positions ``lon_0`` /
-        ``lat_0`` on ``(i, j, displacement)``. The shape is enforced here, not
-        left to the caller. The dataset holds only coordinates -- no data
-        variables, no time.
+        and stored as the reference release positions ``lon_0`` / ``lat_0`` on
+        ``(i, j, displacement)``.
 
         Parameters
         ----------
         lon, lat : np.ndarray
             1-D longitude/latitude axes (degrees); see :meth:`Seed.from_axes`.
         aux_separation_m : float, optional
-            Controlled auxiliary separation ``s`` (meters) applied to every arm;
-            it sets the finite-difference step (the reference arm span is ``2s``).
-            Chosen small relative to the flow scale.
+            Auxiliary separation ``s`` (meters) applied to every arm; sets the
+            finite-difference step (the reference arm span is ``2s``). Chosen
+            small relative to the flow scale.
         """
         # Broadcast the 1-D axes into curvilinear 2-D centre fields on (i, j);
         # lon varies along i, lat along j. These are the diagnostic centres.
@@ -604,7 +508,7 @@ class AuxiliarySeed(Seed):
         lat_axis = xr.DataArray(np.asarray(lat, dtype=float), dims="j")
         lon_c, lat_c = xr.broadcast(lon_axis, lat_axis)
 
-        # Fixed four-arm stencil offsets in meters; shape enforced here.
+        # Four-arm stencil offsets in meters.
         s = float(aux_separation_m)
         displacement = ["east", "north", "west", "south"]
         off_x = xr.DataArray(
@@ -614,10 +518,9 @@ class AuxiliarySeed(Seed):
             [0.0, +s, 0.0, -s], dims="displacement", coords={"displacement": displacement}
         )
 
-        # Place the arms about each centre in the single grid reference frame (one
-        # reference latitude = grid centroid), so meters <-> degrees here matches
-        # _to_meters exactly. lon_c (i, j) broadcasts with the (displacement,)
-        # offset into the explicit arm positions (i, j, displacement).
+        # Place the arms in the single grid reference frame (reference latitude =
+        # grid centroid), matching _to_meters. lon_c (i, j) broadcasts with the
+        # (displacement,) offset into the arm positions (i, j, displacement).
         lat_ref = float(lat_c.mean())
         c = np.cos(lat_ref * _DEG)
         lon_0 = lon_c + off_x / (EARTH_RADIUS_M * c * _DEG)
@@ -643,37 +546,27 @@ class NeighborFlowMap(FlowMap):
     """Advected flow map whose stencil is the neighbouring grid points.
 
     ``.ds`` carries the reference and advected positions on ``(i, j)`` (no
-    auxiliary displacement dim). The deformation gradient is differenced against
-    neighbouring grid points ``(i +/- 1, j +/- 1)``, so boundary cells lacking a
-    neighbour are legitimately NaN. See Haller (2015) Eq. 9 and the paired
-    :class:`NeighborSeed`.
+    displacement dim). ``grad F`` is differenced against neighbouring grid points
+    ``(i +/- 1, j +/- 1)``, so boundary cells lacking a neighbour are NaN. See
+    Haller (2015) Eq. 9 and the paired :class:`NeighborSeed`.
 
-    Axis-aligned grids only. The neighbour gradient assumes the reference grid is
-    axis-aligned (rectilinear) -- ``lon_0`` varies only along ``i`` and ``lat_0``
-    only along ``j`` -- so each tensor column can be divided by a single axis
-    step. It drops the off-diagonal metric terms (``d lon_0 / d j`` and
-    ``d lat_0 / d i``) and is therefore *not* correct for a genuinely curvilinear
-    reference grid. :meth:`Seed.from_axes` always builds an axis-aligned grid, but
-    :meth:`FlowMap.__init__` accepts an arbitrary dataset, so the limitation is
-    latent rather than impossible. Use :class:`AuxiliaryFlowMap` for curvilinear
-    reference grids -- its arms are read in the single global meters frame, so it
-    stays exact regardless of grid orientation.
+    Axis-aligned grids only: the neighbour gradient divides each tensor column by
+    a single axis step and drops the off-diagonal metric terms
+    (``d lon_0 / d j``, ``d lat_0 / d i``), so it is correct only when ``lon_0``
+    varies along ``i`` and ``lat_0`` along ``j``. :meth:`Seed.from_axes` always
+    builds such a grid, but :meth:`FlowMap.__init__` accepts any dataset, so the
+    limitation is latent. Use :class:`AuxiliaryFlowMap` for curvilinear grids.
     """
 
     def deformation_gradient(self) -> xr.DataArray:
         """grad F differenced against neighbouring grid points ``(i +/- 1, j +/- 1)``.
 
-        The numerator is the separation of the *advected* neighbour positions
-        (from the ingested outputs); the denominator is the *initial* neighbour
-        separation in the shared single-reference-latitude meters frame
-        (:func:`_to_meters`). Boundary cells lacking a neighbour yield NaN.
-
-        Assumes an axis-aligned (rectilinear) reference grid: each column is
-        divided by a single axis step (``dx0`` along ``i``, ``dy0`` along ``j``),
-        exact only when ``lon_0`` varies solely along ``i`` and ``lat_0`` solely
-        along ``j`` so the cross-metric steps vanish. For a genuinely curvilinear
-        grid use :class:`AuxiliaryFlowMap` instead. See
-        :meth:`FlowMap.deformation_gradient`.
+        Numerator: the separation of the advected neighbour positions;
+        denominator: the initial neighbour separation, both in the meters frame
+        (:func:`_to_meters`). Boundary cells lacking a neighbour yield NaN. Each
+        column is divided by a single axis step (``dx0`` along ``i``, ``dy0``
+        along ``j``), so this assumes an axis-aligned grid (see the class
+        docstring). See :meth:`FlowMap.deformation_gradient`.
         """
         x_adv, y_adv = _to_meters(
             self.ds["lon"], self.ds["lat"], self.ds["lon_0"], self.ds["lat_0"]
@@ -710,17 +603,14 @@ class AuxiliaryFlowMap(FlowMap):
     """
 
     def deformation_gradient(self) -> xr.DataArray:
-        """grad F differenced across the fixed four-arm auxiliary stencil.
+        """grad F differenced across the four-arm auxiliary stencil.
 
-        The plain ``grad F = d(lon, lat) / d(lon_0, lat_0)`` over the
-        ``displacement`` dim: east minus west for the ``x`` derivative, north
-        minus south for the ``y`` derivative. Both the advected separation
-        (numerator) and the *reference* arm separation (denominator) are read from
-        positions in the shared single-reference-latitude meters frame
-        (:func:`_to_meters`), so the denominator is the explicit ``2s`` reference
-        span -- no separately stored offsets. The per-point stencil makes grad F
-        well-defined at every grid point, including the boundary. See
-        :meth:`FlowMap.deformation_gradient` and Haller (2015) Eq. 9.
+        ``grad F = d(lon, lat) / d(lon_0, lat_0)`` over the ``displacement`` dim:
+        east minus west for the ``x`` derivative, north minus south for ``y``.
+        Both the advected separation (numerator) and the reference arm separation
+        (denominator, the ``2s`` span) are read in the meters frame
+        (:func:`_to_meters`). Well-defined at every grid point, including the
+        boundary. See :meth:`FlowMap.deformation_gradient`.
         """
         x_adv, y_adv = _to_meters(
             self.ds["lon"], self.ds["lat"], self.ds["lon_0"], self.ds["lat_0"]
@@ -746,9 +636,8 @@ class AuxiliaryFlowMap(FlowMap):
 
 # --- paired seed <-> flow-map wiring ---------------------------------------
 #
-# Each concrete seed knows the flow map it produces at ingest, and each concrete
-# flow map knows the time-free seed it collapses back to; the families are
-# siblings, so these links are explicit class attributes, not inheritance.
+# Each concrete seed knows the flow map it produces, and each flow map knows the
+# seed it collapses back to; explicit class attributes, not inheritance.
 NeighborSeed._flowmap_cls = NeighborFlowMap
 AuxiliarySeed._flowmap_cls = AuxiliaryFlowMap
 NeighborFlowMap._seed_cls = NeighborSeed
