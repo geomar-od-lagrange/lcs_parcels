@@ -41,6 +41,42 @@ feedback and are binding unless a task explicitly overrides them.
   (or "this shows X" prose) without actually running the notebook and reading the
   real output first. State what the run produced, not what you expect it to.
 
+## Environments & dependencies (pixi)
+
+- **Change the environment through the pixi CLI, never by hand-editing the
+  manifest.** Use `pixi add`, `pixi add --pypi`, `pixi add --feature <f> ...`,
+  `pixi project ...` so pixi edits `pyproject.toml` and `pixi.lock` together.
+  Don't hand-write the `[tool.pixi.*]` tables.
+- **Two environments, split on weight.** The `default` env stays **minimal** —
+  the core package and its tests only — and is pinned to **Python 3.13** (the
+  newest Parcels v4 supports) so tests run on a Parcels-compatible interpreter.
+  The `examples` env adds the heavy example stack (Parcels v4,
+  `copernicusmarine`, matplotlib). Run tests with `pixi run test`; run the real
+  examples with `pixi run -e examples ...`. Do not push Parcels/CMEMS/plotting
+  deps into the default env.
+- **Parcels is pinned to a git SHA.** Parcels v4 is alpha, so it is a pypi git
+  dependency in the `examples` feature pinned to a specific `main` commit. Bump
+  the rev deliberately; don't float it.
+
+## Parcels integration (v4)
+
+Parcels code lives only under `examples/`, never in `src/` (the package contains
+no Parcels — see the boundary rules above). Notes for writing Parcels examples,
+verified against the pinned v4 alpha:
+
+- **Currents → FieldSet:** `copernicusmarine_to_sgrid(fields={"U": ds["uo"],
+  "V": ds["vo"]})` then `FieldSet.from_sgrid_conventions(sds, mesh="spherical")`.
+  There is no `from_netcdf`/`from_xarray`/`from_data` in v4. The CMEMS coords
+  must carry CF `axis` attrs (T/Z/Y/X).
+- **Positions are `x`/`y`/`z`, not `lon`/`lat`:** `ParticleSet(fieldset,
+  pclass=Particle, x=lon, y=lat, z=z_surface, t=t0_array)`; read finals back as
+  `np.asarray(pset.x)` / `pset.y`, aligned to seeding order.
+- **Lost particles must be recovered to NaN.** By default an out-of-bounds or
+  land-NaN particle aborts the whole run. Append a recovery kernel after
+  `AdvectionRK4` that sets lost particles' `x`/`y` to NaN and their state to
+  `StatusCode.EndofLoop` (never `StatusCode.Delete`, which shrinks the array and
+  breaks alignment), so losses propagate as NaN through the diagnostics.
+
 ## Python & xarray
 
 - **Use the high-level, label-based xarray API everywhere.** Prefer `.isel()`,

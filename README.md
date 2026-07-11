@@ -45,6 +45,17 @@ A runnable end-to-end walk-through (emit -> ingest -> diagnose -> round-trip,
 exercised *without* Parcels) is in
 [`examples/example_grid_pset.py`](examples/example_grid_pset.py).
 
+For a **real** advection run,
+[`examples/cabo_verde_ftle.py`](examples/cabo_verde_ftle.py) maps the forward
+FTLE over the Cabo Verde archipelago from CMEMS hourly currents, using both the
+neighbor and auxiliary stencils. It needs the heavier `examples` pixi
+environment (Parcels v4 + `copernicusmarine` + matplotlib) and CMEMS
+credentials:
+
+```console
+$ pixi run -e examples jupytext --sync --execute examples/cabo_verde_ftle.py
+```
+
 ## License
 
 [MIT](LICENSE)
