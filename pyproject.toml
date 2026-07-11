@@ -9,7 +9,7 @@ description = "Lagrangian coherent structures with Parcels."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-dependencies = []
+dependencies = ["numpy", "xarray"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lcs_parcels"]
@@ -19,12 +19,21 @@ testpaths = ["tests"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["osx-arm64"]
+platforms = ["linux-64", "osx-arm64", "win-64"]
 
 [tool.pixi.pypi-dependencies]
 lcs_parcels = { path = ".", editable = true }
 
 [tool.pixi.tasks]
+test = "pytest"
+# Re-run the example against the current API; a stale example fails here.
+check-example = "jupytext --to notebook --execute examples/example_grid_pset.py --output .ci-example-check.ipynb"
 
 [tool.pixi.dependencies]
 pytest = ">=9.0.3,<10"
+numpy = "*"
+xarray = "*"
+ipython = ">=9.14.1,<10"
+ipykernel = ">=7.3.0,<8"
+nbconvert = ">=7.17.1,<8"
+jupytext = ">=1.19.4,<2"

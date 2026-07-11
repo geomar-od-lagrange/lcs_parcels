@@ -4,3 +4,6 @@
 
 # bytecode
 *.pyc
+
+# throwaway notebook from the `check-example` task
+.ci-example-check.ipynb
