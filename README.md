@@ -47,8 +47,8 @@ exercised *without* Parcels) is in
 
 For a **real** advection run,
 [`examples/cabo_verde_ftle.py`](examples/cabo_verde_ftle.py) maps the forward
-FTLE over the Cabo Verde archipelago from CMEMS hourly currents, using both the
-neighbor and auxiliary stencils. It needs the heavier `examples` pixi
+FTLE over the Cabo Verde archipelago from CMEMS hourly currents with the
+neighbor stencil. It needs the heavier `examples` pixi
 environment (Parcels v4 + `copernicusmarine` + matplotlib) and CMEMS
 credentials:
 
