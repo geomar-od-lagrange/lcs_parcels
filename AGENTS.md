@@ -36,7 +36,24 @@ feedback and are binding unless a task explicitly overrides them.
   follow them top to bottom. Don't dump the whole example into one mega-cell.
 - **Narrate in markdown cells, not comment blocks.** Use `# %% [markdown]` cells
   for prose between steps; don't explain the flow with long `#` comment blocks
-  inside code cells. Keep the prose terse.
+  inside code cells. Keep the prose terse. A single one-line `#` heading atop a
+  code cell to label its one step is fine — that's a label, not the "comment
+  block" this forbids; when one narrated section breaks into a few small cells,
+  prefer a terse per-cell heading comment over a markdown cell per micro-step.
+- **Show the essence, cut the scaffolding.** An example exists to demonstrate one
+  idea (e.g. how our structures marry a given library); everything not serving
+  that idea is noise. Strip incidental engineering — caching layers,
+  papermill/parameter cells, domain/config helpers, defensive plumbing — and
+  inline a helper that is called once rather than defining it. Being inefficient
+  or re-downloading on every run is acceptable in an example; being longer than
+  the idea requires is not. This is the opposite of production code: minimize the
+  reader's effort, not the machine's.
+- **Prefer vanilla plots.** Lean on the plotting library's built-in annotation —
+  xarray's `.plot`/`.plot.pcolormesh` labels axes, titles, and colorbars from the
+  object's name, coords, and attrs. Accept that default; don't hand-set titles,
+  axis labels, colormaps, `vmin`/`vmax`, aspect, or multi-panel styling unless a
+  default is actually wrong or the point being made needs it. A styled plot is
+  more code to maintain and pulls focus off the example's idea.
 - **No claimed result you haven't seen.** Never write a summary/conclusion cell
   (or "this shows X" prose) without actually running the notebook and reading the
   real output first. State what the run produced, not what you expect it to.
