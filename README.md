@@ -41,9 +41,17 @@ flowmap = seed.pset_to_flowmap(lon1, lat1, t0=t0, t1=t1)
 ftle = flowmap.ftle()  # xr.DataArray of the FTLE on the (i, j) grid
 ```
 
-A runnable end-to-end walk-through (emit -> ingest -> diagnose -> round-trip,
-exercised *without* Parcels) is in
-[`examples/example_grid_pset.py`](examples/example_grid_pset.py).
+Examples live under [`examples/`](examples/):
+
+- [`example_grid_pset.py`](examples/example_grid_pset.py) — the package API
+  exercised on its own, without Parcels.
+- [`cabo_verde_ftle.py`](examples/cabo_verde_ftle.py) — the Parcels v4
+  integration example. Needs the `examples` pixi environment and CMEMS
+  credentials:
+
+  ```console
+  $ pixi run -e examples jupytext --sync --execute examples/cabo_verde_ftle.py
+  ```
 
 ## License
 

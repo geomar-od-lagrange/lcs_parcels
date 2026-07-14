@@ -7,3 +7,6 @@
 
 # throwaway notebook from the `check-example` task
 .ci-example-check.ipynb
+
+# cached CMEMS subset downloaded by the Cabo Verde example (large, reproducible)
+examples/data/

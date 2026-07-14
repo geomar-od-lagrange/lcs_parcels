@@ -37,3 +37,40 @@ ipython = ">=9.14.1,<10"
 ipykernel = ">=7.3.0,<8"
 nbconvert = ">=7.17.1,<8"
 jupytext = ">=1.19.4,<2"
+python = "3.13.*"
+
+# --- examples feature -------------------------------------------------------
+# Real Parcels-driven examples (CMEMS currents, advection). The default env is
+# kept minimal; this feature adds the heavy Parcels + CMEMS stack. Both envs pin
+# Python 3.13 (the newest Parcels v4 supports). Parcels' binary dependency stack
+# comes from conda-forge (so uv finds it already satisfied); Parcels itself is
+# pinned to a v4 `main` SHA.
+[tool.pixi.feature.examples.dependencies]
+python = "3.13.*"
+# Parcels v4 runtime stack (see OceanParcels/Parcels pyproject at the pinned SHA).
+cftime = ">=1.6.3"
+numpy = ">=2.1.0"
+dask = ">=2024.5.1"
+netcdf4 = ">=1.7.2"
+zarr = ">=3"
+tqdm = ">=4.50.0"
+pandas = ">=2.2"
+pyarrow = ">=20.0.0"
+uxarray = ">=2026.04.1"
+pooch = ">=1.8.0"
+xgcm = ">=0.9.0"
+cf_xarray = ">=0.8.6"
+polars = ">=1.31.0"
+# CMEMS access + plotting for the example itself.
+copernicusmarine = ">=2"
+matplotlib-base = "*"
+
+[tool.pixi.feature.examples.pypi-dependencies]
+# Pinned to Parcels v4 `main` (HEAD as of 2026-07-10). Bump the rev to advance.
+parcels = { git = "https://github.com/OceanParcels/Parcels.git", rev = "5a0df965fe70f37add860230cbcd3b2fc03ffd2e" }
+
+[tool.pixi.environments]
+# The implicit `default` env stays Python 3.14 for the core package/tests; the
+# `examples` env adds the Parcels + CMEMS stack on Python 3.13.
+default = { features = [], solve-group = "default" }
+examples = { features = ["examples"] }

@@ -36,10 +36,63 @@ feedback and are binding unless a task explicitly overrides them.
   follow them top to bottom. Don't dump the whole example into one mega-cell.
 - **Narrate in markdown cells, not comment blocks.** Use `# %% [markdown]` cells
   for prose between steps; don't explain the flow with long `#` comment blocks
-  inside code cells. Keep the prose terse.
+  inside code cells. Keep the prose terse. A single one-line `#` heading atop a
+  code cell to label its one step is fine — that's a label, not the "comment
+  block" this forbids; when one narrated section breaks into a few small cells,
+  prefer a terse per-cell heading comment over a markdown cell per micro-step.
+- **Show the essence, cut the scaffolding.** An example exists to demonstrate one
+  idea (e.g. how our structures marry a given library); everything not serving
+  that idea is noise. Strip incidental engineering — caching layers,
+  papermill/parameter cells, domain/config helpers, defensive plumbing — and
+  inline a helper that is called once rather than defining it. Being inefficient
+  or re-downloading on every run is acceptable in an example; being longer than
+  the idea requires is not. This is the opposite of production code: minimize the
+  reader's effort, not the machine's.
+- **Prefer vanilla plots.** Lean on the plotting library's built-in annotation —
+  xarray's `.plot`/`.plot.pcolormesh` labels axes, titles, and colorbars from the
+  object's name, coords, and attrs. Accept that default; don't hand-set titles,
+  axis labels, colormaps, `vmin`/`vmax`, aspect, or multi-panel styling unless a
+  default is actually wrong or the point being made needs it. A styled plot is
+  more code to maintain and pulls focus off the example's idea.
 - **No claimed result you haven't seen.** Never write a summary/conclusion cell
   (or "this shows X" prose) without actually running the notebook and reading the
   real output first. State what the run produced, not what you expect it to.
+
+## Environments & dependencies (pixi)
+
+- **Change the environment through the pixi CLI, never by hand-editing the
+  manifest.** Use `pixi add`, `pixi add --pypi`, `pixi add --feature <f> ...`,
+  `pixi project ...` so pixi edits `pyproject.toml` and `pixi.lock` together.
+  Don't hand-write the `[tool.pixi.*]` tables.
+- **Two environments, split on weight.** The `default` env stays **minimal** —
+  the core package and its tests only — and is pinned to **Python 3.13** (the
+  newest Parcels v4 supports) so tests run on a Parcels-compatible interpreter.
+  The `examples` env adds the heavy example stack (Parcels v4,
+  `copernicusmarine`, matplotlib). Run tests with `pixi run test`; run the real
+  examples with `pixi run -e examples ...`. Do not push Parcels/CMEMS/plotting
+  deps into the default env.
+- **Parcels is pinned to a git SHA.** Parcels v4 is alpha, so it is a pypi git
+  dependency in the `examples` feature pinned to a specific `main` commit. Bump
+  the rev deliberately; don't float it.
+
+## Parcels integration (v4)
+
+Parcels code lives only under `examples/`, never in `src/` (the package contains
+no Parcels — see the boundary rules above). Notes for writing Parcels examples,
+verified against the pinned v4 alpha:
+
+- **Currents → FieldSet:** `copernicusmarine_to_sgrid(fields={"U": ds["uo"],
+  "V": ds["vo"]})` then `FieldSet.from_sgrid_conventions(sds, mesh="spherical")`.
+  There is no `from_netcdf`/`from_xarray`/`from_data` in v4. The CMEMS coords
+  must carry CF `axis` attrs (T/Z/Y/X).
+- **Positions are `x`/`y`/`z`, not `lon`/`lat`:** `ParticleSet(fieldset,
+  pclass=Particle, x=lon, y=lat, z=z_surface, t=t0_array)`; read finals back as
+  `np.asarray(pset.x)` / `pset.y`, aligned to seeding order.
+- **Lost particles must be recovered to NaN.** By default an out-of-bounds or
+  land-NaN particle aborts the whole run. Append a recovery kernel after
+  `AdvectionRK4` that sets lost particles' `x`/`y` to NaN and their state to
+  `StatusCode.EndofLoop` (never `StatusCode.Delete`, which shrinks the array and
+  breaks alignment), so losses propagate as NaN through the diagnostics.
 
 ## Python & xarray
 
