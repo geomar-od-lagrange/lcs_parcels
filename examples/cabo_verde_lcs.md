@@ -227,23 +227,30 @@ def ridge_seeds(ftle, window=7, quantile=0.90):
     return np.column_stack([lon0[mask], lat0[mask]])
 
 
-repelling = line_tracer(forward.cauchy_green())(ridge_seeds(ftle_forward))
-attracting = line_tracer(backward.cauchy_green())(ridge_seeds(ftle_backward))
+repelling_seeds = ridge_seeds(ftle_forward)
+attracting_seeds = ridge_seeds(ftle_backward)
+repelling = line_tracer(forward.cauchy_green())(repelling_seeds)
+attracting = line_tracer(backward.cauchy_green())(attracting_seeds)
 print(f"{len(repelling)} repelling, {len(attracting)} attracting lines")
 ```
 
 ## LCS over the FTLE
 
+Each family on its own FTLE, with the seed points dotted so we can check they
+sit on the ridge tops and stay well separated.
+
 ```python
-fig, ax = plt.subplots(figsize=(8, 7))
-ftle_forward.plot.pcolormesh(x="lon_0", y="lat_0", ax=ax, cmap="Greys", add_colorbar=True)
-for line in repelling:
-    ax.plot(line[:, 0], line[:, 1], color="tab:red", lw=0.8)
-for line in attracting:
-    ax.plot(line[:, 0], line[:, 1], color="tab:blue", lw=0.8)
-ax.plot([], [], color="tab:red", label="repelling (forward $\\xi_1$)")
-ax.plot([], [], color="tab:blue", label="attracting (backward $\\xi_1$)")
-ax.legend(loc="upper right")
-ax.set_xlim(seed_lon)
-ax.set_ylim(seed_lat)
+fig, axes = plt.subplots(1, 2, figsize=(13, 6), sharex=True, sharey=True)
+panels = [
+    (axes[0], ftle_forward, repelling, repelling_seeds, "tab:red", "repelling (forward)"),
+    (axes[1], ftle_backward, attracting, attracting_seeds, "tab:blue", "attracting (backward)"),
+]
+for ax, ftle, lines, seeds, color, name in panels:
+    ftle.plot.pcolormesh(x="lon_0", y="lat_0", ax=ax, cmap="Greys", add_colorbar=True)
+    for line in lines:
+        ax.plot(line[:, 0], line[:, 1], color=color, lw=0.8)
+    ax.scatter(seeds[:, 0], seeds[:, 1], s=20, color=color, edgecolor="k", linewidth=0.3, zorder=3)
+    ax.set_title(name)
+    ax.set_xlim(seed_lon)
+    ax.set_ylim(seed_lat)
 ```
