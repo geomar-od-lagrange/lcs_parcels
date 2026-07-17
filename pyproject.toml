@@ -71,7 +71,7 @@ matplotlib-base = "*"
 parcels = { git = "https://github.com/OceanParcels/Parcels.git", rev = "5a0df965fe70f37add860230cbcd3b2fc03ffd2e" }
 
 [tool.pixi.environments]
-# The implicit `default` env stays Python 3.14 for the core package/tests; the
-# `examples` env adds the Parcels + CMEMS stack on Python 3.13.
+# Both envs pin Python 3.13 (the newest Parcels v4 supports); the `examples` env
+# adds the Parcels + CMEMS stack on top of the minimal default.
 default = { features = [], solve-group = "default" }
 examples = { features = ["examples"] }

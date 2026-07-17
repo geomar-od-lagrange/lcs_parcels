@@ -45,12 +45,17 @@ Examples live under [`examples/`](examples/):
 
 - [`example_grid_pset.py`](examples/example_grid_pset.py) — the package API
   exercised on its own, without Parcels.
-- [`cabo_verde_ftle.py`](examples/cabo_verde_ftle.py) — the Parcels v4
-  integration example. Needs the `examples` pixi environment and CMEMS
-  credentials:
+- [`cabo_verde_ftle.py`](examples/cabo_verde_ftle.py) — the Parcels v4 wiring:
+  the FTLE from CMEMS currents. Needs CMEMS credentials.
+- [`cabo_verde_lcs.py`](examples/cabo_verde_lcs.py) — repelling and attracting
+  LCS as strain tensor lines. Offline (bundled currents).
+- [`cabo_verde_lcs_evolution.py`](examples/cabo_verde_lcs_evolution.py) — evolve
+  an extracted LCS as a material curve. Offline.
+
+The Parcels examples need the `examples` pixi environment; run one with, e.g.:
 
   ```console
-  $ pixi run -e examples jupytext --sync --execute examples/cabo_verde_ftle.py
+  $ pixi run -e examples jupytext --sync --execute examples/cabo_verde_lcs.py
   ```
 
 ## License
