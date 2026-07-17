@@ -93,6 +93,14 @@ def _reference_lonlat(lon_0: xr.DataArray, lat_0: xr.DataArray) -> tuple[float, 
     return float(lon_0.mean()), float(lat_0.mean())
 
 
+def _grid_lonlat(obj: xr.DataArray | xr.Dataset) -> tuple[xr.DataArray, xr.DataArray]:
+    """The ``(i, j)`` diagnostic-grid lon/lat: centres (``Auxiliary*``) if present,
+    else the reference release positions ``lon_0``/``lat_0`` (``Neighbor*``)."""
+    lon = obj["lon_c"] if "lon_c" in obj.coords else obj["lon_0"]
+    lat = obj["lat_c"] if "lat_c" in obj.coords else obj["lat_0"]
+    return lon, lat
+
+
 def _to_meters(lon: xr.DataArray, lat: xr.DataArray, lon_0: xr.DataArray, lat_0: xr.DataArray):
     """Project ``lon``/``lat`` into the meters frame anchored at the centroid of
     ``lon_0``/``lat_0`` (one ``cos(phi_ref)``, not a per-point cosine).
@@ -399,6 +407,58 @@ class FlowMap(abc.ABC):
         t_sec = self._integration_seconds()
         # (1 / |T|) log sqrt(lambda_max) = (1 / |T|) * 0.5 * log(lambda_max).
         return (1.0 / t_sec) * 0.5 * np.log(lambda_max)
+
+    def image(self, lon0: xr.DataArray, lat0: xr.DataArray) -> xr.Dataset:
+        """Advected positions ``F_{t0}^{t1}(x_0)`` at arbitrary reference points.
+
+        Interpolates the stored advected-position field ``lon``/``lat`` at the
+        reference locations ``lon0``/``lat0`` (degrees), i.e. where those
+        material points sit at ``t1``. Evolving an extracted material curve is
+        exactly this -- feed a curve's own ``lon``/``lat`` (its ``x_0``) and read
+        back its later position, ``M(t1) = F_{t0}^{t1}(M(t0))`` (Haller 2015
+        Eq. 5).
+
+        Vectorized and dim-preserving: ``lon0``/``lat0`` are ``DataArray``s on
+        any shared dims -- e.g. the ``(line, point)`` grid of
+        :func:`~lcs_parcels.shrink_lines` -- and the output carries those dims.
+        Points off the grid, in a NaN (land/edge) cell, or NaN themselves map to
+        NaN, so an evolved curve terminates exactly where the flow map is
+        undefined.
+
+        Rectilinear grids only, like :func:`~lcs_parcels.shrink_lines`: the
+        advected field is read on the axis-aligned diagnostic grid (``lon``
+        along ``i``, ``lat`` along ``j``). For :class:`AuxiliaryFlowMap` the
+        advected position is the centroid of the four advected arms (the arms sit
+        ~metres apart, so this is the flow-map image of the grid centre).
+
+        Parameters
+        ----------
+        lon0, lat0 : xr.DataArray
+            Reference positions ``x_0`` (degrees) to map, sharing dims.
+
+        Returns
+        -------
+        xr.Dataset
+            ``lon``/``lat`` (degrees) on the dims of ``lon0``/``lat0`` -- the
+            same structure a :func:`~lcs_parcels.shrink_lines` curve has, so an
+            evolved curve is drop-in plottable and can itself be re-fed.
+        """
+        lon_grid, lat_grid = _grid_lonlat(self.ds)
+        advected = self.ds[["lon", "lat"]]
+        if "displacement" in advected.dims:
+            # Auxiliary stencil: the advected centre is the centroid of its arms.
+            advected = advected.mean("displacement")
+        advected = (
+            advected.reset_coords(drop=True)
+            .assign_coords(i=lon_grid.isel(j=0, drop=True).values,
+                           j=lat_grid.isel(i=0, drop=True).values)
+            .rename(i="lon_0", j="lat_0")
+        )
+        return advected.interp(
+            lon_0=lon0,
+            lat_0=lat0,
+            kwargs=dict(bounds_error=False, fill_value=np.nan),
+        )
 
     def to_seed(self) -> Seed:
         """Drop the advected positions and time, recovering a time-free seed.
