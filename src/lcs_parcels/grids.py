@@ -93,6 +93,14 @@ def _reference_lonlat(lon_0: xr.DataArray, lat_0: xr.DataArray) -> tuple[float, 
     return float(lon_0.mean()), float(lat_0.mean())
 
 
+def _grid_lonlat(obj: xr.DataArray | xr.Dataset) -> tuple[xr.DataArray, xr.DataArray]:
+    """The ``(i, j)`` diagnostic-grid lon/lat: centres (``Auxiliary*``) if present,
+    else the reference release positions ``lon_0``/``lat_0`` (``Neighbor*``)."""
+    lon = obj["lon_c"] if "lon_c" in obj.coords else obj["lon_0"]
+    lat = obj["lat_c"] if "lat_c" in obj.coords else obj["lat_0"]
+    return lon, lat
+
+
 def _to_meters(lon: xr.DataArray, lat: xr.DataArray, lon_0: xr.DataArray, lat_0: xr.DataArray):
     """Project ``lon``/``lat`` into the meters frame anchored at the centroid of
     ``lon_0``/``lat_0`` (one ``cos(phi_ref)``, not a per-point cosine).
@@ -417,9 +425,11 @@ class FlowMap(abc.ABC):
         NaN, so an evolved curve terminates exactly where the flow map is
         undefined.
 
-        Rectilinear grids only (like :class:`NeighborFlowMap`): the advected
-        field is read on the axis-aligned ``lon_0``/``lat_0`` axes (``lon_0``
-        along ``i``, ``lat_0`` along ``j``).
+        Rectilinear grids only, like :func:`~lcs_parcels.shrink_lines`: the
+        advected field is read on the axis-aligned diagnostic grid (``lon``
+        along ``i``, ``lat`` along ``j``). For :class:`AuxiliaryFlowMap` the
+        advected position is the centroid of the four advected arms (the arms sit
+        ~metres apart, so this is the flow-map image of the grid centre).
 
         Parameters
         ----------
@@ -433,12 +443,15 @@ class FlowMap(abc.ABC):
             same structure a :func:`~lcs_parcels.shrink_lines` curve has, so an
             evolved curve is drop-in plottable and can itself be re-fed.
         """
-        lon_axis = self.ds["lon_0"].isel(j=0, drop=True).values
-        lat_axis = self.ds["lat_0"].isel(i=0, drop=True).values
+        lon_grid, lat_grid = _grid_lonlat(self.ds)
+        advected = self.ds[["lon", "lat"]]
+        if "displacement" in advected.dims:
+            # Auxiliary stencil: the advected centre is the centroid of its arms.
+            advected = advected.mean("displacement")
         advected = (
-            self.ds[["lon", "lat"]]
-            .reset_coords(drop=True)
-            .assign_coords(i=lon_axis, j=lat_axis)
+            advected.reset_coords(drop=True)
+            .assign_coords(i=lon_grid.isel(j=0, drop=True).values,
+                           j=lat_grid.isel(i=0, drop=True).values)
             .rename(i="lon_0", j="lat_0")
         )
         return advected.interp(

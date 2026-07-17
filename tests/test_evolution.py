@@ -13,8 +13,8 @@ rectilinear field ``image`` reads).
 import numpy as np
 import xarray as xr
 
-from conftest import advected_flowmap
-from lcs_parcels import NeighborSeed
+from conftest import advected_flowmap, apply_linear_map_to_pset
+from lcs_parcels import AuxiliarySeed, NeighborSeed
 
 T0 = np.datetime64("2020-01-01")
 T1 = np.datetime64("2020-01-02")
@@ -73,3 +73,19 @@ def test_image_off_grid_and_nan_inputs_are_nan(lon_axis, lat_axis):
     assert np.isfinite(out["lon"].isel(param=0))  # interior point: finite
     assert bool(out["lon"].isel(param=1).isnull())  # off-grid: NaN
     assert bool(out["lon"].isel(param=2).isnull())  # NaN input: NaN
+
+
+def test_image_on_auxiliary_flowmap(lon_axis, lat_axis):
+    """image works on the auxiliary (i, j, displacement) layout that shrink_lines
+    supports: it maps the grid centre through the flow map (arm centroid)."""
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
+    node = dict(i=1, j=2)
+    lon_c = fm.ds["lon_c"].isel(**node)
+    lat_c = fm.ds["lat_c"].isel(**node)
+    out = fm.image(lon_c, lat_c)
+
+    # For a linear map the arm centroid is exactly the centre's advected position.
+    origin = (float(fm.ds["lon_0"].mean()), float(fm.ds["lat_0"].mean()))
+    exp_lon, exp_lat = apply_linear_map_to_pset([float(lon_c)], [float(lat_c)], M, origin)
+    assert np.isclose(out["lon"], exp_lon[0])
+    assert np.isclose(out["lat"], exp_lat[0])

@@ -206,8 +206,9 @@ FlowMap.image(lon0, lat0) -> xr.Dataset
   $F_{t_0}^{t_1}(x_0)$ as an `xr.Dataset` with `lon`/`lat` on the input dims —
   the same structure a `shrink_lines` curve has, so an evolved curve is drop-in
   plottable and can itself be re-fed. Points off the grid, in a NaN (land/edge)
-  cell, or NaN themselves map to NaN. Rectilinear grids only (like
-  `NeighborFlowMap`).
+  cell, or NaN themselves map to NaN. Rectilinear grids only, like
+  `shrink_lines` (for `AuxiliaryFlowMap` the advected centre is the arm
+  centroid).
 
 An LCS is evolved in its **coherent** direction, where perturbations decay: an
 attracting LCS forward in time, a repelling one backward. Advecting the grid to a

@@ -25,16 +25,11 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
 
+from lcs_parcels.grids import _grid_lonlat
+
 # Earth radius (m); the metres frame in which C's eigenvectors live (see grids._to_meters).
 _R = 6_371_000.0
 _DEG = np.pi / 180.0
-
-
-def _grid_lonlat(obj: xr.DataArray | xr.Dataset) -> tuple[xr.DataArray, xr.DataArray]:
-    """The ``(i, j)`` diagnostic-grid lon/lat coords: centres if present, else x_0."""
-    lon = obj["lon_c"] if "lon_c" in obj.coords else obj["lon_0"]
-    lat = obj["lat_c"] if "lat_c" in obj.coords else obj["lat_0"]
-    return lon, lat
 
 
 def ftle_ridge_seeds(

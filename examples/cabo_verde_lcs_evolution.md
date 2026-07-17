@@ -181,16 +181,17 @@ v_lat = attracting["lat"].values[finite]
 
 pset = ParticleSet(
     fieldset, pclass=Particle,
-    x=list(v_lon), y=list(v_lat),
+    x=v_lon, y=v_lat,
     z=np.full(v_lon.size, z_surface), t=np.full(v_lon.size, t0),
 )
 pset.execute([AdvectionRK4, set_lost_to_nan], dt=np.timedelta64(1, "h"),
              runtime=leads[-1], verbose_progress=False)
+direct_lon, direct_lat = np.asarray(pset.x), np.asarray(pset.y)
 
 image_lon = attracting_evo["lon"].isel(lead=-1).values[finite]
 image_lat = attracting_evo["lat"].isel(lead=-1).values[finite]
-km = 111.32 * np.hypot((pset.x - image_lon) * np.cos(np.deg2rad(v_lat)),
-                       pset.y - image_lat)
+km = 111.32 * np.hypot((direct_lon - image_lon) * np.cos(np.deg2rad(v_lat)),
+                       direct_lat - image_lat)
 print(f"flow-map vs direct advection over {np.isfinite(km).sum()} vertices: "
       f"median {np.nanmedian(km):.2f} km, max {np.nanmax(km):.2f} km")
 ```
