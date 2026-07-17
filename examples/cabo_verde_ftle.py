@@ -104,20 +104,18 @@ seed = NeighborSeed.from_axes(lon_axis, lat_axis)
 # %%
 # Advect in Parcels
 lon, lat = seed.to_parcels_pset()
-lon, lat = np.asarray(lon, dtype=float), np.asarray(lat, dtype=float)
 pset = ParticleSet(
     fieldset, pclass=Particle,
-    x=lon, y=lat, z=np.full(lon.size, z_surface), t=np.full(lon.size, t0),
+    x=lon, y=lat, z=np.full(len(lon), z_surface), t=np.full(len(lon), t0),
 )
 pset.execute(
     [AdvectionRK4, set_lost_to_nan],
     dt=np.timedelta64(1, "h"), runtime=T, verbose_progress=False,
 )
-fin_lon, fin_lat = np.asarray(pset.x, dtype=float), np.asarray(pset.y, dtype=float)
 
 # %%
 # Construct flowmap / calc FTLE
-flowmap = seed.pset_to_flowmap(fin_lon, fin_lat, t0=t0, t1=t1)
+flowmap = seed.pset_to_flowmap(pset.x, pset.y, t0=t0, t1=t1)
 ftle = (flowmap.ftle() * 86400.0).rename("FTLE")
 
 # %% [markdown]

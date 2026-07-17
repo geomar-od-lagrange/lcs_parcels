@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lcs_parcels"
-version = "0.1.0"
+version = "2026.07.17.1"
 description = "Lagrangian coherent structures with Parcels."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-dependencies = ["numpy", "xarray"]
+dependencies = ["numpy", "xarray", "scipy"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lcs_parcels"]
@@ -38,6 +38,7 @@ ipykernel = ">=7.3.0,<8"
 nbconvert = ">=7.17.1,<8"
 jupytext = ">=1.19.4,<2"
 python = "3.13.*"
+scipy = ">=1.18.0,<2"
 
 # --- examples feature -------------------------------------------------------
 # Real Parcels-driven examples (CMEMS currents, advection). The default env is
@@ -70,7 +71,7 @@ matplotlib-base = "*"
 parcels = { git = "https://github.com/OceanParcels/Parcels.git", rev = "5a0df965fe70f37add860230cbcd3b2fc03ffd2e" }
 
 [tool.pixi.environments]
-# The implicit `default` env stays Python 3.14 for the core package/tests; the
-# `examples` env adds the Parcels + CMEMS stack on Python 3.13.
+# Both envs pin Python 3.13 (the newest Parcels v4 supports); the `examples` env
+# adds the Parcels + CMEMS stack on top of the minimal default.
 default = { features = [], solve-group = "default" }
 examples = { features = ["examples"] }

@@ -246,6 +246,7 @@ def test_ftle_pure_stretch(lon_axis, lat_axis):
 
     expected = (1.0 / T_SEC) * np.log(max(a, b))
     assert set(ftle.dims) == {"i", "j"}
+    assert "eig" not in ftle.coords  # the eigenvalue pick leaves no scalar coord
     assert float(abs(ftle - expected).max()) < 1e-6
 
 
@@ -258,7 +259,9 @@ def test_ftle_matches_eigen(lon_axis, lat_axis):
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     ftle = g.ftle()
 
-    lam_max = g.cg_eigen()["lambda"].isel(eig=1)
+    # ftle() reports on (i, j) with no leftover `eig` coord (drop=True on the
+    # eigenvalue pick), so drop it here too.
+    lam_max = g.cg_eigen()["lambda"].isel(eig=1, drop=True)
     expected = (1.0 / T_SEC) * np.log(np.sqrt(lam_max))
     xr.testing.assert_allclose(ftle, expected)
 

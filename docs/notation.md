@@ -25,8 +25,9 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 | $t_1$ | integration end time; supplied at ingest, consumed to derive $T$, not stored (recoverable as $t_0 + T$) | 3 | `t1` (input) |
 | $T = t_1 - t_0$ | integration window, **signed**; derived at ingest from $t_0$ and the end time $t_1$, stored as a scalar coord on the `FlowMap`; its sign sets the integration direction | 3 | `T` (flow map coord) |
 | $dx = R\cos\phi_{\mathrm{ref}}\,d\lambda,\ \ dy = R\,d\phi$ | local-tangent meters convention, anchored at one grid reference latitude $\phi_{\mathrm{ref}}$ ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ meters) | — | (internal metric) |
+| $\dot r = \xi_1(r)$ | shrink line: tensor line tangent to $\xi_1$; a repelling LCS (forward flow) or, by duality, attracting LCS (backward flow) | Table 1 ($n = 2$) | `shrink_lines`, `ftle_ridge_seeds` |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 | — |
-| $\eta^\pm(x_0)$ | shear vector field; shrink/stretch/shear lines (**deferred**) | 10, 11, Table 1 | — |
+| $\eta^\pm(x_0)$ | shear vector field; stretch/shear lines (**deferred**) | 10, 11, Table 1 | — |
 
 ## Notes on the subtle points
 
@@ -133,13 +134,18 @@ and `AuxiliaryFlowMap` share the identical metric code (and `AuxiliarySeed`
 reuses it to lay out its arms), so positions are read back in the same frame the
 seed was emitted in.
 
-### Deferred symbols
+### Geometric LCS layer (tensor lines)
 
-These belong to the geometric LCS layer (tensor-line integration) deferred to a
-later module and are listed only for completeness:
+Hyperbolic LCS are extracted as **shrink lines** — tensor lines tangent to
+$\xi_1$, solving $\dot r = \xi_1(r)$ (Haller Table 1, $n = 2$) — in
+[`src/lcs_parcels/tensorlines.py`](../src/lcs_parcels/tensorlines.py)
+(`shrink_lines`, with `ftle_ridge_seeds` for start points). Repelling LCS are the
+shrink lines of the forward flow map; attracting LCS those of the backward flow
+map (forward–backward duality, Haller & Sapsis 2011). The following remain
+deferred:
 
 - $E_\lambda(x_0)$ — generalized Green–Lagrange strain tensor (Eq. 8).
-- $\eta^\pm(x_0)$ — shear vector field; shrink, stretch, and shear lines
+- $\eta^\pm(x_0)$ — shear vector field; stretch and shear (elliptic) lines
   (Eqs. 10–11, Table 1).
 
 ## Array and dimension conventions
@@ -159,6 +165,7 @@ dimensions, not as scalar variables (`F11, F12, …`):
 | eigenvalues $\lambda_i$ | `lambda` | `(i, j, eig)` | — |
 | eigenvectors $\xi_i$ | `xi` | `(i, j, comp, eig)` | `comp = ['x', 'y']` |
 | FTLE $\Lambda$ | `ftle` | `(i, j)` | — |
+| shrink-line polylines $\dot r = \xi_1$ | `lon`, `lat` (in the `shrink_lines` dataset) | `(line, point)` | — |
 
 Logical grid dims are `i, j`. The `comp` coordinate labels vector/tensor
 components `['x', 'y']`; `row`/`col` (dimension coordinates valued `['x', 'y']`)

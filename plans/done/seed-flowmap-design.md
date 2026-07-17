@@ -257,7 +257,7 @@ grids); no file split.
 - **`tests/test_lcs_parcels.py`** — assert the two new hierarchies instead of
   the `ParticleGrid` base.
 - **`examples/example_grid_pset.py`** (jupytext `.py`/`.md`/`.ipynb` triple) —
-  rewrite to the `Seed` → `pset_to_flowmap` → `FlowMap` flow, re-`jupytext
+  rewrite to the `Seed` / `pset_to_flowmap` / `FlowMap` flow, re-`jupytext
   --sync`, then re-execute end-to-end and commit the `.ipynb` **with outputs**
   (per AGENTS.md, the rendered example is self-demonstrating).
 - **`AGENTS.md`** — update the boundary convention: emit via

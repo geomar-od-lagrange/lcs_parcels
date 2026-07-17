@@ -147,3 +147,24 @@ than against neighbouring grid points. Backward integration (attracting LCS) is
 selected purely by passing `t1` before `t0` at ingest (so `T = t1 - t0` is
 negative); no separate direction flag exists, and a zero window (`t1 == t0`) is
 rejected with `ValueError`.
+
+## Extracting LCS: shrink lines
+
+Downstream of the FTLE, the geometric layer
+([`src/lcs_parcels/tensorlines.py`](../src/lcs_parcels/tensorlines.py)) turns the
+strain field into LCS **curves**. It is deliberately *not* methods on `FlowMap`
+(which stays a gridded-diagnostics object) but two free functions that consume a
+`FlowMap`'s xarray outputs — keeping the one new external dependency (`scipy`, for
+grid interpolation) at the boundary:
+
+- `ftle_ridge_seeds(ftle)` — start points at the FTLE ridge tops (windowed local
+  maxima above a quantile floor);
+- `shrink_lines(flowmap, seed_lon, seed_lat)` — integrates the $\xi_1$ tensor
+  lines ($\dot r = \xi_1(r)$, Haller Table 1) through those seeds, returning an
+  `xr.Dataset` of polylines on `(line, point)`.
+
+Repelling vs. attracting is just *which* flow map is passed: forward gives
+repelling LCS, backward gives attracting LCS (the same forward/backward duality that selects
+the FTLE's sign of `T`). This composes the whole example —
+`shrink_lines(forward, *ftle_ridge_seeds(forward.ftle()))` for repelling,
+the `backward` flow map for attracting.

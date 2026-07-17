@@ -17,7 +17,8 @@ from lcs_parcels import (
 
 
 def test_version():
-    assert lcs_parcels.__version__ == "0.1.0"
+    # A version string is exported; don't pin the value (it goes stale on bumps).
+    assert isinstance(lcs_parcels.__version__, str) and lcs_parcels.__version__
 
 
 def test_public_classes_importable():
