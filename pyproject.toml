@@ -9,7 +9,7 @@ description = "Lagrangian coherent structures with Parcels."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-dependencies = ["numpy", "xarray"]
+dependencies = ["numpy", "xarray", "scipy"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lcs_parcels"]
@@ -38,6 +38,7 @@ ipykernel = ">=7.3.0,<8"
 nbconvert = ">=7.17.1,<8"
 jupytext = ">=1.19.4,<2"
 python = "3.13.*"
+scipy = ">=1.18.0,<2"
 
 # --- examples feature -------------------------------------------------------
 # Real Parcels-driven examples (CMEMS currents, advection). The default env is

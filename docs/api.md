@@ -14,6 +14,10 @@ concrete stencils, exported from the package root:
 from lcs_parcels import Seed, NeighborSeed, AuxiliarySeed, FlowMap, NeighborFlowMap, AuxiliaryFlowMap
 ```
 
+Plus two functions that turn a `FlowMap`'s strain field into hyperbolic-LCS
+curves — `ftle_ridge_seeds` and `shrink_lines` (see
+[Hyperbolic LCS: shrink lines](#hyperbolic-lcs-shrink-lines) below).
+
 A `Seed` lays out reference positions and emits a particle set for Parcels; the
 advected positions are ingested back into a `FlowMap`, which computes the
 deformation gradient $\nabla F$ and everything downstream (Cauchy–Green $C$, its
@@ -138,6 +142,51 @@ FlowMap.ftle() -> xr.DataArray                    # concrete (base)
 
 A single `NaN` (lost particle or missing stencil point) propagates
 `gradF -> C -> eigen -> ftle` with no special-casing.
+
+## Hyperbolic LCS: shrink lines
+
+Two module-level functions (in `lcs_parcels.tensorlines`, exported from the
+package root) turn a `FlowMap`'s strain field into LCS **curves**, following
+Haller (2015) §5.1 / Table 1 ($n = 2$):
+
+```python
+from lcs_parcels import ftle_ridge_seeds, shrink_lines
+
+seed_lon, seed_lat = ftle_ridge_seeds(flowmap.ftle())     # start points
+lines = shrink_lines(flowmap, seed_lon, seed_lat)          # xr.Dataset of curves
+```
+
+A repelling LCS is a **shrink line** — a curve tangent to the weak-stretch
+eigenvector $\xi_1$ of $C$, solving the tensor-line ODE $\dot r = \xi_1(r)$.
+Attracting LCS need no separate call: by the forward–backward duality (Haller &
+Sapsis 2011) they are the shrink lines of the *backward* flow, so `shrink_lines`
+of a **forward** `FlowMap` gives repelling LCS and of a **backward** one gives
+attracting LCS.
+
+```python
+ftle_ridge_seeds(ftle, *, window=7, quantile=0.90) -> tuple[np.ndarray, np.ndarray]
+shrink_lines(flowmap, seed_lon, seed_lat, *, lambda_max_min=1.1,
+             step_m=3000.0, n_steps=250) -> xr.Dataset
+```
+
+- **`ftle_ridge_seeds(ftle)`** — start points at strong local maxima of an FTLE
+  field: grid points that are the maximum over a `window x window` neighbourhood
+  (a windowed local maximum on the raw value) *and* at or above the `quantile`
+  magnitude floor. Returns `(lon, lat)` 1-D arrays. NaN cells never qualify.
+- **`shrink_lines(flowmap, seed_lon, seed_lat)`** — integrate the $\xi_1$ tensor
+  line through each seed, both directions, on the flow map's rectilinear grid.
+  It interpolates the tensor $C$ (via `scipy`'s `RegularGridInterpolator`) and
+  re-diagonalises at each step — robust to the eigenvector sign ambiguity — and
+  orients each step to the running heading. A line stops where $\lambda_2 <$
+  `lambda_max_min` (a low guard against the rare degenerate $\lambda_1 \approx
+  \lambda_2$ points, *not* an LCS selector), or where it leaves the grid / hits a
+  NaN cell; a seed that cannot be traced yields an all-NaN line. Returns an
+  `xr.Dataset` with `lon`/`lat` on dims `(line, point)` — one `line` per seed,
+  fixed `2 * n_steps + 1` points, NaN past termination.
+
+This layer interpolates on the axis-aligned `lon_0`/`lat_0` grid, so (like
+`NeighborFlowMap`) it assumes a rectilinear flow map. The tight ODE loop is the
+one place the package leaves the label-based xarray API for NumPy/SciPy.
 
 ## Reference
 
