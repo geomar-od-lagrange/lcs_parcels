@@ -89,3 +89,15 @@ def test_image_on_auxiliary_flowmap(lon_axis, lat_axis):
     exp_lon, exp_lat = apply_linear_map_to_pset([float(lon_c)], [float(lat_c)], M, origin)
     assert np.isclose(out["lon"], exp_lon[0])
     assert np.isclose(out["lat"], exp_lat[0])
+
+
+def test_image_auxiliary_lost_arm_maps_to_nan(lon_axis, lat_axis):
+    """A grid centre with a lost (NaN) arm images to NaN, not the centroid of the
+    surviving arms -- matching the deformation-gradient path."""
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
+    bad = (fm.ds["i"] == 1) & (fm.ds["j"] == 2) & (fm.ds["displacement"] == "west")
+    fm.ds["lon"] = fm.ds["lon"].where(~bad)
+
+    out = fm.image(fm.ds["lon_c"], fm.ds["lat_c"])
+    assert bool(out["lon"].isel(i=1, j=2).isnull())  # the crippled centre
+    assert bool(out["lon"].isel(i=2, j=2).notnull())  # an intact neighbour

@@ -34,8 +34,8 @@ We watch one *fixed* LCS move — we do **not** re-diagnose it (that is Q2).
    the coherent direction makes perturbations *decay* (well-conditioned); the
    opposite direction makes them grow exponentially (the curve filaments and the
    numerics blow up — intrinsic, not a solver artifact). So:
-   - **attracting** LCS (diagnosed from the *backward* flow) → evolve **forward**;
-   - **repelling** LCS (diagnosed from the *forward* flow) → evolve **backward**.
+   - **attracting** LCS (diagnosed from the *backward* flow): evolve **forward**;
+   - **repelling** LCS (diagnosed from the *forward* flow): evolve **backward**.
 3. **Diagnose once at the max-$|T|$ end, then evolve via intermediate maps.** The
    LCS is sharpest at the longest window, so diagnose there; walk the *same*
    material curve through the intermediate flow maps.
@@ -82,7 +82,7 @@ advected-position field is linear, so interpolation is exact):
 
 - image at a grid node equals that node's stored `ds.lon`/`ds.lat`;
 - image at an interior off-node point equals the analytic linear value;
-- dim preservation: pass a `(param,)` and a `(line, point)` `DataArray` → output
+- dim preservation: pass a `(param,)` and a `(line, point)` `DataArray`, output
   carries the same dims;
 - an off-grid point yields `NaN`; a NaN input point yields `NaN`.
 

@@ -14,6 +14,7 @@ import xarray as xr
 
 from conftest import advected_flowmap
 from lcs_parcels import AuxiliarySeed, ftle_ridge_seeds, shrink_lines
+from lcs_parcels.grids import _lonlat_to_meters
 
 T0 = np.datetime64("2020-01-01")
 T1 = np.datetime64("2020-01-02")
@@ -111,3 +112,32 @@ def test_shrink_lines_seed_off_grid_is_nan(lon_axis, lat_axis):
 
     assert bool(lines["lon"].isnull().all())
     assert bool(lines["lat"].isnull().all())
+
+
+def test_shrink_line_uses_reference_latitude_metric():
+    """A uniform-C shrink line is straight in the single-reference-latitude metres
+    frame the tensor lives in. Stepping with a per-point cos(lat) instead bows the
+    curve as it climbs in latitude, so it would not stay collinear.
+
+    ``M = R(45) diag(1, 3) R(45)^T`` is symmetric, so ``C = M^2`` shares its
+    eigenvectors and ``xi_1`` (the smaller eigenvalue) points along the 45-degree
+    diagonal -- a line that spans latitude, unlike the zonal test above.
+    """
+    c = np.cos(np.pi / 4)
+    R = np.array([[c, -c], [c, c]])
+    M = R @ np.diag([1.0, 3.0]) @ R.T
+    lon_axis = np.linspace(-15.0, 15.0, 31)
+    lat_axis = np.linspace(0.0, 40.0, 41)
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
+
+    lines = shrink_lines(fm, [0.0], [20.0], step_m=20_000.0, n_steps=60)
+    lon = lines["lon"].isel(line=0).values
+    lat = lines["lat"].isel(line=0).values
+    valid = np.isfinite(lon) & np.isfinite(lat)
+    assert valid.sum() > 50  # the diagonal line stays on this wide grid
+
+    # In the frame C lives in (one reference latitude), the line must be straight.
+    lon_ref, lat_ref = float(fm.ds["lon_0"].mean()), float(fm.ds["lat_0"].mean())
+    x, y = _lonlat_to_meters(lon[valid], lat[valid], lon_ref, lat_ref)
+    resid = y - np.polyval(np.polyfit(x, y, 1), x)
+    assert np.max(np.abs(resid)) < 1e3  # collinear to < 1 km over ~1000 km

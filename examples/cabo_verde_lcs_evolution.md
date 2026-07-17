@@ -114,7 +114,7 @@ seeded at the local maxima of its own FTLE.
 
 ```python
 def ftle_per_day(flowmap):
-    return (flowmap.ftle() * 86400.0).rename("FTLE").drop_vars("eig")
+    return (flowmap.ftle() * 86400.0).rename("FTLE")
 
 
 repelling = shrink_lines(forward, *ftle_ridge_seeds(ftle_per_day(forward)))

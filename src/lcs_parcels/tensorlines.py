@@ -25,11 +25,7 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels.grids import _grid_lonlat
-
-# Earth radius (m); the metres frame in which C's eigenvectors live (see grids._to_meters).
-_R = 6_371_000.0
-_DEG = np.pi / 180.0
+from lcs_parcels.grids import _DEG, EARTH_RADIUS_M, _grid_lonlat
 
 
 def ftle_ridge_seeds(
@@ -118,6 +114,10 @@ def shrink_lines(
     lon_da, lat_da = _grid_lonlat(flowmap.ds)
     lon_axis = lon_da.isel(j=0).values
     lat_axis = lat_da.isel(i=0).values
+    # xi_1 is a direction in the single-reference-latitude metres frame C lives in
+    # (grids._to_meters), so the arc-length step converts back to degrees with that
+    # one reference latitude, not a per-point cos(lat).
+    lat_ref = float(flowmap.ds["lat_0"].mean())
     C_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
     interp = RegularGridInterpolator(
         (lon_axis, lat_axis), C_grid, bounds_error=False, fill_value=np.nan
@@ -135,8 +135,8 @@ def shrink_lines(
         return d
 
     def step(lon, lat, d):
-        m_per_deg_lat = _R * _DEG
-        m_per_deg_lon = m_per_deg_lat * np.cos(lat * _DEG)
+        m_per_deg_lat = EARTH_RADIUS_M * _DEG
+        m_per_deg_lon = m_per_deg_lat * np.cos(lat_ref * _DEG)
         return lon + d[:, 0] / m_per_deg_lon * step_m, lat + d[:, 1] / m_per_deg_lat * step_m
 
     def half(sign):

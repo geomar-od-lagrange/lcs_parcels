@@ -77,7 +77,7 @@ compute the forward and backward shrink lines at each — a sequence of LCS
   directions). $T$ vs $\Delta$ is a real knob (short $\Delta$ ⇒ strongly
   overlapping windows ⇒ correlated, easier-to-link frames, but more compute).
 - **Package fit / gap.** Frame *generation* is essentially supported: a release
-  series is `flowmap.to_seed()` → `pset_to_flowmap(..., t0=…, t1=…)` per window
+  series is `flowmap.to_seed()` then `pset_to_flowmap(..., t0=…, t1=…)` per window
   (the `(i, j, t_0, T)` cube of [`plans/timing-design.md`](timing-design.md)).
   The *tracking* is new logic — curve distance and track assembly — but can lean
   on libraries: `scipy.spatial` (KD-trees, directed Hausdorff) and

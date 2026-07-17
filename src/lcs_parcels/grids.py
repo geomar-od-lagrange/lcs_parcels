@@ -403,7 +403,9 @@ class FlowMap(abc.ABC):
         xr.DataArray
             FTLE field with dims ``(i, j)`` in units of 1/second.
         """
-        lambda_max = self.cg_eigen()["lambda"].isel(eig=1)
+        # drop=True removes the scalar `eig` coord the selection leaves, so the
+        # FTLE carries only its documented (i, j) dims.
+        lambda_max = self.cg_eigen()["lambda"].isel(eig=1, drop=True)
         t_sec = self._integration_seconds()
         # (1 / |T|) log sqrt(lambda_max) = (1 / |T|) * 0.5 * log(lambda_max).
         return (1.0 / t_sec) * 0.5 * np.log(lambda_max)
@@ -447,7 +449,9 @@ class FlowMap(abc.ABC):
         advected = self.ds[["lon", "lat"]]
         if "displacement" in advected.dims:
             # Auxiliary stencil: the advected centre is the centroid of its arms.
-            advected = advected.mean("displacement")
+            # skipna=False so a lost (NaN) arm makes the centre NaN too, matching
+            # the deformation-gradient path (a missing arm -> NaN there as well).
+            advected = advected.mean("displacement", skipna=False)
         advected = (
             advected.reset_coords(drop=True)
             .assign_coords(i=lon_grid.isel(j=0, drop=True).values,

@@ -117,8 +117,7 @@ backward = advect(-T)
 
 # %%
 def ftle_per_day(flowmap):
-    # drop the scalar `eig` coord left by ftle()'s lambda_max pick.
-    return (flowmap.ftle() * 86400.0).rename("FTLE").drop_vars("eig")
+    return (flowmap.ftle() * 86400.0).rename("FTLE")
 
 
 ftle_forward = ftle_per_day(forward)
@@ -128,7 +127,7 @@ ftle_backward = ftle_per_day(backward)
 # ## Extract the LCS
 #
 # The tensor-line machinery lives in the package. `ftle_ridge_seeds` picks start
-# points at the FTLE ridge tops (7×7 local maxima above the 90th percentile), and
+# points at the FTLE ridge tops ($7\times7$ local maxima above the 90th percentile), and
 # `shrink_lines` integrates the $\xi_1$ tensor lines through them. Repelling vs
 # attracting is just *which* flow map you pass: the forward one gives repelling
 # LCS, the backward one gives attracting LCS (Haller–Sapsis duality). The stop
