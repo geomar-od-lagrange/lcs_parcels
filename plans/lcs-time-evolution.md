@@ -131,6 +131,13 @@ eddies rather than transport barriers.
 
 ## Recommendation (for discussion)
 
+> **Decision (post-discussion):** we pursue **Q1 first**, via the flow-map route
+> — capture intermediate flow maps from the two advections we already run, and
+> evolve each LCS in its coherent direction by *interpolating* the flow map at the
+> LCS points (no new particle run). Concretized in
+> [`plans/lcs-evolution-q1.md`](lcs-evolution-q1.md). Q2 and Q3 are deferred. The
+> survey below is retained as the map of the wider space.
+
 Two tracks, cheapest-and-highest-reuse first:
 
 1. **Start with C (OECS movie).** It gives an immediate, continuous
