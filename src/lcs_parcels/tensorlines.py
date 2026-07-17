@@ -118,19 +118,24 @@ def shrink_lines(
     # (grids._to_meters), so the arc-length step converts back to degrees with that
     # one reference latitude, not a per-point cos(lat).
     lat_ref = float(flowmap.ds["lat_0"].mean())
-    C_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
+    # CG_grid (not "C-grid": no Arakawa staggering here) is the Cauchy-Green
+    # tensor on the analysis grid, interpolated point-by-point during the trace.
+    CG_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
     interp = RegularGridInterpolator(
-        (lon_axis, lat_axis), C_grid, bounds_error=False, fill_value=np.nan
+        (lon_axis, lat_axis), CG_grid, bounds_error=False, fill_value=np.nan
     )
 
     def xi1(lon, lat, heading):
         """Unit xi_1 at (lon, lat), oriented to `heading`; NaN where the line stops."""
-        C = interp(np.column_stack([lon, lat]))
-        bad = ~np.isfinite(C).all(axis=(1, 2))
-        lam, vec = np.linalg.eigh(np.where(bad[:, None, None], np.eye(2), C))
-        bad = bad | (lam[:, 1] < lambda_max_min)
+        CG = interp(np.column_stack([lon, lat]))
+        bad = ~np.isfinite(CG).all(axis=(1, 2))
+        # eigh returns eigenvalues ascending: lam[:, 0] = lambda_1 (the *smaller*,
+        # weak-stretch eigenvalue) with eigenvector vec[:, :, 0] = xi_1, the
+        # shrink-line tangent; lam[:, 1] = lambda_2 = lambda_max (the larger).
+        lam, vec = np.linalg.eigh(np.where(bad[:, None, None], np.eye(2), CG))
+        bad = bad | (lam[:, 1] < lambda_max_min)  # stop at near-degenerate points
         d = vec[:, :, 0]
-        d[np.sum(d * heading, axis=1) < 0] *= -1
+        d[np.sum(d * heading, axis=1) < 0] *= -1  # orient to the running heading
         d[bad] = np.nan
         return d
 
@@ -158,7 +163,10 @@ def shrink_lines(
             track.append((lon.copy(), lat.copy()))
         return track
 
-    points = half(-1)[::-1] + half(+1)[1:]  # backward half reversed, then forward
+    # Trace both ways from each seed and stitch into one curve through it: the
+    # backward half reversed (so it runs into the seed), then the forward half
+    # with its first point (the seed, shared) dropped.
+    points = half(-1)[::-1] + half(+1)[1:]
     lon_lines = np.array([p[0] for p in points]).T  # (line, point)
     lat_lines = np.array([p[1] for p in points]).T
     return xr.Dataset(

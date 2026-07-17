@@ -13,9 +13,15 @@ feedback and are binding unless a task explicitly overrides them.
   link whenever you cite a paper.
 - **Keep notation in one place.** Symbols and conventions live in a dedicated
   notation doc; don't redefine them ad hoc across files.
-- **Docs reflect the actual state.** Sketches and placeholders (e.g.
-  `docs/api.md`) are replaced by real docs once the corresponding code exists.
-  Don't let aspirational docs masquerade as current.
+- **Docs reflect the actual state.** Sketches and placeholders are replaced by
+  real docs once the corresponding code exists. Don't let aspirational docs
+  masquerade as current.
+- **Plans have a lifecycle.** Design/implementation plans live in `plans/`. Once a
+  plan is *fully* implemented, move its file to `plans/done/` to keep the active
+  set small. Cross-links into a moved plan (from docs or other plans) are allowed
+  to break — don't chase them; an archived plan is a historical record, not a
+  maintained reference. A plan that is only partially done (e.g. a survey with
+  deferred parts) stays in `plans/` until the rest lands.
 
 ## Examples & notebooks
 
@@ -136,3 +142,19 @@ verified against the pinned v4 alpha:
   layouts, dim names, and file formats freely when the design improves. Do not
   add deprecation shims, compatibility aliases, migration code, or "legacy"
   branches — delete the old form outright and update all call sites.
+
+## Releases
+
+- **CalVer, `YYYY.MM.DD.N`.** The version is a date plus a same-day counter `N`
+  (start at `1`, bump only for a second release on the same day). No semantic
+  version — there is no compatibility contract to signal.
+- **The version lives in two places that must stay identical:** `[project]`
+  `version` in `pyproject.toml` and `__version__` in
+  `src/lcs_parcels/__init__.py`. A release is a single **"Release vYYYY.MM.DD.N"**
+  commit that bumps *both*, so the package metadata is self-consistent.
+- **Tag the released commit** `vYYYY.MM.DD.N` and push the tag; cut a GitHub
+  release from it. The bump commit may ride in the feature PR it releases — no
+  separate release PR is needed. The tag, not the branch, is the release of
+  record.
+- **Never pin the version value in a test.** `test_version` asserts a version
+  string exists, not what it is, so a bump needs no test edit.

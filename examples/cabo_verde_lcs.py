@@ -127,17 +127,27 @@ ftle_backward = ftle_per_day(backward)
 # ## Extract the LCS
 #
 # The tensor-line machinery lives in the package. `ftle_ridge_seeds` picks start
-# points at the FTLE ridge tops ($7\times7$ local maxima above the 90th percentile), and
-# `shrink_lines` integrates the $\xi_1$ tensor lines through them. Repelling vs
-# attracting is just *which* flow map you pass: the forward one gives repelling
-# LCS, the backward one gives attracting LCS (Haller–Sapsis duality). The stop
-# guard and the tensor-interpolation choice are documented on `shrink_lines`.
+# points at the FTLE ridge tops, and `shrink_lines` integrates the $\xi_1$ tensor
+# lines through them. Repelling vs attracting is just *which* flow map you pass:
+# the forward one gives repelling LCS, the backward one gives attracting LCS
+# (Haller–Sapsis duality).
+#
+# Good seeding depends on the velocity field: how densely ridges are sampled and
+# how strong a ridge must be to count. The knobs below suit the smooth, coarse
+# CMEMS $1/12^\circ$ field — a sharper or finer field may want a tighter
+# neighbourhood `window`, a different magnitude floor `quantile`, or a smaller
+# `step_m`.
 
 # %%
-repelling_seeds = ftle_ridge_seeds(ftle_forward)
-attracting_seeds = ftle_ridge_seeds(ftle_backward)
-repelling = shrink_lines(forward, *repelling_seeds)
-attracting = shrink_lines(backward, *attracting_seeds)
+# Seeding: ridge tops as `window`-by-`window` local maxima above a `quantile`
+# magnitude floor. Integration: arc-length `step_m` over `n_steps` per direction.
+window, quantile = 7, 0.90
+step_m, n_steps = 3_000.0, 250
+
+repelling_seeds = ftle_ridge_seeds(ftle_forward, window=window, quantile=quantile)
+attracting_seeds = ftle_ridge_seeds(ftle_backward, window=window, quantile=quantile)
+repelling = shrink_lines(forward, *repelling_seeds, step_m=step_m, n_steps=n_steps)
+attracting = shrink_lines(backward, *attracting_seeds, step_m=step_m, n_steps=n_steps)
 print(f"{repelling.sizes['line']} repelling, {attracting.sizes['line']} attracting lines")
 
 # %% [markdown]

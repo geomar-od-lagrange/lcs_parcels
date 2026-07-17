@@ -41,22 +41,20 @@ flowmap = seed.pset_to_flowmap(lon1, lat1, t0=t0, t1=t1)
 ftle = flowmap.ftle()  # xr.DataArray of the FTLE on the (i, j) grid
 ```
 
-Examples live under [`examples/`](examples/):
+Examples live under [`examples/`](examples/). Each is a jupytext triplet
+(`.py`/`.md`/`.ipynb`) sharing one source; the rendered `.ipynb` is the one to
+read:
 
-- [`example_grid_pset.py`](examples/example_grid_pset.py) — the package API
+- [`example_grid_pset`](examples/example_grid_pset.ipynb) — the package API
   exercised on its own, without Parcels.
-- [`cabo_verde_ftle.py`](examples/cabo_verde_ftle.py) — the Parcels v4 wiring:
+- [`cabo_verde_ftle`](examples/cabo_verde_ftle.ipynb) — the Parcels v4 wiring:
   the FTLE from CMEMS currents. Needs CMEMS credentials.
-- [`cabo_verde_lcs.py`](examples/cabo_verde_lcs.py) — repelling and attracting
+- [`cabo_verde_lcs`](examples/cabo_verde_lcs.ipynb) — repelling and attracting
   LCS as strain tensor lines. Offline (bundled currents).
-- [`cabo_verde_lcs_evolution.py`](examples/cabo_verde_lcs_evolution.py) — evolve
+- [`cabo_verde_lcs_evolution`](examples/cabo_verde_lcs_evolution.ipynb) — evolve
   an extracted LCS as a material curve. Offline.
 
-The Parcels examples need the `examples` pixi environment; run one with, e.g.:
-
-  ```console
-  $ pixi run -e examples jupytext --sync --execute examples/cabo_verde_lcs.py
-  ```
+The Parcels examples need the `examples` pixi environment (`pixi install -e examples`).
 
 ## License
 
