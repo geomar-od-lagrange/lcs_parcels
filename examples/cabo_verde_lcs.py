@@ -139,10 +139,13 @@ ftle_backward = ftle_per_day(backward)
 #   smooth components of $C$ and re-diagonalise at the point — this stays smooth
 #   through the near-degenerate spots where interpolating $\xi_1$ directly would
 #   flip.
-# - **Stop where the LCS stops being one.** We halt a line where the strain is no
-#   longer clearly hyperbolic, $\lambda_2 < \lambda_{\max}^{\min}$ (default 1.1):
-#   this both drops the non-repelling stretch and avoids the degenerate
-#   $\lambda_1 \approx \lambda_2$ region where $\xi_1$ is ill-defined.
+# - **A degeneracy guard, not a selector.** We stop a line where
+#   $\lambda_2 < 1.1$. This is a *low* guard: it only bites at the rare
+#   $\lambda_1 \approx \lambda_2$ points where $\xi_1$ is ill-defined. Over a
+#   window this long the flow is hyperbolic almost everywhere ($\lambda_2 > 1.1$
+#   on ~99% of the grid here), so in practice lines end at land, the domain edge,
+#   or the step budget — not at this guard. Picking out the *most* repelling
+#   lines (the length-averaged repulsion ratio of Haller 2015) is left out.
 #
 # `line_tracer` closes over one $C$ field and returns a function that marches all
 # seeds at once (midpoint step in arc length), both directions from each seed.
