@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lcs_parcels"
-version = "0.1.0"
+version = "2026.07.17.1"
 description = "Lagrangian coherent structures with Parcels."
 readme = "README.md"
 requires-python = ">=3.11"
