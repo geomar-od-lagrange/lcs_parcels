@@ -188,6 +188,32 @@ This layer interpolates on the axis-aligned `lon_0`/`lat_0` grid, so (like
 `NeighborFlowMap`) it assumes a rectilinear flow map. The tight ODE loop is the
 one place the package leaves the label-based xarray API for NumPy/SciPy.
 
+## Evolving a material curve
+
+An extracted LCS is a **material** curve, so its later positions are fixed by the
+flow: $\mathcal{M}(t) = F_{t_0}^{t}(\mathcal{M}(t_0))$ (Haller 2015, Eq. 5).
+`FlowMap.image` applies the stored flow map to arbitrary reference points, so
+evolving a curve is just interpolating that map at the curve's vertices — no
+second advection.
+
+```python
+FlowMap.image(lon0, lat0) -> xr.Dataset
+```
+
+- **`image(lon0, lat0)`** — interpolate the advected-position field `lon`/`lat`
+  at reference points `lon0`/`lat0` (`DataArray`s on any shared dims, e.g. the
+  `(line, point)` grid of `shrink_lines`), returning their advected positions
+  $F_{t_0}^{t_1}(x_0)$ as an `xr.Dataset` with `lon`/`lat` on the input dims —
+  the same structure a `shrink_lines` curve has, so an evolved curve is drop-in
+  plottable and can itself be re-fed. Points off the grid, in a NaN (land/edge)
+  cell, or NaN themselves map to NaN. Rectilinear grids only (like
+  `NeighborFlowMap`).
+
+An LCS is evolved in its **coherent** direction, where perturbations decay: an
+attracting LCS forward in time, a repelling one backward. Advecting the grid to a
+few horizons and calling `image` at each carries the curve through them —
+see [`examples/cabo_verde_lcs_evolution.py`](../examples/cabo_verde_lcs_evolution.py).
+
 ## Reference
 
 Haller, G. (2015). *Lagrangian Coherent Structures.* Annual Review of Fluid

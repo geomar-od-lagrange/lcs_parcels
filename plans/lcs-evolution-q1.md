@@ -7,9 +7,11 @@ Q2 (sliding-window tracking) and Q3 (OECS) are deferred.
 
 # Q1 — evolving an LCS as a material curve (implementation plan)
 
-Status: **planned, ready to implement** — Q1 only. Q2 and Q3 from
-[`plans/lcs-time-evolution.md`](lcs-time-evolution.md) are explicitly deferred.
-Notation follows Haller (2015),
+Status: **implemented** — Q1 only, via `FlowMap.image`
+(`src/lcs_parcels/grids.py`), `tests/test_evolution.py`, and
+`examples/cabo_verde_lcs_evolution.py`. Q2 and Q3 from
+[`plans/lcs-time-evolution.md`](lcs-time-evolution.md) remain deferred. Notation
+follows Haller (2015),
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
 
 ## What Q1 does
@@ -86,36 +88,43 @@ advected-position field is linear, so interpolation is exact):
 
 ## Capturing intermediate flow maps
 
-Run each grid advection (the two we already run for the forward/backward FTLE) in
-$\Delta$-chunks; after each chunk, snapshot `pset.x`/`pset.y` and ingest a
-`FlowMap` via `seed.pset_to_flowmap(..., t0=t0, t1=t0 ± kΔ)`. Successive
-`execute` calls continue from the current positions, so chunk $k$ gives exactly
-$F_{t_0}^{t_0 \pm kΔ}$ (flow-map composition). Result: a list of `FlowMap`s per
-direction.
+Advect the seed grid once per horizon and direction (release at $t_0$, integrate
+for $\pm kΔ$) and ingest each into a `FlowMap`. A list of `FlowMap`s per
+direction; the longest-window map of each direction feeds diagnosis, the shorter
+ones serve only as position maps for `.image(...)`.
 
-- Only the **max-$|T|$** `FlowMap` feeds diagnosis (`ftle`, `ftle_ridge_seeds`,
-  `shrink_lines`); the intermediates are used *only* as position maps via
-  `.image(...)` (no gradients needed on them).
-- This adds no integration cost beyond the two advections already run — just
-  extra snapshots.
+> **Why per-horizon single-shot, not one chunked run.** The tidy alternative —
+> one advection per direction, snapshotting `pset.x`/`pset.y` after each
+> $\Delta$-chunk of a single `execute` — is *unsafe with the NaN recovery
+> kernel*. Once a particle leaves the domain and is recovered to `NaN`, that
+> `NaN` position persists into the next `execute` call and stalls the whole set's
+> time stepping, so chunks past the first silently no-op (measured: the chunked
+> "$5\,\mathrm{d}$" map held ~1 day of motion). Re-releasing a fresh grid for each
+> horizon costs a few extra advections but is manifestly correct — each map is an
+> independent, validated single-shot flow map. In an example, correctness and
+> clarity beat reusing one integration.
+
+- Only the **longest-window** `FlowMap` feeds diagnosis (`ftle`,
+  `ftle_ridge_seeds`, `shrink_lines`); the intermediates are used *only* as
+  position maps via `.image(...)` (no gradients needed on them).
 
 ## Evolution workflow (the notebook)
 
 ```
-forward maps  {F^{+kΔ}}  (t0 → t0+T, chunked)   # also diagnoses repelling at +T
-backward maps {F^{-kΔ}}  (t0 → t0-T, chunked)   # also diagnoses attracting at -T
+forward maps  {F^{+kΔ}}  (one advection per horizon)  # longest also diagnoses repelling
+backward maps {F^{-kΔ}}  (one advection per horizon)  # longest also diagnoses attracting
 
 repelling  = shrink_lines(fwd_maps[-1],  *ftle_ridge_seeds(fwd_maps[-1].ftle()))
 attracting = shrink_lines(bwd_maps[-1],  *ftle_ridge_seeds(bwd_maps[-1].ftle()))
 
-# evolve each in its coherent direction, via the OTHER run's intermediates:
-attr_evo = concat([m.image(attracting.lon, attracting.lat) for m in fwd_maps], "lead")
-rep_evo  = concat([m.image(repelling.lon,  repelling.lat)  for m in bwd_maps], "lead")
+# evolve each in its coherent direction, via the OTHER run's maps:
+attr_evo = concat([curve] + [m.image(attracting.lon, attracting.lat) for m in fwd_maps], "lead")
+rep_evo  = concat([curve] + [m.image(repelling.lon,  repelling.lat)  for m in bwd_maps], "lead")
 ```
 
-Each run is thus reused twice: the forward run diagnoses repelling *and* evolves
-attracting; the backward run diagnoses attracting *and* evolves repelling. The
-`concat` over a `lead` dim yields an evolution cube `lon`/`lat` on
+The forward maps diagnose repelling *and* evolve attracting; the backward maps
+diagnose attracting *and* evolve repelling. The `concat` over a `lead` dim
+(prepending the curve itself at lead 0) yields an evolution cube `lon`/`lat` on
 `(lead, line, point)`; snapshots are `.isel(lead=k)`.
 
 **Notebook** `examples/cabo_verde_lcs_evolution.py` (jupytext-managed, executed,

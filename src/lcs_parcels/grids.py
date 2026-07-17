@@ -400,6 +400,53 @@ class FlowMap(abc.ABC):
         # (1 / |T|) log sqrt(lambda_max) = (1 / |T|) * 0.5 * log(lambda_max).
         return (1.0 / t_sec) * 0.5 * np.log(lambda_max)
 
+    def image(self, lon0: xr.DataArray, lat0: xr.DataArray) -> xr.Dataset:
+        """Advected positions ``F_{t0}^{t1}(x_0)`` at arbitrary reference points.
+
+        Interpolates the stored advected-position field ``lon``/``lat`` at the
+        reference locations ``lon0``/``lat0`` (degrees), i.e. where those
+        material points sit at ``t1``. Evolving an extracted material curve is
+        exactly this -- feed a curve's own ``lon``/``lat`` (its ``x_0``) and read
+        back its later position, ``M(t1) = F_{t0}^{t1}(M(t0))`` (Haller 2015
+        Eq. 5).
+
+        Vectorized and dim-preserving: ``lon0``/``lat0`` are ``DataArray``s on
+        any shared dims -- e.g. the ``(line, point)`` grid of
+        :func:`~lcs_parcels.shrink_lines` -- and the output carries those dims.
+        Points off the grid, in a NaN (land/edge) cell, or NaN themselves map to
+        NaN, so an evolved curve terminates exactly where the flow map is
+        undefined.
+
+        Rectilinear grids only (like :class:`NeighborFlowMap`): the advected
+        field is read on the axis-aligned ``lon_0``/``lat_0`` axes (``lon_0``
+        along ``i``, ``lat_0`` along ``j``).
+
+        Parameters
+        ----------
+        lon0, lat0 : xr.DataArray
+            Reference positions ``x_0`` (degrees) to map, sharing dims.
+
+        Returns
+        -------
+        xr.Dataset
+            ``lon``/``lat`` (degrees) on the dims of ``lon0``/``lat0`` -- the
+            same structure a :func:`~lcs_parcels.shrink_lines` curve has, so an
+            evolved curve is drop-in plottable and can itself be re-fed.
+        """
+        lon_axis = self.ds["lon_0"].isel(j=0, drop=True).values
+        lat_axis = self.ds["lat_0"].isel(i=0, drop=True).values
+        advected = (
+            self.ds[["lon", "lat"]]
+            .reset_coords(drop=True)
+            .assign_coords(i=lon_axis, j=lat_axis)
+            .rename(i="lon_0", j="lat_0")
+        )
+        return advected.interp(
+            lon_0=lon0,
+            lat_0=lat0,
+            kwargs=dict(bounds_error=False, fill_value=np.nan),
+        )
+
     def to_seed(self) -> Seed:
         """Drop the advected positions and time, recovering a time-free seed.
 
