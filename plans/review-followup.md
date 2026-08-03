@@ -56,7 +56,13 @@ Filed and out of scope here.
 - #13 --- longitude arithmetic is not dateline-aware: the auxiliary centre
   mean, the metric-frame anchor, every diff op, and the tensor-line stepper all
   treat longitude as a plain real line.
+- #14 --- Q2, sliding-window LCS re-extraction and frame-to-frame tracking.
+- #15 --- Q3, instantaneous OECS from the rate-of-strain tensor, and the
+  "tensor lines of an arbitrary symmetric 2-tensor" refactor it forces.
 - #8 (elliptic LCS / vortex detection) and #9 (3D) --- explicitly out of scope.
+
+Filing #14 and #15 emptied `plans/lcs-time-evolution.md` of undelivered
+content --- Q1 had already shipped --- so it moved to `plans/done/`.
 
 ## Sequencing
 
@@ -177,8 +183,6 @@ reader-facing text:
   the implementation session" passage for a choice long since shipped;
 - the agent-addressed HTML comments opening `docs/api.md` and
   `docs/architecture.md`;
-- the recommendation in `plans/lcs-time-evolution.md` that contradicts the
-  decision note directly above it;
 - the moved-plan links from `src/` and `tests/`.
 
 Design rationale relocates to `docs/architecture.md` rather than being deleted.
