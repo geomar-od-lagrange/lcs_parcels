@@ -24,12 +24,11 @@ Needs the `examples` pixi environment and CMEMS credentials: run with
 `pixi run -e examples jupyter ...`.
 
 ```python
-import numpy as np
-
 import copernicusmarine as cm
-from parcels import FieldSet, ParticleSet, Particle, StatusCode
-from parcels.kernels import AdvectionRK4
+import numpy as np
+from parcels import FieldSet, Particle, ParticleSet, StatusCode
 from parcels.convert import copernicusmarine_to_sgrid
+from parcels.kernels import AdvectionRK4
 
 from lcs_parcels import NeighborSeed
 ```
@@ -38,12 +37,12 @@ from lcs_parcels import NeighborSeed
 
 ```python
 t0 = np.datetime64("2025-08-01")
-T = np.timedelta64(10, "D")            # signed window; sign(T) sets the direction
+T = np.timedelta64(10, "D")  # signed window; sign(T) sets the direction
 t1 = t0 + T
 
-resolution_deg = 1 / 25                # seed-grid spacing
-seed_lon, seed_lat = (-27.0, -21.0), (13.5, 18.5)   # release box
-data_lon, data_lat = (-30.5, -17.5), (10.0, 22.0)   # current field = seed box + margin
+resolution_deg = 1 / 25  # seed-grid spacing
+seed_lon, seed_lat = (-27.0, -21.0), (13.5, 18.5)  # release box
+data_lon, data_lat = (-30.5, -17.5), (10.0, 22.0)  # current field = seed box + margin
 ```
 
 ## Currents: CMEMS hourly surface velocity
@@ -52,9 +51,12 @@ data_lon, data_lat = (-30.5, -17.5), (10.0, 22.0)   # current field = seed box +
 ds = cm.open_dataset(
     dataset_id="cmems_mod_glo_phy_anfc_0.083deg_PT1H-m",
     variables=["uo", "vo"],
-    minimum_longitude=data_lon[0], maximum_longitude=data_lon[1],
-    minimum_latitude=data_lat[0], maximum_latitude=data_lat[1],
-    minimum_depth=0.0, maximum_depth=1.0,
+    minimum_longitude=data_lon[0],
+    maximum_longitude=data_lon[1],
+    minimum_latitude=data_lat[0],
+    maximum_latitude=data_lat[1],
+    minimum_depth=0.0,
+    maximum_depth=1.0,
     start_datetime=str((t0 - np.timedelta64(1, "D")).astype("datetime64[D]")),
     end_datetime=str((t1 + np.timedelta64(1, "D")).astype("datetime64[D]")),
 ).load()
@@ -72,11 +74,13 @@ fieldset = FieldSet.from_sgrid_conventions(sgrid, mesh="spherical")
 z_surface = float(ds["depth"].values[0])
 ```
 
+
 ## Recovery kernel
 
 Particles that leave the domain or hit land are turned into `NaN` in place
 (Parcels would otherwise abort the run), so losses propagate as `NaN` through
 the FTLE.
+
 
 ```python
 def set_lost_to_nan(particles, fieldset):
@@ -104,12 +108,18 @@ seed = NeighborSeed.from_axes(lon_axis, lat_axis)
 # Advect in Parcels
 lon, lat = seed.to_parcels_pset()
 pset = ParticleSet(
-    fieldset, pclass=Particle,
-    x=lon, y=lat, z=np.full(len(lon), z_surface), t=np.full(len(lon), t0),
+    fieldset,
+    pclass=Particle,
+    x=lon,
+    y=lat,
+    z=np.full(len(lon), z_surface),
+    t=np.full(len(lon), t0),
 )
 pset.execute(
     [AdvectionRK4, set_lost_to_nan],
-    dt=np.timedelta64(1, "h"), runtime=T, verbose_progress=False,
+    dt=np.timedelta64(1, "h"),
+    runtime=T,
+    verbose_progress=False,
 )
 ```
 

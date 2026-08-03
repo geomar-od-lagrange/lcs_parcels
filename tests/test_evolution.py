@@ -12,8 +12,8 @@ rectilinear field ``image`` reads).
 
 import numpy as np
 import xarray as xr
-
 from conftest import advected_flowmap, apply_linear_map_to_pset
+
 from lcs_parcels import AuxiliarySeed, NeighborSeed
 
 T0 = np.datetime64("2020-01-01")
@@ -28,7 +28,7 @@ def _flowmap(lon_axis, lat_axis):
 def test_image_at_grid_node_returns_stored_position(lon_axis, lat_axis):
     """At a reference grid node, image returns that node's stored advected position."""
     fm = _flowmap(lon_axis, lat_axis)
-    node = dict(i=1, j=2)
+    node = {"i": 1, "j": 2}
     out = fm.image(fm.ds["lon_0"].isel(**node), fm.ds["lat_0"].isel(**node))
 
     assert np.isclose(out["lon"], fm.ds["lon"].isel(**node))
@@ -38,13 +38,17 @@ def test_image_at_grid_node_returns_stored_position(lon_axis, lat_axis):
 def test_image_off_node_is_exact_for_linear_map(lon_axis, lat_axis):
     """A linear flow map interpolates exactly: a midpoint maps to the node average."""
     fm = _flowmap(lon_axis, lat_axis)
-    a, b = dict(i=1, j=2), dict(i=2, j=2)  # neighbours along i (same latitude row)
+    a, b = {"i": 1, "j": 2}, {"i": 2, "j": 2}  # neighbours along i (same latitude row)
     lon0_mid = 0.5 * (fm.ds["lon_0"].isel(**a) + fm.ds["lon_0"].isel(**b))
     lat0_mid = fm.ds["lat_0"].isel(**a)
     out = fm.image(lon0_mid, lat0_mid)
 
-    assert np.isclose(out["lon"], 0.5 * (fm.ds["lon"].isel(**a) + fm.ds["lon"].isel(**b)))
-    assert np.isclose(out["lat"], 0.5 * (fm.ds["lat"].isel(**a) + fm.ds["lat"].isel(**b)))
+    assert np.isclose(
+        out["lon"], 0.5 * (fm.ds["lon"].isel(**a) + fm.ds["lon"].isel(**b))
+    )
+    assert np.isclose(
+        out["lat"], 0.5 * (fm.ds["lat"].isel(**a) + fm.ds["lat"].isel(**b))
+    )
 
 
 def test_image_preserves_indexer_dims(lon_axis, lat_axis):
@@ -79,14 +83,16 @@ def test_image_on_auxiliary_flowmap(lon_axis, lat_axis):
     """image works on the auxiliary (i, j, displacement) layout that shrink_lines
     supports: it maps the grid centre through the flow map (arm centroid)."""
     fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
-    node = dict(i=1, j=2)
+    node = {"i": 1, "j": 2}
     lon_c = fm.ds["lon_c"].isel(**node)
     lat_c = fm.ds["lat_c"].isel(**node)
     out = fm.image(lon_c, lat_c)
 
     # For a linear map the arm centroid is exactly the centre's advected position.
     origin = (float(fm.ds["lon_0"].mean()), float(fm.ds["lat_0"].mean()))
-    exp_lon, exp_lat = apply_linear_map_to_pset([float(lon_c)], [float(lat_c)], M, origin)
+    exp_lon, exp_lat = apply_linear_map_to_pset(
+        [float(lon_c)], [float(lat_c)], M, origin
+    )
     assert np.isclose(out["lon"], exp_lon[0])
     assert np.isclose(out["lat"], exp_lat[0])
 

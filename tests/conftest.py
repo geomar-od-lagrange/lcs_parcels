@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 
-
 # --- synthetic axis inputs -------------------------------------------------
 
 NI = 4

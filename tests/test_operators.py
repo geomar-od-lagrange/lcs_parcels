@@ -13,8 +13,8 @@ that ``C = M^T M`` is a non-trivial check.
 
 import numpy as np
 import xarray as xr
-
 from conftest import advected_flowmap, advected_flowmap_f
+
 from lcs_parcels import AuxiliarySeed, NeighborSeed
 from lcs_parcels.grids import _lonlat_to_meters
 

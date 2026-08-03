@@ -17,6 +17,29 @@ packages = ["src/lcs_parcels"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.ruff]
+# Notebooks and prose are generated or vendored: the `.ipynb`/`.md` of an
+# example come from its `.py`, which is what gets linted; `.claude` is vendored
+# agent skills.
+extend-exclude = ["*.ipynb", "*.md", ".claude"]
+
+[tool.ruff.lint]
+extend-select = [
+    "I",   # import sorting
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "NPY", # numpy-specific rules
+    "RUF",
+]
+# Prose in comments and docstrings uses en dashes and other typographic unicode
+# on purpose; only math glyphs are banned, and that is a review rule, not a lint.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+# Jupytext py:percent sources: cell-level imports and expression statements
+# (a bare `ds` to display it) are the notebook idiom, not a defect.
+"examples/*.py" = ["E402", "B018"]
+
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "win-64"]
@@ -28,6 +51,7 @@ lcs_parcels = { path = ".", editable = true }
 test = "pytest"
 # Re-run the example against the current API; a stale example fails here.
 check-example = "jupytext --to notebook --execute examples/example_grid_pset.py --output .ci-example-check.ipynb"
+lint = "ruff check . && ruff format --check ."
 
 [tool.pixi.dependencies]
 pytest = ">=9.0.3,<10"
@@ -39,6 +63,7 @@ nbconvert = ">=7.17.1,<8"
 jupytext = ">=1.19.4,<2"
 python = "3.13.*"
 scipy = ">=1.18.0,<2"
+ruff = ">=0.16.1,<0.17"
 
 # --- examples feature -------------------------------------------------------
 # Real Parcels-driven examples (CMEMS currents, advection). The default env is
