@@ -9,9 +9,6 @@ once, at the first place they hit it, so a repo-wide sweep was run to find the
 unflagged instances of each theme. This plan works the themes, not the
 individual comments.
 
-A comment is resolved when its `TODO` is deleted. PR #7's comments should drain
-visibly across the three PRs below rather than all at once at the end.
-
 ## Decisions taken
 
 Settled in review discussion; not to be relitigated while executing.
@@ -82,56 +79,103 @@ fall out:
 - examples prefer explicit, duplicated code over indirection --- library code
   does not;
 - every returned array carries `name`, `long_name`, `units`;
-- the sanctioned NumPy/SciPy boundary in `tensorlines`, which currently
-  documents its own escape hatch as policy in a user-facing docstring;
 - narrow the moved-plan-link exemption so it does not cover `src/` and `tests/`
   (`grids.py:36` and `tests/test_roundtrip.py:15` both point at files now in
   `plans/done/`).
 
-Also resolve, one way or the other, the two rules the code currently violates:
-the ban on runtime introspection (see step 3) and "prefer vanilla plots", which
-the LCS examples ignore wholesale --- the latter only becomes achievable after
-step 4.
+Clarify the vanilla-plot rule, which currently reads as stricter than it is. It
+governs the plot you *first write*: reach for `.plot()` and accept its defaults
+rather than opening with multi-line styling. Deviating is fine when asked for,
+or when the plot turns out to need it. It is an anti-over-styling rule, not a
+ban on ever setting a keyword. Worth stating explicitly --- the review sweep
+misread it as a rule the LCS examples violate wholesale.
+
+The NumPy/SciPy escape hatch in `tensorlines` does **not** become an AGENTS.md
+rule. It gets a comment at the implementation site (step 7) and comes out of
+the user-facing module docstring (step 9).
+
+The one rule the code genuinely violates is the ban on runtime introspection;
+step 4 resolves it by construction rather than by amending the rule.
 
 **2. Ruff + a CI lint gate.** Mechanical, and deliberately before the rewrites
 so the later diffs stay clean and reviewable. Closes #10.
 
 ### PR B --- API and internals
 
-**3. Canonical diagnostic-grid coords and per-subclass properties.** Today the
+**3. Keyword-only arguments across the public surface.** Every public entry
+point that takes an adjacent lon/lat pair takes it positionally, which is the
+classic silent-swap footgun --- transposed arguments produce a plausible-looking
+result somewhere off the coast of nowhere rather than an error:
+
+- `Seed.from_axes(lon, lat)`, on all three classes (`grids.py:176`, `:498`,
+  `:545`);
+- `Seed.pset_to_flowmap(lon, lat, *, t0, t1)` (`grids.py:220`) --- already
+  keyword-only past `t1`, but not for the pair that matters;
+- `FlowMap.image(lon0, lat0)` (`grids.py:415`);
+- `shrink_lines(flowmap, seed_lon, seed_lat, *, ...)` (`tensorlines.py:67`).
+
+Make the lon/lat pairs keyword-only throughout. Mechanical, and first in this
+PR so every later signature change lands on top of the corrected form rather
+than needing a second pass.
+
+**4. Canonical diagnostic-grid coords and per-subclass properties.** Today the
 diagnostic grid location is `lon_0`/`lat_0` on `(i, j)` for the neighbour
 stencil, but `lon_c`/`lat_c` for the auxiliary one, where `lon_0` lives on
 `(i, j, displacement)`. One concept, two names, which is what forces every
 downstream consumer to sniff.
 
-- Carry `lon_c`/`lat_c` on `(i, j)` for **both** stencils. For the neighbour
-  case it equals `lon_0`. The redundancy is deliberate --- the same call
-  already made for the auxiliary schema: store the value, do not make consumers
-  reconstruct it from a convention.
-- `lon_0` keeps its honest meaning: release positions of actual particles,
-  `(i, j)` for neighbour and `(i, j, displacement)` for auxiliary.
-- Replace the `_grid_lonlat` module helper with abstract properties on
-  `FlowMap` --- `grid_lon`, `grid_lat`, `advected_centre` --- overridden per
-  subclass. A base-class property that branches internally would be the same
-  violation wearing a better name; the point is that the type carries the
-  information.
-- This removes `if "displacement" in advected.dims:` at `grids.py:452`, which
-  is verbatim the pattern `AGENTS.md` forbids by name, and the
-  `"lon_c" in obj.coords` sniff at `grids.py:101-102`.
-- `ftle_ridge_seeds` then reads the canonical coord off the field it is handed,
-  with no type to dispatch on and no sniff.
+The zoo is smaller than it looks. `from_axes(lon, lat)` takes plain axis
+arguments, so there is no `grid_lon`/`grid_lat` in the code today --- only three
+coordinate pairs, plus a `lon_grid`/`lat_grid` local at `grids.py:450`. Settle
+all of it here:
+
+- **`lon_grid`/`lat_grid` on `(i, j)`, both stencils** --- the diagnostic grid
+  point location, carried explicitly. This is the canonical coordinate every
+  downstream consumer reads, and it replaces `lon_c`/`lat_c` outright. `_c`
+  goes: once it exists on both stencils, "centre" is a misnomer for the
+  neighbour case, where there are no arms to be the centre of. `_grid` says
+  what it is without knowing the auxiliary story --- which matters, because
+  this is the name on every plot axis and in every repr.
+- **`lon_0`/`lat_0` stay** --- release positions of actual particles, `(i, j)`
+  for neighbour and `(i, j, displacement)` for auxiliary. The `_0` suffix is
+  not an accident to be renamed away: it is $x_0$ from the notation the reader
+  already has, and it is what `docs/notation.md` documents.
+- **`lon`/`lat` stay** --- advected positions, same dims as `lon_0`. The
+  `lon_0` to `lon` pairing reads as one object before and after the flow, and
+  that symmetry is worth keeping intact.
+
+For the neighbour stencil `lon_grid` equals `lon_0`. The redundancy is
+deliberate --- the same call already made for the auxiliary schema: store the
+value, do not make consumers reconstruct it from a convention.
+
+Replace the `_grid_lonlat` module helper with abstract properties on `FlowMap`,
+overridden per subclass, **named exactly as the coordinates they return** ---
+`lon_grid`, `lat_grid`, so `flowmap.lon_grid` is `ds["lon_grid"]` with no
+translation layer --- plus `advected`, the advected positions collapsed over
+`displacement` for the auxiliary case and passed through for the neighbour one.
+A base-class property that branches internally would be the same violation
+wearing a better name; the point is that the type carries the information.
+
+(`advected` is the least settled name here. It returns a two-variable Dataset,
+not a coordinate, so it does not follow the rule above. Worth a second look
+during implementation.)
+This removes `if "displacement" in advected.dims:` at `grids.py:452`, which is
+verbatim the pattern `AGENTS.md` forbids by name, and the
+`"lon_c" in obj.coords` sniff at `grids.py:101-102`.
+`ftle_ridge_seeds` then reads the canonical coord off the field it is handed,
+with no type to dispatch on and no sniff.
 
 Touches `grids.py`, `tensorlines.py`, the tests, all four examples, and
 `docs/notation.md`.
 
-**4. Output metadata.** `name`, `long_name`, `units` on everything returned.
+**5. Output metadata.** `name`, `long_name`, `units` on everything returned.
 `_assemble_tensor` currently names its result `"tensor"`, so
 `deformation_gradient()` and `cauchy_green()` come back indistinguishable ---
 fix that. Label the `eig` coord. This is the precondition for vanilla plots in
-step 9, and for dropping the hand-written `* 86400.0` that appears in three
+step 10, and for dropping the hand-written `* 86400.0` that appears in three
 examples.
 
-**5. Parameters in physical units.** The reviewer flagged `window=7` as
+**6. Parameters in physical units.** The reviewer flagged `window=7` as
 implicitly sensitive to grid resolution; the same defect runs wider.
 
 - `window` becomes a distance.
@@ -140,17 +184,36 @@ implicitly sensitive to grid resolution; the same defect runs wider.
 - `lambda_max_min` becomes an FTLE floor in 1/day evaluated against the flow
   map's own `|T|`; as a raw Cauchy-Green eigenvalue it silently tightens or
   loosens as the window changes.
-- Decide `quantile`'s fate --- as a fraction of *grid points* it is as
-  grid-dependent as `window` was.
+`quantile` stays as it is for now. It is as grid-dependent as `window` was, but
+turning it into an absolute FTLE floor changes ridge selection from
+relative-to-this-field to absolute --- a science decision, not a units one.
+Revisit it in a dedicated pass on tuning parameters.
 
 Signature changes, so this lands before the tests and examples are written
 against them.
 
-**6. `tensorlines` internals: lift, explain, test.** `xi1`, `step`, and `half`
-become top-level tested functions or get inlined; same for the nested
+**7. `tensorlines` internals: lift, rename, explain, test.** `xi1`, `step`, and
+`half` become top-level tested functions or get inlined; same for the nested
 `central_diff` and `arm_diff` in `grids.py`. `xi1` is the one the review did
 not flag and the one most needing a test --- it holds the entire
 eigen/orientation/termination logic.
+
+Rename as they are lifted. There is no space pressure here, and terse names are
+charging the reader to reconstruct what the code means: `step` does not say
+*integration* step, and `half` does not say it traces one direction away from
+the seeds. Proposed, to be settled at implementation time:
+
+| now | proposed |
+|---|---|
+| `xi1` | `shrink_direction` |
+| `step` | `step_lonlat_by_meters` |
+| `half` | `trace_half_line` |
+| `d` | `direction` |
+| `bad` | `terminated` |
+| `lam`, `vec` | `eigenvalues`, `eigenvectors` |
+
+The same applies inside `grids.py`: `central_diff` and `arm_diff` are fine, but
+their locals are not.
 
 Document and check, per the "explain *and* check" comment:
 
@@ -167,13 +230,13 @@ Document and check, per the "explain *and* check" comment:
 There are currently no unit tests for any of this --- `tests/test_tensorlines.py`
 covers only end-to-end straight-line behaviour.
 
-**7. Reprs and `flowmap.lcs(...)`.** Terse summary reprs on `Seed` and
+**8. Reprs and `flowmap.lcs(...)`.** Terse summary reprs on `Seed` and
 `FlowMap`. `lcs()` computes FTLE once and passes it to ridge-finding, so the
 convenience lives in one place and the ridge logic is not duplicated.
 
 ### PR C --- prose, examples, and CI
 
-**8. Prose hygiene.** Strip process narrative and design rationale from
+**9. Prose hygiene.** Strip process narrative and design rationale from
 reader-facing text:
 
 - the four-section design document at the top of `grids.py` (developer text on
@@ -187,17 +250,17 @@ reader-facing text:
 
 Design rationale relocates to `docs/architecture.md` rather than being deleted.
 
-**9. Examples rewrite.** Explicit and inline throughout: `set_lost_to_nan`
+**10. Examples rewrite.** Explicit and inline throughout: `set_lost_to_nan`
 written out in each notebook rather than shared, `advect` and `ftle_per_day`
 dissolved into straight-line code. Display the datasets --- the reader is at
 home in the xarray/CF world. Show both stencils. Drop the round-trip demos and
 the contract framing entirely; the tests cover that, and a reader interested in
 the design reads the tests. Daily intervals in the evolution example.
-Progressbar on. Vanilla plots, now possible given step 4. Drop the pixi
+Progressbar on. Vanilla plots, now possible given step 5. Drop the pixi
 execution instructions --- that is our dev environment, not the reader's
 concern.
 
-**10. Data story and CI gating.** Two examples currently claim to run "offline
+**11. Data story and CI gating.** Two examples currently claim to run "offline
 (bundled currents)", but `examples/data/` is gitignored, nothing in the repo
 tracks or generates `cabo_verde_currents_hourly.nc`, and both examples open it.
 A fresh clone fails on both, they can never be CI-gated, and their committed
