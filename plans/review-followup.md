@@ -118,6 +118,11 @@ Make the lon/lat pairs keyword-only throughout. Mechanical, and first in this
 PR so every later signature change lands on top of the corrected form rather
 than needing a second pass.
 
+Add the rule to `AGENTS.md` here rather than in PR A --- it is a code
+convention, so it belongs with the change that establishes it: public API takes
+same-typed adjacent arguments keyword-only, so a caller cannot silently
+transpose them.
+
 **4. Canonical diagnostic-grid coords and per-subclass properties.** Today the
 diagnostic grid location is `lon_0`/`lat_0` on `(i, j)` for the neighbour
 stencil, but `lon_c`/`lat_c` for the auxiliary one, where `lon_0` lives on
