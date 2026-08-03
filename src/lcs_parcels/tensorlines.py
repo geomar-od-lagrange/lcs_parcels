@@ -28,7 +28,6 @@ from scipy.interpolate import RegularGridInterpolator
 from lcs_parcels.grids import _DEG, EARTH_RADIUS_M, _grid_lonlat
 
 
-# TODO: The windowd=7 is implicitly sensitive to the seed grid resolution. Shouldn't we make this a distance?
 def ftle_ridge_seeds(
     ftle: xr.DataArray, *, window: int = 7, quantile: float = 0.90
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -63,7 +62,6 @@ def ftle_ridge_seeds(
     return lon.transpose("i", "j").values[mask], lat.transpose("i", "j").values[mask]
 
 
-# TODO: Let's think about how to make this performant on way larger grids. The loops feel like they could easily be vectorized either in the numpy or the xarray world.
 def shrink_lines(
     flowmap,
     seed_lon,
@@ -88,7 +86,6 @@ def shrink_lines(
     - stops a line where ``lambda_2 < lambda_max_min`` (a low guard against the
       rare degenerate points), or where it leaves the grid / hits a NaN cell.
 
-    # TODO: Explain line lenght better. n_steps are max steps and we break if we hit degenerate? Or track is just filling with NaNs until n_step is reached on each half? Sounds like this is not really optimal.
     Marches all seeds together with a midpoint (arc-length) step. Lines are a
     fixed ``2 * n_steps + 1`` points long, NaN-filled past termination.
 
@@ -102,7 +99,7 @@ def shrink_lines(
     lambda_max_min : float, optional
         Stop a line where the larger eigenvalue ``lambda_2`` falls below this
         (default 1.1). Over long windows the flow is hyperbolic almost
-        everywhere, so this is a degeneracy guard, not an LCS selector.  # TODO: explain last statement
+        everywhere, so this is a degeneracy guard, not an LCS selector.
     step_m : float, optional
         Arc-length step in metres (default 3000).
     n_steps : int, optional
@@ -138,18 +135,15 @@ def shrink_lines(
         lam, vec = np.linalg.eigh(np.where(bad[:, None, None], np.eye(2), CG))
         bad = bad | (lam[:, 1] < lambda_max_min)  # stop at near-degenerate points
         d = vec[:, :, 0]
-        # TODO: Explain and check this line:
         d[np.sum(d * heading, axis=1) < 0] *= -1  # orient to the running heading
         d[bad] = np.nan
         return d
 
-    # TODO: I think I'd be fine with inlining this.
     def step(lon, lat, d):
         m_per_deg_lat = EARTH_RADIUS_M * _DEG
         m_per_deg_lon = m_per_deg_lat * np.cos(lat_ref * _DEG)
         return lon + d[:, 0] / m_per_deg_lon * step_m, lat + d[:, 1] / m_per_deg_lat * step_m
 
-    # TODO: Docstring? And maybe we want to make this real functions with tests? 
     def half(sign):
         lon = np.asarray(seed_lon, dtype=float).ravel().copy()
         lat = np.asarray(seed_lat, dtype=float).ravel().copy()
@@ -160,7 +154,6 @@ def shrink_lines(
         lon[untraceable] = np.nan
         lat[untraceable] = np.nan
         track = [(lon.copy(), lat.copy())]
-        # TODO: Mention RK2 here and in docstring.
         for _ in range(n_steps):
             d1 = xi1(lon, lat, heading)
             mid_lon, mid_lat = step(lon, lat, 0.5 * d1)

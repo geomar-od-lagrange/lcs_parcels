@@ -1,7 +1,5 @@
 # Agent guidelines for LCS-Parcels
 
-<!-- TODO: As especially the docstrings, comments, examples etc. often fail to be scoped for the intended audience, let's add a section describing our model of readers / developers. The simple "notebooks are human facing" don't suffice. There's at least three classes of humans (plain users who trust the devs, critical / inquisitive users who want to verify the science without becoming a dev, developers who need everything including the design _decisions_). Scope should also become clearer from comments part of this review but will need discussion. -->
-
 Conventions for working in this repository. These are derived from review
 feedback and are binding unless a task explicitly overrides them.
 
