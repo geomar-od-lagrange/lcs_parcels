@@ -14,7 +14,7 @@ below are derivations of this model.
 - **The inquisitive user** wants to convince themselves the science is right
   *without becoming a developer*. They read the example end to end, display the
   datasets, and plot the intermediate fields. They are at home in the
-  xarray/CF world; they are not going to read `src/`.
+  xarray/CF world; they are not going to read all of `src/`.
 - **The developer** needs the design *decisions* — why the auxiliary grid stores
   its arms explicitly, why ridge-finding takes a field rather than a `FlowMap`.
   That audience is served by `docs/architecture.md`, the plans, and the tests.
@@ -23,7 +23,8 @@ Rules that fall out of it:
 
 - **Explain the non-obvious choice; do not re-teach the field.** The reader has
   read the papers. Say why *this* window, *this* stencil, *this* termination
-  criterion — not what an FTLE is.
+  criterion — not what an FTLE is. Still, define a term properly where it is
+  ambiguous.
 - **Indirection is a tax in examples, an asset in library code.** An example is
   consumed line by line with minimal scrolling, so prefer explicit and even
   duplicated code over a helper. Library code is the opposite: factor freely.
@@ -93,9 +94,9 @@ that.
   reader's effort, not the machine's.
 - **Explicit over shared, even at the cost of duplication.** Write the same
   recovery kernel out in each notebook rather than importing it from a shared
-  helper module. A reader scrolling one notebook top to bottom should never have
-  to open a second file. (Library code takes the opposite rule — see
-  [Audience](#audience).)
+  helper module. A reader scrolling one notebook top to bottom should rarely
+  have to open a second file or scroll back and forth. (Library code takes the
+  opposite rule — see [Audience](#audience).)
 - **Prefer vanilla plots.** This governs the plot you *first write*: reach for
   `.plot()` / `.plot.pcolormesh()` and accept its defaults, which label axes,
   titles, and colorbars from the object's name, coords, and attrs — that is what
@@ -159,12 +160,12 @@ verified against the pinned v4 alpha:
   numpy-style indexing on xarray objects — `ds.lon[:, 2, 2]` is bad;
   `ds.lon.isel(i=2, j=2)` is good. This holds even when you fully control dim
   order.
-- **Every returned array carries `name`, `long_name`, and `units`.** The
-  inquisitive user displays our datasets and plots them vanilla, so the metadata
-  *is* the axis label, the title, and the colorbar caption. Two different
-  quantities never come back under the same `name`. Go CF where it is cheap —
-  `units`, `long_name` — and no further: no bounds, no intervals, no cell
-  methods.
+- **Every returned xarray data array carries `name`, `long_name`, and
+  `units`.** The inquisitive user displays our datasets and plots them vanilla,
+  so the metadata *is* the axis label, the title, and the colorbar caption. Two
+  different quantities never come back under the same `name`. Go CF where it is
+  cheap — `units`, `long_name` — and no further: no bounds, no intervals, no
+  cell methods.
 - **Units are SI.** Return 1/s, metres, seconds; deviate only for a field with a
   strong convention of its own (Sverdrups and the like). Conversion for display
   is the reader's call, made visible in the example, not baked into the package.
