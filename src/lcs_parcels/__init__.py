@@ -22,6 +22,7 @@ from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
 
 __version__ = "2026.07.17.1"
 
+# TODO: Drop these process narrative comments and docstrings. Audience for this is people who want to know what is and not how it came to existence. Barrier for historical context to be acceptable in docstrings and code and exampels and readmes is high and reserved only for cases where we deviate from the absolutely obvious solution for very good reasons.
 # EARTH_RADIUS_M is an internal constant, not part of the public surface.
 __all__ = [
     "AuxiliaryFlowMap",

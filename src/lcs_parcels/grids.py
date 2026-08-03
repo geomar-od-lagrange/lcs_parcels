@@ -60,6 +60,8 @@ ingested positions, not from ``R`` and ``phi``. Both flow-map subclasses use the
 module-level :func:`_to_meters`.
 """
 
+# TODO: What would good REPRs be for the Seed and the FlowMap? The xarray ds in principle have all the info. But just using self.ds as repr would mislead into thinking of the seed and flowmap as xarray objects. What's a good way out here?
+
 from __future__ import annotations
 
 import abc

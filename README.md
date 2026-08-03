@@ -1,5 +1,9 @@
 # LCS-Parcels
 
+<!-- TODO: Let's not focus on the neighbor grid only. At leas the quickstart should have both. And should we include (to be created) flowmap.lcs(<with args!!>) (emitting lcs) example as well? -->
+
+<!-- TODO: Let's aim at adding a readthedocs page, pypi package, and the usual dependabot etc. wiring and badges. Coverage is lacking as well. Is there any canonical way to not only have pytest-cov statement coverage? (We won't home-roll this. But if there is, I'd love to go for broader def of coverage.) -->
+
 Lagrangian coherent structure (LCS) diagnostics on top of
 [Parcels](https://oceanparcels.org/): deformation gradient $\nabla F$,
 Cauchy-Green tensor $(\nabla F)^\top \nabla F$, its eigen-analysis, and the
@@ -11,6 +15,8 @@ advection run: it *emits* a particle set to release, and *ingests* the advected
 positions to diagnose. You run Parcels (or anything else) in between.
 
 ## Install
+
+<!-- TODO: Include pip git+https:// installation instructions? I'd love to not force users to rely on pixi soon. (even before we have Pypi package etc.) -->
 
 The project is managed with [pixi](https://pixi.sh):
 
