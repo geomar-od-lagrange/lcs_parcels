@@ -198,6 +198,13 @@ verified against the pinned v4 alpha:
   it and propagate each change through every file it touches — code, tests,
   plans, and docs — leaving nothing half-migrated. Prioritizing or deferring
   issues ("let's do the important ones first") is an antipattern here.
+- **PRs land squashed onto a linear `main`.** Merge with squash-and-rebase
+  (`gh pr merge --squash --delete-branch`), never a merge commit: the branch's
+  review churn — fixup commits, applied suggestions, formatting passes — is
+  history the repo does not need, and one commit per PR keeps `main` bisectable.
+  The squash message is the PR title and body, so write the PR body as the
+  commit message it will become, `Closes #N` included, and let the merge close
+  the issues.
 - **Greenfield: the user is the developer; no backward compatibility.** This is a
   specialized research tool whose users are (to ~100%) its developers; there is
   no external user base and no compatibility contract. Change signatures, data
