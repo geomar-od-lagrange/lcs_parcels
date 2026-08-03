@@ -92,14 +92,8 @@ def set_lost_to_nan(particles, fieldset):
 def advect(signed_T):
     """Advect the seed grid over the signed window; return the FlowMap."""
     lon, lat = seed.to_parcels_pset()
-    pset = ParticleSet(
-        fieldset,
-        pclass=Particle,
-        x=lon,
-        y=lat,
-        z=np.full(len(lon), z_surface),
-        t=np.full(len(lon), t0),
-    )
+    z = np.full(len(lon), z_surface)
+    pset = ParticleSet(fieldset, pclass=Particle, x=lon, y=lat, z=z, t=t0)
     dt = (
         np.timedelta64(1, "h")
         if signed_T > np.timedelta64(0)
