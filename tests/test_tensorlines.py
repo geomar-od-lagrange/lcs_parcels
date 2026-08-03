@@ -11,8 +11,8 @@ point, no NaN edges).
 
 import numpy as np
 import xarray as xr
-
 from conftest import advected_flowmap
+
 from lcs_parcels import AuxiliarySeed, ftle_ridge_seeds, shrink_lines
 from lcs_parcels.grids import _lonlat_to_meters
 
@@ -28,12 +28,17 @@ def test_ftle_ridge_seeds_picks_the_peak(lon_axis, lat_axis):
     lon2d, lat2d = xr.broadcast(
         xr.DataArray(lon_axis, dims="i"), xr.DataArray(lat_axis, dims="j")
     )
-    ii, jj = np.meshgrid(np.arange(lon_axis.size), np.arange(lat_axis.size), indexing="ij")
+    ii, jj = np.meshgrid(
+        np.arange(lon_axis.size), np.arange(lat_axis.size), indexing="ij"
+    )
     bump = np.exp(-((ii - 2.0) ** 2 + (jj - 2.0) ** 2))
     ftle = xr.DataArray(
         bump,
         dims=("i", "j"),
-        coords={"lon_0": (("i", "j"), lon2d.values), "lat_0": (("i", "j"), lat2d.values)},
+        coords={
+            "lon_0": (("i", "j"), lon2d.values),
+            "lat_0": (("i", "j"), lat2d.values),
+        },
     )
 
     lon, lat = ftle_ridge_seeds(ftle, window=3, quantile=0.90)
@@ -53,7 +58,10 @@ def test_ftle_ridge_seeds_skips_nan(lon_axis, lat_axis):
     ftle = xr.DataArray(
         field,
         dims=("i", "j"),
-        coords={"lon_0": (("i", "j"), lon2d.values), "lat_0": (("i", "j"), lat2d.values)},
+        coords={
+            "lon_0": (("i", "j"), lon2d.values),
+            "lat_0": (("i", "j"), lat2d.values),
+        },
     )
 
     lon, lat = ftle_ridge_seeds(ftle, window=3, quantile=0.5)
@@ -71,7 +79,9 @@ def _centre_seed(flowmap):
 
 def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
     """M = diag(1, 3) => xi_1 is the x-axis => the shrink line has constant latitude."""
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1)
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
+    )
     lines = shrink_lines(fm, *_centre_seed(fm), step_m=10_000.0, n_steps=4)
 
     lon = lines["lon"].isel(line=0).values
@@ -85,7 +95,9 @@ def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
 
 def test_shrink_lines_output_structure(lon_axis, lat_axis):
     """Dataset has lon/lat on (line, point); one line per seed, 2*n_steps+1 points."""
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1)
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
+    )
     seed_lon = [float(fm.ds["lon_c"].mean()), float(fm.ds["lon_c"].mean()) + 0.1]
     seed_lat = [float(fm.ds["lat_c"].mean()), float(fm.ds["lat_c"].mean())]
 
@@ -107,7 +119,9 @@ def test_shrink_lines_stop_below_lambda_guard(lon_axis, lat_axis):
 
 def test_shrink_lines_seed_off_grid_is_nan(lon_axis, lat_axis):
     """A seed outside the grid produces an all-NaN line."""
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1)
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
+    )
     lines = shrink_lines(fm, [lon_axis[0] - 50.0], [lat_axis[0] - 50.0], n_steps=5)
 
     assert bool(lines["lon"].isnull().all())

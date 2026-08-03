@@ -39,13 +39,12 @@ bundled current subset, so it runs offline — no CMEMS credentials. Run with
 `pixi run -e examples jupytext --sync --execute examples/cabo_verde_lcs.py`.
 
 ```python
+import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
-import matplotlib.pyplot as plt
-
-from parcels import FieldSet, ParticleSet, Particle, StatusCode
-from parcels.kernels import AdvectionRK4
+from parcels import FieldSet, Particle, ParticleSet, StatusCode
 from parcels.convert import copernicusmarine_to_sgrid
+from parcels.kernels import AdvectionRK4
 
 from lcs_parcels import NeighborSeed, ftle_ridge_seeds, shrink_lines
 ```
@@ -92,14 +91,18 @@ def set_lost_to_nan(particles, fieldset):
 def advect(signed_T):
     """Advect the seed grid over the signed window; return the FlowMap."""
     lon, lat = seed.to_parcels_pset()
-    pset = ParticleSet(
-        fieldset, pclass=Particle,
-        x=lon, y=lat, z=np.full(len(lon), z_surface), t=np.full(len(lon), t0),
+    z = np.full(len(lon), z_surface)
+    pset = ParticleSet(fieldset, pclass=Particle, x=lon, y=lat, z=z, t=t0)
+    dt = (
+        np.timedelta64(1, "h")
+        if signed_T > np.timedelta64(0)
+        else np.timedelta64(-1, "h")
     )
-    dt = np.timedelta64(1, "h") if signed_T > np.timedelta64(0) else np.timedelta64(-1, "h")
     pset.execute(
         [AdvectionRK4, set_lost_to_nan],
-        dt=dt, runtime=abs(signed_T), verbose_progress=False,
+        dt=dt,
+        runtime=abs(signed_T),
+        verbose_progress=False,
     )
     return seed.pset_to_flowmap(pset.x, pset.y, t0=t0, t1=t0 + signed_T)
 
@@ -108,11 +111,13 @@ forward = advect(+T)
 backward = advect(-T)
 ```
 
+
 ## FTLE
 
 The forward FTLE (from $\lambda_2$ of the forward $C$) is the deformation
 backdrop and marks where repelling LCS live; the backward FTLE does the same
 for attracting LCS. We start each family from the local maxima of its own FTLE.
+
 
 ```python
 def ftle_per_day(flowmap):
@@ -147,7 +152,9 @@ repelling_seeds = ftle_ridge_seeds(ftle_forward, window=window, quantile=quantil
 attracting_seeds = ftle_ridge_seeds(ftle_backward, window=window, quantile=quantile)
 repelling = shrink_lines(forward, *repelling_seeds, step_m=step_m, n_steps=n_steps)
 attracting = shrink_lines(backward, *attracting_seeds, step_m=step_m, n_steps=n_steps)
-print(f"{repelling.sizes['line']} repelling, {attracting.sizes['line']} attracting lines")
+print(
+    f"{repelling.sizes['line']} repelling, {attracting.sizes['line']} attracting lines"
+)
 ```
 
 ## LCS over the FTLE
@@ -158,15 +165,37 @@ sit on the ridge tops and stay well separated.
 ```python
 fig, axes = plt.subplots(1, 2, figsize=(13, 6), sharex=True, sharey=True)
 panels = [
-    (axes[0], ftle_forward, repelling, repelling_seeds, "tab:red", "repelling (forward)"),
-    (axes[1], ftle_backward, attracting, attracting_seeds, "tab:blue", "attracting (backward)"),
+    (
+        axes[0],
+        ftle_forward,
+        repelling,
+        repelling_seeds,
+        "tab:red",
+        "repelling (forward)",
+    ),
+    (
+        axes[1],
+        ftle_backward,
+        attracting,
+        attracting_seeds,
+        "tab:blue",
+        "attracting (backward)",
+    ),
 ]
 for ax, ftle, lines, seeds, color, name in panels:
     ftle.plot.pcolormesh(x="lon_0", y="lat_0", ax=ax, cmap="Greys", add_colorbar=True)
-    for lon_line, lat_line in zip(lines["lon"], lines["lat"]):
+    for lon_line, lat_line in zip(lines["lon"], lines["lat"], strict=True):
         ax.plot(lon_line, lat_line, color=color, lw=0.8)
     seed_lon_pts, seed_lat_pts = seeds
-    ax.scatter(seed_lon_pts, seed_lat_pts, s=20, color=color, edgecolor="k", linewidth=0.3, zorder=3)
+    ax.scatter(
+        seed_lon_pts,
+        seed_lat_pts,
+        s=20,
+        color=color,
+        edgecolor="k",
+        linewidth=0.3,
+        zorder=3,
+    )
     ax.set_title(name)
     ax.set_xlim(seed_lon)
     ax.set_ylim(seed_lat)

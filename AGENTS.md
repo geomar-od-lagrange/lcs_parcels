@@ -3,6 +3,38 @@
 Conventions for working in this repository. These are derived from review
 feedback and are binding unless a task explicitly overrides them.
 
+## Audience
+
+Everything written here — prose, docstrings, examples, output metadata — is
+addressed to one of three readers. Know which one before writing; most rules
+below are derivations of this model.
+
+- **The trusting user** runs the tool and takes the numbers at face value. They
+  need to know what a function does, what units come back, and how to call it.
+- **The inquisitive user** wants to convince themselves the science is right
+  *without becoming a developer*. They read the example end to end, display the
+  datasets, and plot the intermediate fields. They are at home in the
+  xarray/CF world; they are not going to read all of `src/`.
+- **The developer** needs the design *decisions* — why the auxiliary grid stores
+  its arms explicitly, why ridge-finding takes a field rather than a `FlowMap`.
+  That audience is served by `docs/architecture.md`, the plans, and the tests.
+
+Rules that fall out of it:
+
+- **Explain the non-obvious choice; do not re-teach the field.** The reader has
+  read the papers. Say why *this* window, *this* stencil, *this* termination
+  criterion — not what an FTLE is. Still, define a term properly where it is
+  ambiguous.
+- **Indirection is a tax in examples, an asset in library code.** An example is
+  consumed line by line with minimal scrolling, so prefer explicit and even
+  duplicated code over a helper. Library code is the opposite: factor freely.
+  This is a consequence of who reads what, not a blanket preference for
+  duplication.
+- **Reader-facing text carries no process narrative and no design rationale.**
+  Module docstrings, `docs/api.md`, and examples address the trusting and
+  inquisitive users; how we got here belongs in `docs/architecture.md` or a
+  plan, and agent-addressed asides belong nowhere.
+
 ## Documentation & writing
 
 - **Math in Markdown uses LaTeX, not unicode.** Write `$\nabla F$`, `$\xi_i$`,
@@ -18,12 +50,18 @@ feedback and are binding unless a task explicitly overrides them.
   masquerade as current.
 - **Plans have a lifecycle.** Design/implementation plans live in `plans/`. Once a
   plan is *fully* implemented, move its file to `plans/done/` to keep the active
-  set small. Cross-links into a moved plan (from docs or other plans) are allowed
-  to break — don't chase them; an archived plan is a historical record, not a
-  maintained reference. A plan that is only partially done (e.g. a survey with
-  deferred parts) stays in `plans/` until the rest lands.
+  set small. Cross-links into a moved plan **from docs or other plans** are
+  allowed to break — don't chase them; an archived plan is a historical record,
+  not a maintained reference. The exemption stops there: `src/` and `tests/` do
+  not link to plans at all, so there is nothing to break. A plan that is only
+  partially done (e.g. a survey with deferred parts) stays in `plans/` until the
+  rest lands.
 
 ## Examples & notebooks
+
+Examples are written for the inquisitive user: someone verifying the science by
+reading and running, not by studying the package. Every rule here follows from
+that.
 
 - **Examples stay current with the package.** Everything under `examples/` must
   run against the present API. When you change a signature, dim name, or data
@@ -54,12 +92,19 @@ feedback and are binding unless a task explicitly overrides them.
   or re-downloading on every run is acceptable in an example; being longer than
   the idea requires is not. This is the opposite of production code: minimize the
   reader's effort, not the machine's.
-- **Prefer vanilla plots.** Lean on the plotting library's built-in annotation —
-  xarray's `.plot`/`.plot.pcolormesh` labels axes, titles, and colorbars from the
-  object's name, coords, and attrs. Accept that default; don't hand-set titles,
-  axis labels, colormaps, `vmin`/`vmax`, aspect, or multi-panel styling unless a
-  default is actually wrong or the point being made needs it. A styled plot is
-  more code to maintain and pulls focus off the example's idea.
+- **Explicit over shared, even at the cost of duplication.** Write the same
+  recovery kernel out in each notebook rather than importing it from a shared
+  helper module. A reader scrolling one notebook top to bottom should rarely
+  have to open a second file or scroll back and forth. (Library code takes the
+  opposite rule — see [Audience](#audience).)
+- **Prefer vanilla plots.** This governs the plot you *first write*: reach for
+  `.plot()` / `.plot.pcolormesh()` and accept its defaults, which label axes,
+  titles, and colorbars from the object's name, coords, and attrs — that is what
+  output metadata is for. Don't *open* with hand-set titles, axis labels,
+  colormaps, `vmin`/`vmax`, aspect, or multi-panel styling. Setting a keyword is
+  fine once a default turns out to be wrong, or the point being made needs it, or
+  it was asked for. This is an anti-over-styling rule, not a ban on ever passing
+  an argument.
 - **No claimed result you haven't seen.** Never write a summary/conclusion cell
   (or "this shows X" prose) without actually running the notebook and reading the
   real output first. State what the run produced, not what you expect it to.
@@ -77,6 +122,14 @@ feedback and are binding unless a task explicitly overrides them.
   `copernicusmarine`, matplotlib). Run tests with `pixi run test`; run the real
   examples with `pixi run -e examples ...`. Do not push Parcels/CMEMS/plotting
   deps into the default env.
+- **Ruff lints and formats everything, and CI gates it.** Run `pixi run lint`
+  (`ruff check` plus `ruff format --check`) before handing work over; `ruff
+  format` fixes the formatting half. It covers `src/`, `tests/`, and the example
+  `.py` sources — the generated `.md`/`.ipynb` and vendored `.claude` skills are
+  excluded. Reformatting an example's `.py` desyncs its notebook, so
+  `jupytext --sync` after linting, not before: sync takes the *most recently
+  modified* representation as the source and will happily overwrite the `.py`
+  you just formatted.
 - **Parcels is pinned to a git SHA.** Parcels v4 is alpha, so it is a pypi git
   dependency in the `examples` feature pinned to a specific `main` commit. Bump
   the rev deliberately; don't float it.
@@ -107,6 +160,15 @@ verified against the pinned v4 alpha:
   numpy-style indexing on xarray objects — `ds.lon[:, 2, 2]` is bad;
   `ds.lon.isel(i=2, j=2)` is good. This holds even when you fully control dim
   order.
+- **Every returned xarray data array carries `name`, `long_name`, and
+  `units`.** The inquisitive user displays our datasets and plots them vanilla,
+  so the metadata *is* the axis label, the title, and the colorbar caption. Two
+  different quantities never come back under the same `name`. Go CF where it is
+  cheap — `units`, `long_name` — and no further: no bounds, no intervals, no
+  cell methods.
+- **Units are SI.** Return 1/s, metres, seconds; deviate only for a field with a
+  strong convention of its own (Sverdrups and the like). Conversion for display
+  is the reader's call, made visible in the example, not baked into the package.
 - **Let xarray do the work.** Rely on broadcasting (e.g. extra `t0`/`T` axes) and
   NaN propagation (e.g. lost particles) rather than writing special-case
   machinery for what xarray already handles. Don't plan around problems xarray
@@ -136,6 +198,13 @@ verified against the pinned v4 alpha:
   it and propagate each change through every file it touches — code, tests,
   plans, and docs — leaving nothing half-migrated. Prioritizing or deferring
   issues ("let's do the important ones first") is an antipattern here.
+- **PRs land squashed onto a linear `main`.** Merge with squash-and-rebase
+  (`gh pr merge --squash --delete-branch`), never a merge commit: the branch's
+  review churn — fixup commits, applied suggestions, formatting passes — is
+  history the repo does not need, and one commit per PR keeps `main` bisectable.
+  The squash message is the PR title and body, so write the PR body as the
+  commit message it will become, `Closes #N` included, and let the merge close
+  the issues.
 - **Greenfield: the user is the developer; no backward compatibility.** This is a
   specialized research tool whose users are (to ~100%) its developers; there is
   no external user base and no compatibility contract. Change signatures, data

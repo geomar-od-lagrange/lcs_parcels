@@ -142,12 +142,16 @@ def shrink_lines(
     def step(lon, lat, d):
         m_per_deg_lat = EARTH_RADIUS_M * _DEG
         m_per_deg_lon = m_per_deg_lat * np.cos(lat_ref * _DEG)
-        return lon + d[:, 0] / m_per_deg_lon * step_m, lat + d[:, 1] / m_per_deg_lat * step_m
+        d_lon = d[:, 0] / m_per_deg_lon * step_m
+        d_lat = d[:, 1] / m_per_deg_lat * step_m
+        return lon + d_lon, lat + d_lat
 
     def half(sign):
         lon = np.asarray(seed_lon, dtype=float).ravel().copy()
         lat = np.asarray(seed_lat, dtype=float).ravel().copy()
-        heading = sign * xi1(lon, lat, np.ones((lon.size, 2)))  # pick the initial branch
+        heading = sign * xi1(
+            lon, lat, np.ones((lon.size, 2))
+        )  # pick the initial branch
         # A seed we cannot trace from (off-grid, NaN cell, or below the guard)
         # makes an all-NaN line rather than a dangling seed point.
         untraceable = ~np.isfinite(heading).all(axis=1)
@@ -171,5 +175,8 @@ def shrink_lines(
     lat_lines = np.array([p[1] for p in points]).T
     return xr.Dataset(
         {"lon": (("line", "point"), lon_lines), "lat": (("line", "point"), lat_lines)},
-        coords={"line": np.arange(lon_lines.shape[0]), "point": np.arange(lon_lines.shape[1])},
+        coords={
+            "line": np.arange(lon_lines.shape[0]),
+            "point": np.arange(lon_lines.shape[1]),
+        },
     )

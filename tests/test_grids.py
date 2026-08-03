@@ -125,12 +125,22 @@ def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
     assert float(abs(ns - 2 * s).max()) < 1e-6  # north-south span == 2s
 
     # opposing arms share the centre on the OTHER axis (no cross-offset)
-    assert float(abs(y.sel(displacement="east") - y.sel(displacement="west")).max()) < 1e-6
-    assert float(abs(x.sel(displacement="north") - x.sel(displacement="south")).max()) < 1e-6
+    assert (
+        float(abs(y.sel(displacement="east") - y.sel(displacement="west")).max()) < 1e-6
+    )
+    assert (
+        float(abs(x.sel(displacement="north") - x.sel(displacement="south")).max())
+        < 1e-6
+    )
 
     # geographic direction is correct
-    assert float((lon0.sel(displacement="east") - lon0.sel(displacement="west")).min()) > 0
-    assert float((lat0.sel(displacement="north") - lat0.sel(displacement="south")).min()) > 0
+    assert (
+        float((lon0.sel(displacement="east") - lon0.sel(displacement="west")).min()) > 0
+    )
+    assert (
+        float((lat0.sel(displacement="north") - lat0.sel(displacement="south")).min())
+        > 0
+    )
 
 
 # --- flow-map shape --------------------------------------------------------

@@ -35,13 +35,12 @@
 # `pixi run -e examples jupytext --sync --execute examples/cabo_verde_lcs_evolution.py`.
 
 # %%
+import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
-import matplotlib.pyplot as plt
-
-from parcels import FieldSet, ParticleSet, Particle, StatusCode
-from parcels.kernels import AdvectionRK4
+from parcels import FieldSet, Particle, ParticleSet, StatusCode
 from parcels.convert import copernicusmarine_to_sgrid
+from parcels.kernels import AdvectionRK4
 
 from lcs_parcels import NeighborSeed, ftle_ridge_seeds, shrink_lines
 
@@ -90,22 +89,30 @@ def set_lost_to_nan(particles, fieldset):
 # propagate; the longest-window map of each direction feeds the diagnosis, the
 # shorter ones serve only as position maps for the evolution.
 
+
 # %%
 def advect(signed_T):
     lon, lat = seed.to_parcels_pset()
-    pset = ParticleSet(
-        fieldset, pclass=Particle,
-        x=lon, y=lat, z=np.full(len(lon), z_surface), t=np.full(len(lon), t0),
+    z = np.full(len(lon), z_surface)
+    pset = ParticleSet(fieldset, pclass=Particle, x=lon, y=lat, z=z, t=t0)
+    dt = (
+        np.timedelta64(1, "h")
+        if signed_T > np.timedelta64(0)
+        else np.timedelta64(-1, "h")
     )
-    dt = np.timedelta64(1, "h") if signed_T > np.timedelta64(0) else np.timedelta64(-1, "h")
-    pset.execute([AdvectionRK4, set_lost_to_nan], dt=dt, runtime=abs(signed_T),
-                 verbose_progress=False)
+    pset.execute(
+        [AdvectionRK4, set_lost_to_nan],
+        dt=dt,
+        runtime=abs(signed_T),
+        verbose_progress=False,
+    )
     return seed.pset_to_flowmap(pset.x, pset.y, t0=t0, t1=t0 + signed_T)
 
 
 forward_maps = [advect(+lead) for lead in leads]
 backward_maps = [advect(-lead) for lead in leads]
 forward, backward = forward_maps[-1], backward_maps[-1]
+
 
 # %% [markdown]
 # ## Extract the LCS at the longest window
@@ -114,6 +121,7 @@ forward, backward = forward_maps[-1], backward_maps[-1]
 # forward flow, attracting from the backward one (Haller–Sapsis duality), each
 # seeded at the local maxima of its own FTLE.
 
+
 # %%
 def ftle_per_day(flowmap):
     return (flowmap.ftle() * 86400.0).rename("FTLE")
@@ -121,7 +129,10 @@ def ftle_per_day(flowmap):
 
 repelling = shrink_lines(forward, *ftle_ridge_seeds(ftle_per_day(forward)))
 attracting = shrink_lines(backward, *ftle_ridge_seeds(ftle_per_day(backward)))
-print(f"{repelling.sizes['line']} repelling, {attracting.sizes['line']} attracting lines")
+print(
+    f"{repelling.sizes['line']} repelling, {attracting.sizes['line']} attracting lines"
+)
+
 
 # %% [markdown]
 # ## Evolve each family in its coherent direction
@@ -131,6 +142,7 @@ print(f"{repelling.sizes['line']} repelling, {attracting.sizes['line']} attracti
 # cube `lon`/`lat` on `(lead, line, point)`, `lead` being the signed offset from
 # $t_0$ in days. The attracting curve rides the forward maps, the repelling curve
 # the backward maps.
+
 
 # %%
 def evolve(curve, maps):
@@ -156,13 +168,18 @@ families = [
     (attracting_evo, "tab:blue", "attracting"),
     (repelling_evo, "tab:red", "repelling"),
 ]
-fig, axes = plt.subplots(2, attracting_evo.sizes["lead"], figsize=(13, 8),
-                         sharex=True, sharey=True)
-for row, (evo, color, name) in zip(axes, families):
-    for ax, k in zip(row, range(evo.sizes["lead"])):
-        for lon0, lat0 in zip(evo["lon"].isel(lead=0), evo["lat"].isel(lead=0)):
+fig, axes = plt.subplots(
+    2, attracting_evo.sizes["lead"], figsize=(13, 8), sharex=True, sharey=True
+)
+for row, (evo, color, name) in zip(axes, families, strict=True):
+    for ax, k in zip(row, range(evo.sizes["lead"]), strict=True):
+        for lon0, lat0 in zip(
+            evo["lon"].isel(lead=0), evo["lat"].isel(lead=0), strict=True
+        ):
             ax.plot(lon0, lat0, color="0.7", lw=0.6)
-        for lon_line, lat_line in zip(evo["lon"].isel(lead=k), evo["lat"].isel(lead=k)):
+        for lon_line, lat_line in zip(
+            evo["lon"].isel(lead=k), evo["lat"].isel(lead=k), strict=True
+        ):
             ax.plot(lon_line, lat_line, color=color, lw=0.8)
         ax.set_title(f"{name}, lead {evo['lead'].isel(lead=k).item():+.1f} d")
         ax.set_xlim(seed_lon)

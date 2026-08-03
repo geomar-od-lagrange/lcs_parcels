@@ -101,7 +101,9 @@ def _grid_lonlat(obj: xr.DataArray | xr.Dataset) -> tuple[xr.DataArray, xr.DataA
     return lon, lat
 
 
-def _to_meters(lon: xr.DataArray, lat: xr.DataArray, lon_0: xr.DataArray, lat_0: xr.DataArray):
+def _to_meters(
+    lon: xr.DataArray, lat: xr.DataArray, lon_0: xr.DataArray, lat_0: xr.DataArray
+):
     """Project ``lon``/``lat`` into the meters frame anchored at the centroid of
     ``lon_0``/``lat_0`` (one ``cos(phi_ref)``, not a per-point cosine).
     """
@@ -454,14 +456,16 @@ class FlowMap(abc.ABC):
             advected = advected.mean("displacement", skipna=False)
         advected = (
             advected.reset_coords(drop=True)
-            .assign_coords(i=lon_grid.isel(j=0, drop=True).values,
-                           j=lat_grid.isel(i=0, drop=True).values)
+            .assign_coords(
+                i=lon_grid.isel(j=0, drop=True).values,
+                j=lat_grid.isel(i=0, drop=True).values,
+            )
             .rename(i="lon_0", j="lat_0")
         )
         return advected.interp(
             lon_0=lon0,
             lat_0=lat0,
-            kwargs=dict(bounds_error=False, fill_value=np.nan),
+            kwargs={"bounds_error": False, "fill_value": np.nan},
         )
 
     def to_seed(self) -> Seed:
@@ -576,10 +580,14 @@ class AuxiliarySeed(Seed):
         s = float(aux_separation_m)
         displacement = ["east", "north", "west", "south"]
         off_x = xr.DataArray(
-            [+s, 0.0, -s, 0.0], dims="displacement", coords={"displacement": displacement}
+            [+s, 0.0, -s, 0.0],
+            dims="displacement",
+            coords={"displacement": displacement},
         )
         off_y = xr.DataArray(
-            [0.0, +s, 0.0, -s], dims="displacement", coords={"displacement": displacement}
+            [0.0, +s, 0.0, -s],
+            dims="displacement",
+            coords={"displacement": displacement},
         )
 
         # Place the arms in the single grid reference frame (reference latitude =
