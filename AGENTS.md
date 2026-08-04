@@ -261,16 +261,16 @@ verified against the pinned v4 alpha:
   The squash message is the PR title and body, so write the PR body as the
   commit message it will become, `Closes #N` included, and let the merge close
   the issues.
-- **Breaking changes are allowed, but they are announced.** The package is
-  published on PyPI, so there are users who are not developers of it and who did
-  not read the PR that changed things under them. Change signatures, data
-  layouts, dim names, and file formats when the design improves — that freedom
-  stays. What changes is that a break is no longer silent: a release that breaks
-  a documented call records what broke and what to write instead, in the release
-  notes for that version.
-  Still do not add deprecation shims, compatibility aliases, migration code, or
-  "legacy" branches. Delete the old form outright and update all call sites; the
-  release notes carry the migration, not the code.
+- **Breaking changes are the norm, but they are announced.** This is
+  research-grade alpha code. Break the API whenever the design improves —
+  signatures, data layouts, dim names, file formats — and never keep backward
+  compatibility that complicates the code. No deprecation shims, no compatibility
+  aliases, no migration code, no "legacy" branches: delete the old form outright
+  and update all call sites.
+  What publishing on PyPI changes is only that a break now reaches people who did
+  not read the PR that made it. So a release that breaks a documented call says
+  what broke and what to write instead, in that version's release notes. The
+  notes carry the migration, not the code.
   This governs the compatibility contract, not what gets written where: the
   three-reader model above still decides what belongs in which file.
 

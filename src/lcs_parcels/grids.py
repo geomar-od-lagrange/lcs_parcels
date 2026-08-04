@@ -526,11 +526,8 @@ class FlowMap(abc.ABC):
         # (row, col). Pure label-based arithmetic; no positional indexing.
         C = xr.dot(gradF, gradF.rename(col="col_b"), dim="row")
         C = C.rename(col="row", col_b="col").rename("cauchy_green")
-        # Before xarray 2025.11, `xr.dot` returns the coordinates it carried
-        # through stripped of their attrs, which would leave `i`, `j` and the
-        # grid positions unlabelled. Restore them from the operand. `row`/`col`
-        # are deliberately left to the explicit assignment below: this one would
-        # give `row` the attrs of the `col` it was renamed from.
+        # Before xarray 2025.11, `xr.dot` strips the attrs off every coordinate it
+        # carries through. Restore them from the operand.
         C = C.assign_coords(
             {
                 name: C[name].assign_attrs(gradF[name].attrs)

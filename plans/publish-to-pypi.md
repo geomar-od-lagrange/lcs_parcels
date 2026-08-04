@@ -9,13 +9,17 @@ Checked on 2026-08-04, at `2c71ccb`:
 
 | Check | Result |
 |---|---|
-| PyPI name `lcs-parcels` and `lcs_parcels` | free (404 on both) |
+| PyPI name `lcs_parcels` | free (404), and so is `lcs-parcels` |
 | `python -m build` | sdist and pure-Python wheel build clean |
 | Coverage, statement and branch | 99% over 102 tests |
 | Uncovered lines | `grids.py:273,452,509`, all `raise NotImplementedError` in abstract methods |
 
 Coverage is not thin. The coverage bullet in #12 was written at the #7 review and
 no longer describes the repository; it becomes a CI gate, not a project.
+
+The published name is `lcs_parcels`, matching the import. PyPI normalises it to
+`lcs-parcels` in index URLs, so `pip install lcs-parcels` resolves to the same
+project and the hyphen form cannot be claimed by anyone else.
 
 Three defects the build surfaced:
 
@@ -68,6 +72,24 @@ for them to be designed together.
 - Rewrite the *Scope: regional domains only* section of `README.md` and the
   metric-frame part of `docs/numerics.md` to the state after the fix.
 
+No third-party geodesy is involved, now or in the proposal. The metres frame is
+`EARTH_RADIUS_M` and a cosine in `grids.py`; the fix keeps it that way.
+
+Haversine does not apply here. It solves the inverse problem — great-circle
+distance between two given points — and $\nabla F$ needs a local linear map
+between tangent spaces, so it needs signed east and north *components*, not a
+scalar separation. The correction in #18 is exactly the local version of what we
+already compute.
+
+Worth weighing in this PR, though, since it costs the same edit: instead of
+correcting the single standard parallel with each point's own $\cos\phi$, drop
+the shared frame and difference in per-point local east/north. That removes the
+domain-size error rather than shrinking it, and the measured 3.0% median over 20
+degrees and 15% over 60 degrees go to zero. The tensor-line stepping in
+`tensorlines.py` is the one place that wants the *forward* problem — advance a
+lon/lat by a metre step along an eigenvector — which is a few lines of spherical
+trigonometry and again no dependency.
+
 **Open, needs a decision:** whether longitudes are normalised on ingest or the
 dataset carries a branch-cut convention. #13 lists both.
 
@@ -97,7 +119,7 @@ example notebooks, `README.md`, `examples/README.md`, `AGENTS.md`. Enforce LaTeX
 over unicode math and a DOI per citation while reading every line. Re-execute any
 notebook whose cells change.
 
-## PR 4 — packaging, CI matrix, coverage gate, Dependabot
+## PR 4 — packaging, CI matrix, coverage gate, Dependabot, badges
 
 The bulk of #12. No release yet.
 
@@ -107,7 +129,7 @@ Update the release section of `AGENTS.md`. Existing tags `v2026.07.17.1` and
 
 **Metadata** in `pyproject.toml`:
 
-- `authors = [{name = "Henry Adjei"}, {name = "Willi Rath", email = "rath.willi@googlemail.com"}]`
+- `authors = [{name = "Henry Adjei"}, {name = "Willi Rath", email = "wrath@geomar.de"}]`
 - `license = "MIT"` plus `license-files = ["LICENSE"]`. The current
   `license = { file = "LICENSE" }` puts the whole MIT text in the `License:`
   field; the build already emits Metadata 2.4, which takes the SPDX form.
@@ -197,10 +219,11 @@ cannot see the Parcels git dependency and cannot float the pinned SHA. The
 it to bump either.
 
 **README.** Add `pip install git+https://github.com/geomar-od-lagrange/lcs_parcels.git`,
-so users are not forced through pixi before PyPI exists. Add a CI badge.
+so users are not forced through pixi before PyPI exists.
 
-**Open, needs a decision:** whether to add Codecov for a coverage badge, or keep
-coverage as a CI gate with no badge. This plan proposes the gate alone.
+**Badges.** A CI-is-green badge and a license badge. No Codecov: coverage stays a
+CI gate with no badge and no third-party service. The PyPI version badge lands
+with PR 6, once there is a version to report, and the docs badge with PR 7.
 
 ## PR 5 — first release
 
