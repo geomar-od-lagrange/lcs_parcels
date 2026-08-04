@@ -52,9 +52,10 @@ from lcs_parcels import NeighborSeed, ftle_ridge_seeds, shrink_lines
 
 ## Currents
 
-The same CMEMS hourly surface velocity as `cabo_verde_ftle`, saved to a file
-so the notebook is self-contained. `copernicusmarine_to_sgrid` +
-`from_sgrid_conventions` wrap it as a spherical `FieldSet`.
+The same CMEMS hourly surface velocity as `cabo_verde_ftle`, read from a local
+file you save yourself -- `examples/data/` is not in the repo.
+`copernicusmarine_to_sgrid` + `from_sgrid_conventions` wrap it as a spherical
+`FieldSet`.
 
 ```python
 currents = xr.open_dataset("data/cabo_verde_currents_hourly.nc")

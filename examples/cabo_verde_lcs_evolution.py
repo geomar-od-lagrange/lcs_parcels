@@ -47,7 +47,9 @@ from lcs_parcels import NeighborSeed
 # %% [markdown]
 # ## Currents
 #
-# The bundled CMEMS hourly surface velocity, wrapped as a spherical `FieldSet`.
+# The same CMEMS hourly surface velocity as `cabo_verde_ftle`, read from a local
+# file you save yourself (`examples/data/` is not in the repo) and wrapped as a
+# spherical `FieldSet`.
 
 # %%
 currents = xr.open_dataset("data/cabo_verde_currents_hourly.nc")

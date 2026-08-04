@@ -65,11 +65,14 @@ read:
 - [`cabo_verde_ftle`](examples/cabo_verde_ftle.ipynb) — the Parcels v4 wiring:
   the FTLE from CMEMS currents. Needs CMEMS credentials.
 - [`cabo_verde_lcs`](examples/cabo_verde_lcs.ipynb) — repelling and attracting
-  LCS as strain tensor lines. Offline (bundled currents).
+  LCS as strain tensor lines.
 - [`cabo_verde_lcs_evolution`](examples/cabo_verde_lcs_evolution.ipynb) — evolve
-  an extracted LCS as a material curve. Offline.
+  an extracted LCS as a material curve.
 
-The Parcels examples need the `examples` pixi environment (`pixi install -e examples`).
+The Parcels examples need the `examples` pixi environment (`pixi install -e
+examples`). The two LCS notebooks read
+`examples/data/cabo_verde_currents_hourly.nc`, which is **not** in the repo: save
+it once yourself from the CMEMS product `cabo_verde_ftle` opens.
 
 ## License
 
