@@ -521,15 +521,27 @@ class FlowMap(abc.ABC):
             coordinates valued ``['x', 'y']`` (dimensionless).
         """
         gradF = self.deformation_gradient()
-        # C_{a,b} = sum_k gradF_{k,a} gradF_{k,b}: broadcast against a relabelled
-        # copy and sum over the shared output index `row`, then relabel the two
-        # surviving `col` axes back to (row, col). Pure label-based arithmetic; no
-        # positional indexing. `skipna=False` so a lost particle stays NaN through
-        # the contraction rather than summing as zero. `xr.dot` expresses the same
-        # thing but drops the attrs of every dimension coordinate it carries
-        # through before xarray 2025.11, which strips `long_name` off `i` and `j`.
-        C = (gradF * gradF.rename(col="col_b")).sum("row", skipna=False)
+        # C_{a,b} = sum_k gradF_{k,a} gradF_{k,b}: contract over the shared output
+        # index `row` by label, then relabel the two surviving `col` axes back to
+        # (row, col). Pure label-based arithmetic; no positional indexing.
+        C = xr.dot(gradF, gradF.rename(col="col_b"), dim="row")
         C = C.rename(col="row", col_b="col").rename("cauchy_green")
+        # Before xarray 2025.11, `xr.dot` returns the coordinates it carried
+        # through stripped of their attrs, which would leave `i`, `j` and the
+        # grid positions unlabelled. Restore them from the operand. `row`/`col`
+        # are deliberately left to the explicit assignment below: this one would
+        # give `row` the attrs of the `col` it was renamed from.
+        C = C.assign_coords(
+            {
+                name: C[name].assign_attrs(gradF[name].attrs)
+                for name in C.coords
+                if name in gradF.coords and name not in ("row", "col")
+            }
+        )
+        # Second call, not merged into the one above: that one restores attrs the
+        # operand already had, while `row` and `col` are new axes of this tensor
+        # and get theirs stated here. Merging them would mean copying the renamed
+        # `col`'s attrs onto `row` and then overwriting them.
         C = C.assign_coords(
             row=xr.DataArray(["x", "y"], dims="row", attrs=ROW_ATTRS),
             col=xr.DataArray(["x", "y"], dims="col", attrs=COL_ATTRS),

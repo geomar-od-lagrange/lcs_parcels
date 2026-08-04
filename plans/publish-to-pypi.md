@@ -145,12 +145,16 @@ the axis label. `xr.dot` was the only affected call; `apply_ufunc`, `concat`,
 `broadcast`, `where`, `isel` and arithmetic all preserve attrs on every version
 tested.
 
-Replacing the one call with `(gradF * gradF.rename(col="col_b")).sum("row",
-skipna=False)` removes the version sensitivity. The suite passes fully at xarray
-2024.7, 2024.9, 2025.1 and 2025.10. `skipna=False` is load-bearing and not
-cosmetic: `xr.dot` does not skip NaN but `.sum()` does by default, so the first
-version of this change summed a lost particle as zero and broke
-`test_nan_propagates_through_chain` on every xarray including the current one.
+`xr.dot` stays — it names the contraction, and the tensor is 2x2, so nothing
+here is on a hot path. The call is followed by an `assign_coords` that restores
+each carried-through coordinate's attrs from the operand. The suite passes at
+xarray 2024.9, 2025.1, 2025.10 and 2026.1.
+
+The restore reads its list of coordinates from the operand rather than naming
+them. Measured on 2024.9, `xr.dot` strips `i`, `j`, `lon_grid`, `lat_grid`, `t0`
+and `T`; naming `i` and `j` would have missed four, because `assert_labelled`
+stops at the first failure and never reported the rest.
+
 The fix is in this PR, since it is what lets the floor follow the policy.
 
 Test the floor rather than assert it: a CI job resolving `--resolution
