@@ -187,10 +187,10 @@ integrator spends at most `line_length_m / (2 * step_m)` steps per direction and
 a line that terminates earlier is shorter, with the returned block NaN-filled
 past termination so every row has equal length. `window_m` is the *side* of the
 ridge-seed neighbourhood, which reaches only `window_m / 2` to either side of
-its own grid point; two seeds can therefore sit about `window_m / 2` apart, and
-the measured nearest-neighbour spacing runs 1.67–1.89 times `window_m / 2`
-across window sizes. Anyone reading either as "the length you get" or "the
-spacing you get" is off by a factor of two.
+its own grid point; two seeds can therefore sit about `window_m / 2` apart. That
+is geometry, not measurement: the bound follows from the window's reach and
+holds for any field. Anyone reading either budget as "the length you get" or
+"the spacing you get" is off by a factor of two.
 
 ### Why the degeneracy guard is an eigenvalue ratio
 
@@ -204,12 +204,31 @@ fixed floor tightens as the window lengthens and a well-definedness guard drifts
 into being a selector. A stretching-rate floor, `ftle_min_per_day`, cured that
 by dividing out $|T|$ — but it retunes *worse*, across flow regimes rather than
 across windows, which is the direction that actually bites. The 0.005/day
-default was calibrated to the mesoscale ocean at a 7-day window; measured as a
-fraction of the flow's own FTLE signal, that fixed rate is 0.1% for a fast
-laboratory flow and 45.5% for a slow large-scale one, where it would eat nearly
-half the field. The same two flows put the dimensionless ratio at 2.3% and 1.8%.
-So the first argument was right about its target and too narrow: a rate is
-scale-free in $T$ only.
+default was calibrated to the mesoscale ocean at a 7-day window.
+
+The comparison below is a paper exercise across three flow regimes, and it rests
+on one premise that has to be stated because everything follows from it: each
+regime is integrated over a window $|T|$ *comparable to its own* $1/\mathrm{FTLE}$,
+which is what one actually does — the window is chosen so the flow has time to
+stretch by roughly one e-fold. That fixes the three $(\mathrm{FTLE}, |T|)$ pairs:
+
+| Regime | FTLE | $\lvert T\rvert$ |
+|---|---|---|
+| fast laboratory flow | 6 /day | 6 h |
+| mesoscale ocean (the calibration point) | 0.15 /day | 7 d |
+| slow large-scale flow | 0.011 /day | 180 d |
+
+Measured against each flow's own FTLE signal, the *fixed rate* 0.005/day is
+$0.005/6 = 0.08\%$ for the laboratory flow and $0.005/0.011 = 45.5\%$ for the
+slow one, where it would eat nearly half the field. The *ratio* form converts to
+a rate through the window: a floor $a_{\min}$ on $\lambda_2/\lambda_1$ is, for
+incompressible flow ($\lambda_1\lambda_2 = 1$), a $\lambda_2$ floor of
+$\sqrt{a_{\min}}$ and hence an equivalent rate
+$\tfrac{1}{|T|}\log\sqrt{\sqrt{a_{\min}}} = \tfrac{1}{4|T|}\log a_{\min}$. With
+$a_{\min} = 1.15$ that is 0.0050/day at $|T| = 7$ d (the calibration identity),
+0.140/day at 6 h and $1.9\times 10^{-4}$/day at 180 d — as fractions of the two
+outer flows' FTLE, 2.3% and 1.8%. So the first argument was right about its
+target and too narrow: a rate is scale-free in $T$ only.
 
 The ratio retunes with neither, and it is also the physically correct quantity
 rather than merely the scale-free one. The sensitivity of an eigenvector of $C$
@@ -243,9 +262,12 @@ have a median $\det \nabla F$ of 0.75 with a median ratio of 1.6 — strongly
 convergent, and with $\xi_1$ perfectly well defined. A magnitude floor cannot
 distinguish "nothing is stretching here" from "everything is contracting here",
 so it preferentially terminates shrink lines inside convergence zones — which is
-where attracting LCS live. On the forward flow, where the median areal factor is
-above 1, the two guards agree almost exactly, which is why the bias never
-surfaced during forward-only development.
+where attracting LCS live. On the forward flow of that same 5-day case, where
+the median areal factor is above 1, the two guards agreed almost exactly — but
+that agreement is a property of the window measured, not of forward flow in
+general: at other windows the two termination rates part company, in both
+directions. It is enough to explain why the bias never surfaced during
+forward-only development.
 
 ### Why the metadata is attached at construction
 
@@ -291,8 +313,18 @@ $c_{\mathrm{ref}} / c_0$. The dominant error term is therefore not the size of
 the domain in longitude but how far particles travel in latitude relative to the
 standard parallel.
 
-Measured median FTLE error: 0.65% over a 5-degree domain, 3.0% over 20 degrees,
-15% over 60 degrees. The package is consequently valid for regional domains of
+That algebra is the whole error structure, and it needs no measurement to state.
+What it says is that the error is set by *meridional excursion relative to the
+standard parallel* — how far a particle's release and arrival latitudes sit from
+$\phi_{\mathrm{ref}}$ — and not by domain width as such; a wide, thin zonal band
+is fine, a narrow but meridionally tall one is not.
+
+To put a scale on it, one analytic test flow map at one centre latitude gave a
+median FTLE error of 0.65% over a 5-degree domain, 3.0% over 20 degrees and 15%
+over 60 degrees. Those three numbers are an illustration of magnitude from a
+single case, not a table of error-versus-domain-size: another flow, or the same
+domain sizes at another centre latitude, moves them. The package is
+consequently valid for regional domains of
 modest latitude range with no dateline crossing, and is not currently correct
 for basin-scale ones. Tracked in GitHub issue #18, alongside the related
 dateline/longitude arithmetic in #13; the fix is exact and cheap — two diagonal

@@ -93,6 +93,49 @@ def test_image_off_grid_and_nan_inputs_are_nan(lon_axis, lat_axis):
     assert bool(out["lon"].isel(param=2).isnull())  # NaN input: NaN
 
 
+def test_image_accepts_cf_named_indexer_dims(lon_axis, lat_axis):
+    """Reference points whose *dims* are called ``lon``/``lat`` are accepted.
+
+    That is what ``grid["lon"]``, ``grid["lat"]`` hand you off an ordinary
+    rectilinear CF dataset -- the most natural way to call ``image`` -- and it
+    collides with the names of the returned data variables. Building the result
+    by merging (``assign``/``assign_coords``) cannot tell an incoming ``lon``
+    data variable from a dimension of the same name and raises ``MergeError``
+    here, so this covers both the outer-product case (two dims, ``lon`` and
+    ``lat``) and a single shared dim named ``lon``.
+    """
+    fm = _flowmap(lon_axis, lat_axis)
+    centre_lon = float(fm.ds["lon_0"].mean())
+    centre_lat = float(fm.ds["lat_0"].mean())
+    grid = xr.Dataset(
+        coords={
+            "lon": ("lon", [centre_lon, centre_lon + 0.1]),
+            "lat": ("lat", [centre_lat, centre_lat + 0.1, centre_lat + 0.2]),
+        }
+    )
+
+    outer = fm.image(lon0=grid["lon"], lat0=grid["lat"])
+    assert set(outer["lon"].dims) == {"lon", "lat"}
+    assert outer["lon"].notnull().all()
+
+    shared = fm.image(
+        lon0=xr.DataArray([centre_lon, centre_lon + 0.1], dims="lon"),
+        lat0=xr.DataArray([centre_lat, centre_lat + 0.1], dims="lon"),
+    )
+    assert shared["lon"].dims == ("lon",)
+    assert shared["lon"].notnull().all()
+
+    for out in (outer, shared):
+        assert out["lon"].attrs["units"] == "degrees_east"
+        assert out["lat"].attrs["units"] == "degrees_north"
+        assert "advected" in out["lon"].attrs["long_name"]
+        assert "advected" in out["lat"].attrs["long_name"]
+        assert "reference" in out["lon_0"].attrs["long_name"]
+        assert "reference" in out["lat_0"].attrs["long_name"]
+        assert out["lon_0"].attrs["units"] == "degrees_east"
+        assert out["lat_0"].attrs["units"] == "degrees_north"
+
+
 def test_image_on_auxiliary_flowmap(lon_axis, lat_axis):
     """image works on the auxiliary (i, j, displacement) layout that shrink_lines
     supports: it maps the grid point through the flow map (arm centroid)."""

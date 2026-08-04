@@ -492,6 +492,31 @@ def test_shrink_lines_stop_at_an_isotropic_tensor(lon_axis, lat_axis):
     assert bool(lines["lon"].isnull().all())
 
 
+def test_shrink_lines_default_guard_stops_a_barely_anisotropic_tensor(
+    lon_axis, lat_axis
+):
+    """The *default* ``min_anisotropy`` is 1.15, and nothing weaker: this map's
+    ratio sits between 1 and 1.15, so a default-path call must kill the line.
+
+    ``M = diag(1.05, 1.0)`` gives ``C = diag(1.1025, 1.0)`` -- a ratio of 1.1025,
+    barely anisotropic, where ``xi_1`` is a direction only to within a large
+    perturbation of ``C``. Passing no ``min_anisotropy`` at all is the point:
+    every other guard test states a floor explicitly, so they pin the argument
+    and leave the default free to drift down to 1.0 (guard off) unnoticed.
+    """
+    a, b = 1.05, 1.0
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, np.diag([a, b]), T0, T1)
+
+    lam = fm.cg_eigen()["lambda"]
+    ratio = float((lam.isel(eig=1) / lam.isel(eig=0)).mean())
+    assert 1.0 < ratio < 1.15  # the band that only the default can decide
+    assert np.isclose(ratio, (a / b) ** 2)
+
+    lines = shrink_lines(fm, **_centre_seed(fm), step_m=3_000.0, line_length_m=30_000.0)
+
+    assert bool(lines["lon"].isnull().all())
+
+
 @pytest.mark.parametrize("sign", [+1, -1])
 @pytest.mark.parametrize("t_days", [2.0, 8.0])
 def test_shrink_lines_guard_is_an_eigenvalue_ratio(lon_axis, lat_axis, sign, t_days):
@@ -677,6 +702,29 @@ def test_hyperbolic_lcs_ridge_parameters_are_forwarded():
 
     assert tight_quantile.sizes["line"] < loose.sizes["line"]
     assert tight_window.sizes["line"] < loose.sizes["line"]
+
+
+def test_hyperbolic_lcs_min_anisotropy_is_forwarded(lon_axis, lat_axis):
+    """``min_anisotropy`` reaches ``shrink_lines``, so the guard cannot go inert
+    on the convenience path while the two ridge parameters stay wired up.
+
+    ``M = diag(3, 1)`` gives an eigenvalue ratio of 9 everywhere: a floor of 1.15
+    lets the lines through, and an absurd floor kills every one of them. If the
+    forward is dropped both calls fall back to the same default and trace alike.
+    """
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([3.0, 1.0]), T0, T1
+    )
+    trace = {
+        "step_m": LCS_KWARGS["step_m"],
+        "line_length_m": LCS_KWARGS["line_length_m"],
+    }
+
+    traced = fm.hyperbolic_lcs(min_anisotropy=1.15, **trace)
+    guarded = fm.hyperbolic_lcs(min_anisotropy=1e9, **trace)
+
+    assert bool(traced["lon"].notnull().any())
+    assert bool(guarded["lon"].isnull().all())
 
 
 def test_hyperbolic_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):

@@ -166,16 +166,20 @@ FlowMap.ftle() -> xr.DataArray                    # concrete (base)
   reference and advected positions (see
   [`notation.md`](notation.md#equirectangular-metres-frame)). It is accurate for
   a regional domain of modest latitude range and not for a basin spanning tens of
-  degrees of latitude. Dims `(i, j, row, col)` with `row`/`col`
-  dimension coordinates valued `['x', 'y']` and
+  degrees of latitude. Dims `i`, `j`, `row`, `col` — a *set*, not an order: the
+  package is label-based, so the axis order the call returns is not part of the
+  contract (today it is `('row', 'col', 'i', 'j')`, and that may change).
+  `row`/`col` are dimension coordinates valued `['x', 'y']` and
   `gradF.sel(row=a, col=b) = dF_a / dx0_b`. There is **no** `comp` coord on the
   tensor. The stencil is per-subclass:
   - `NeighborFlowMap`: central difference against neighbours
     `(i +/- 1, j +/- 1)`; domain-edge cells are legitimately `NaN`.
   - `AuxiliaryFlowMap`: per-point four-arm central difference (east-west,
     north-south over `2s`); defined at every grid point, no `NaN` edges.
-- **`cauchy_green()`** — $C = (\nabla F)^\top \nabla F$, symmetric, same dims
-  `(i, j, row, col)`.
+- **`cauchy_green()`** — $C = (\nabla F)^\top \nabla F$, symmetric, on the same
+  dim set `i`, `j`, `row`, `col` (again in no contractual order — as shipped it
+  is `('row', 'i', 'j', 'col')`). Select by label, and `.transpose()` yourself
+  if you need a particular layout.
 - **`cg_eigen()`** — eigen-decomposition of $C$ via `np.linalg.eigh`. Returns a
   `Dataset` with `lambda` on `(i, j, eig)` (eigenvalues **ascending**,
   $0 < \lambda_1 \le \lambda_2$, `eig = [0, 1]`) and `xi` on
@@ -232,9 +236,8 @@ call means the same thing at any resolution and over any window:
   count per dimension from the field's own `lon_grid`/`lat_grid` spacing (the
   default 30 km is 7 cells on a $1/25^\circ$ grid at $20^\circ$N). The window
   reaches `window_m / 2` to either side of its own grid point, so two seeds can
-  be as close as about `window_m / 2`, not `window_m`; measured across window
-  sizes, the nearest-neighbour seed spacing comes out at 1.67–1.89 times
-  `window_m / 2`. The field must carry `lon_grid`/`lat_grid`; `flowmap.ftle()`
+  be as close as about `window_m / 2`, not `window_m` — halve it to read off the
+  minimum seed spacing. The field must carry `lon_grid`/`lat_grid`; `flowmap.ftle()`
   does. Returns `(lon, lat)` 1-D arrays. NaN cells never qualify.
 - **`shrink_lines(flowmap, seed_lon=..., seed_lat=...)`** — integrate the
   $\xi_1$ tensor line through each seed, both directions, on the flow map's
@@ -260,7 +263,10 @@ default 1.15 a 1% error in $C$ swings $\xi_1$ by about 2 degrees, at a ratio of
 1.05 by 6 degrees, and by a ratio of 4 it has flattened out at about 0.25
 degrees. Being a ratio it carries no $T$, no grid scale and no stretching rate,
 so 1.15 means the same thing for a six-hour laboratory flow and a six-month
-basin-scale one.
+basin-scale one. Its useful range starts just above 1: $C$ is positive
+semi-definite, so $\lambda_2 \ge \lambda_1 \ge 0$ always, and any
+`min_anisotropy` at or below 1 makes the guard unsatisfiable — it never fires,
+and lines then stop only by leaving the grid or hitting a NaN cell.
 
 This layer interpolates on the axis-aligned `lon_grid`/`lat_grid` axes, so (like
 `NeighborFlowMap`) it assumes a rectilinear flow map.

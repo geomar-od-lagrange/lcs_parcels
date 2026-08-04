@@ -696,12 +696,22 @@ class FlowMap(abc.ABC):
         image = image.drop_vars(["lon_0", "lat_0"], errors="ignore").rename(
             lon_grid="lon_0", lat_grid="lat_0"
         )
-        return image.assign(
-            lon=image["lon"].assign_attrs(LON_ATTRS),
-            lat=image["lat"].assign_attrs(LAT_ATTRS),
-        ).assign_coords(
-            lon_0=image["lon_0"].assign_attrs(LON_0_ATTRS),
-            lat_0=image["lat_0"].assign_attrs(LAT_0_ATTRS),
+        # Rebuilt rather than stamped through ``assign``/``assign_coords``: those
+        # merge, and a merge cannot tell whether an incoming ``lon`` is the data
+        # variable or the dimension of the same name. Callers passing lon0/lat0
+        # straight off a CF dataset -- the most natural way to call this -- have
+        # exactly that collision, so the merging forms raise ``MergeError`` on
+        # them. Naming the data variables and the coordinates separately says
+        # which is which, and never merges.
+        return xr.Dataset(
+            {
+                "lon": image["lon"].assign_attrs(LON_ATTRS),
+                "lat": image["lat"].assign_attrs(LAT_ATTRS),
+            },
+            coords={
+                "lon_0": image["lon_0"].assign_attrs(LON_0_ATTRS),
+                "lat_0": image["lat_0"].assign_attrs(LAT_0_ATTRS),
+            },
         )
 
     def hyperbolic_lcs(

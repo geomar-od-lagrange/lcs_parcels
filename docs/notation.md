@@ -14,14 +14,14 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 | $v(x, t)$ | velocity field, with position $x = (x^1, x^2)$ in 2D | 2 | (input, external) |
 | $x_0$ | initial (reference) particle *release* position; for the `Neighbor*` classes the grid point itself, for the `Auxiliary*` classes the explicit stencil arms; carried by both the seed and the flow map | 3 | `lon_0`, `lat_0` (`(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes) |
 | $x_{\mathrm{grid}}$ | diagnostic grid point, where every diagnostic is reported; carried explicitly by both stencils and by both families | — | `lon_grid(i, j)`, `lat_grid(i, j)` |
-| $F_{t_0}^{t_1}(x_0) = x(t_1; t_0, x_0)$ | flow **map**: initial position $\to$ position at time $t_1$; stored as the advected positions on a `FlowMap` (its only data vars) | 3 | `lon(i, j)`, `lat(i, j)` |
+| $F_{t_0}^{t_1}(x_0) = x(t_1; t_0, x_0)$ | flow **map**: initial position $\to$ position at time $t_1$; stored as the advected positions on a `FlowMap` (its only data vars) | 3 | `lon`, `lat`, sharing the dims of `lon_0`/`lat_0`: `(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes |
 | $F_{t_0}^{t_1}(x_{\mathrm{grid}})$ | flow map image of the diagnostic grid points: the advected positions reduced onto `(i, j)` | 3 | `grid_image` |
 | $\nabla F_{t_0}^{t_1}(x_0)$ | deformation gradient (the **gradient** of the flow map; $2\times 2$ in 2D) | 4, 9 | `deformation_gradient`, `gradF` |
 | $C(x_0) = \left(\nabla F_{t_0}^{t_1}\right)^\top \nabla F_{t_0}^{t_1}$ | right Cauchy–Green strain tensor ($2\times 2$, symmetric positive-definite) | 6 | `cauchy_green`, `C` |
 | $C\,\xi_i = \lambda_i\,\xi_i,\ \ 0 < \lambda_1 \le \lambda_2,\ \ \xi_1 \perp \xi_2$ | eigen-decomposition of $C$ | 7 | `cg_eigen` |
 | $\lambda_1, \lambda_2$ | eigenvalues of $C$ (ordered $0 < \lambda_1 \le \lambda_2$); $\lambda_{\max} = \lambda_2$ | 7 | `lambda` (coord `eig`) |
 | $\xi_1, \xi_2$ | orthonormal eigenvectors of $C$ | 7 | `xi` (coords `comp`, `eig`) |
-| $\Lambda_{t_0}^{t_1}(x_0) = \dfrac{1}{t_1 - t_0}\,\log\sqrt{\lambda_{\max}}$ | finite-time Lyapunov exponent (FTLE); uses the **largest** eigenvalue | §4.1 | `ftle` |
+| $\Lambda_{t_0}^{t_1}(x_0) = \dfrac{1}{\lvert t_1 - t_0\rvert}\,\log\sqrt{\lambda_{\max}}$ | finite-time Lyapunov exponent (FTLE); uses the **largest** eigenvalue, and $\lvert T\rvert$ so that a backward map ($T < 0$) gives a positive exponent | §4.1 | `ftle` |
 | $t_0$ | release time; supplied at ingest (`pset_to_flowmap`) and stored as a scalar coord on the `FlowMap` | 3 | `t0` (flow map coord) |
 | $t_1$ | integration end time; supplied at ingest, consumed to derive $T$, not stored (recoverable as $t_0 + T$) | 3 | `t1` (input) |
 | $T = t_1 - t_0$ | integration window, **signed**; derived at ingest from $t_0$ and the end time $t_1$, stored as a scalar coord on the `FlowMap`; its sign sets the integration direction | 3 | `T` (flow map coord) |
@@ -123,13 +123,16 @@ $\xi_1 \perp \xi_2$ (Eq. 7). The eigen step is a vectorized call to
 
 ### FTLE uses the largest eigenvalue (§4.1)
 
-$$\Lambda_{t_0}^{t_1}(x_0) = \frac{1}{t_1 - t_0}\,\log\sqrt{\lambda_{\max}}
+$$\Lambda_{t_0}^{t_1}(x_0) = \frac{1}{|t_1 - t_0|}\,\log\sqrt{\lambda_{\max}}
 = \frac{1}{|T|}\,\log\sqrt{\lambda_2}.$$
 
 Note it is the **largest** eigenvalue $\lambda_{\max} = \lambda_2$ (maximum
 stretching) that enters the FTLE, not the smallest. The integration time enters
-as $|T|$; the sign of $T = t_1 - t_0$ encodes forward vs. backward integration,
-and this diagnostic uses only $|T|$.
+as $|T|$, not as $T$: the sign of $T = t_1 - t_0$ encodes forward vs. backward
+integration, and since this package supports backward maps as a matter of course
+(they are how attracting LCS are produced), writing $1/(t_1 - t_0)$ would flip
+the sign of every backward FTLE. This diagnostic uses only $|T|$, so forward and
+backward maps of the same window give exponents of the same sign.
 
 $\Lambda$ is returned in SI, `1/s`. Displaying it per day is a conversion the
 reader makes in the plotting code, not one the package bakes in.
@@ -171,11 +174,15 @@ are read back in the same frame the seed was emitted in.
 
 Because the zonal scale factor is fixed at $\phi_{\mathrm{ref}}$, $\nabla F$
 picks up a bias that grows with how far the release and arrival latitudes stray
-from the standard parallel. Measured median FTLE error is 0.65% over a 5-degree
-domain, 3.0% over 20 degrees and 15% over 60 degrees, so the convention is
-sound for regional domains of modest latitude range and away from the dateline,
-and not for basin-scale ones. The exact form of the bias is in
-[`architecture.md`](architecture.md#why-the-metres-frame-is-equirectangular).
+from the standard parallel: what drives the error is the *meridional excursion*
+of the particles relative to $\phi_{\mathrm{ref}}$, not the width of the domain
+as such. The exact algebraic form of the bias — $F_{yy}$ exact, $F_{xx}$ off by
+$c_1/c_0$, the off-diagonals off by $c_1/c_{\mathrm{ref}}$ and
+$c_{\mathrm{ref}}/c_0$ — is in
+[`architecture.md`](architecture.md#why-the-metres-frame-is-equirectangular),
+together with an illustration of the scale of the error on one analytic test
+flow map. The convention is sound for regional domains of modest latitude range
+and away from the dateline, and not for basin-scale ones.
 
 ### Geometric LCS layer (tensor lines)
 
@@ -230,8 +237,8 @@ dimensions, not as scalar variables (`F11, F12, …`):
 | flow map image of the grid points (flow map only) | `grid_image` (`lon`, `lat`) | `(i, j)` | — |
 | release time $t_0$ / signed window $T$ (scalar coords; flow map only) | `t0`, `T` | scalar | — |
 | auxiliary-grid stencil axis | — | `(displacement,)` | `displacement = ['east','north','west','south']` |
-| deformation gradient $\nabla F$ | `gradF` | `(i, j, row, col)` | `row, col = ['x', 'y']` |
-| Cauchy–Green $C$ | `C` | `(i, j, row, col)` | `row, col = ['x', 'y']` |
+| deformation gradient $\nabla F$ | `gradF` | `i, j, row, col` (set, order not contractual) | `row, col = ['x', 'y']` |
+| Cauchy–Green $C$ | `C` | `i, j, row, col` (set, order not contractual) | `row, col = ['x', 'y']` |
 | eigenvalues $\lambda_i$ | `lambda` | `(i, j, eig)` | — |
 | eigenvectors $\xi_i$ | `xi` | `(i, j, comp, eig)` | `comp = ['x', 'y']` |
 | FTLE $\Lambda$ | `ftle` | `(i, j)` | — |
@@ -239,7 +246,12 @@ dimensions, not as scalar variables (`F11, F12, …`):
 
 Logical grid dims are `i, j`. The `comp` coordinate labels vector/tensor
 components `['x', 'y']`; `row`/`col` (dimension coordinates valued `['x', 'y']`)
-index the two axes of a $2\times 2$ tensor; `eig` indexes the two eigenpairs. For
+index the two axes of a $2\times 2$ tensor; `eig` indexes the two eigenpairs.
+The dims listed above are a *set*, not a memory layout: the package is
+label-based throughout, so the axis order a given call happens to return is not
+part of the contract and must never be relied on. Select with `.sel` / `.isel`
+and named dims; call `.transpose(...)` yourself if you need a specific layout
+(as `shrink_lines` does before handing the tensor to SciPy). For
 the `Auxiliary*` classes the reference release positions
 `lon_0(i, j, displacement)` / `lat_0(i, j, displacement)` *are* the explicit
 stencil arms and (on a flow map) the advected arms `lon(i, j, displacement)` /

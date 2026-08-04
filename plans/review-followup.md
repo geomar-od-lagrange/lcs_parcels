@@ -59,6 +59,19 @@ Filed and out of scope here.
   "tensor lines of an arbitrary symmetric 2-tensor" refactor it forces.
 - #8 (elliptic LCS / vortex detection) and #9 (3D) --- explicitly out of scope.
 
+Filed out of the PR B review, after this plan was written:
+
+- #18 --- the metres frame is one equirectangular projection with a single
+  standard parallel, used for reference *and* advected positions, so
+  $\cos\phi_{\mathrm{ref}}$ does not cancel out of $\nabla F$. Exact and cheap to
+  fix, so it need not wait for #13.
+- #19 --- whether final products should report plain `lon`/`lat` rather than
+  `lon_grid`/`lat_grid`. **Decide at the top of PR C** (see below).
+- #20 --- arbitrary grid-point structure on the auxiliary stencil.
+- #21, #22 --- the two tuning-parameter deferrals out of step 6.
+- #23 --- split `docs/architecture.md` and drop the mermaid diagrams.
+  **Folded into step 9** (see below).
+
 Filing #14 and #15 emptied `plans/lcs-time-evolution.md` of undelivered
 content --- Q1 had already shipped --- so it moved to `plans/done/`.
 
@@ -102,6 +115,9 @@ step 4 resolves it by construction rather than by amending the rule.
 so the later diffs stay clean and reviewable. Closes #10.
 
 ### PR B --- API and internals
+
+**Landed** in #17. Steps 3--8 below are the record of intent, not outstanding
+work; where the shipped result diverged from the plan the step says so.
 
 **3. Keyword-only arguments across the public surface.** Every public entry
 point that takes an adjacent lon/lat pair takes it positionally, which is the
@@ -212,10 +228,11 @@ Revisit it in a dedicated pass on tuning parameters.
 Signature changes, so this lands before the tests and examples are written
 against them.
 
-Deferred out of this step: `window_m` is the ridge-detection scale, and the
-seed grid has to resolve it, so it implies a minimum seed spacing of about
-`window_m / 2` --- half the window, not the window. Nothing computes, enforces,
-or reports that today.
+Deferred out of this step, and filed so it survives this plan being archived:
+`window_m` is the ridge-detection scale, and the seed grid has to resolve it, so
+it implies a minimum seed spacing of about `window_m / 2` --- half the window,
+not the window. The docs now say so; nothing computes, enforces, or reports it
+(#21). `quantile` is #22.
 
 **7. `tensorlines` internals: lift, rename, explain, test.** `xi1`, `step`, and
 `half` become top-level tested functions or get inlined; same for the nested
@@ -267,6 +284,14 @@ redundant.
 
 ### PR C --- prose, examples, and CI
 
+**0. Settle #19 first.** Whether final products report plain `lon`/`lat` rather
+than `lon_grid`/`lat_grid` is an API question, not a prose one, so it does not
+belong inside step 10 --- but it has to be answered *before* it, by this plan's
+own sequencing rule: every API change lands before the examples are rewritten,
+or they get rewritten twice. The notebooks currently carry
+`x="lon_grid", y="lat_grid"` in their plot calls, which is exactly the wording
+#19 questions.
+
 **9. Prose hygiene.** Strip process narrative and design rationale from
 reader-facing text:
 
@@ -276,10 +301,23 @@ reader-facing text:
 - `docs/notation.md`'s history of our own repo, and its "the choice is left to
   the implementation session" passage for a choice long since shipped;
 - the agent-addressed HTML comments opening `docs/api.md` and
-  `docs/architecture.md`;
-- the moved-plan links from `src/` and `tests/`.
+  `docs/architecture.md` (**already gone**);
+- the moved-plan links from `src/` and `tests/` --- `grids.py` and
+  `tests/test_roundtrip.py` both still point at `plans/seed-flowmap-design.md`,
+  now under `plans/done/`, so both links are already dangling. `AGENTS.md`
+  asserts `src/` and `tests/` do not link to plans at all; that is currently
+  false, and this step is what makes it true.
 
-Design rationale relocates to `docs/architecture.md` rather than being deleted.
+Design rationale relocates rather than being deleted --- but **into the
+post-split structure, not into today's `docs/architecture.md`**. #23 is folded
+into this step: that file is now 423 lines carrying structure, design decisions,
+a quantitative argument for the shrink-line guard, a measured error analysis of
+the metres frame, and two walkthroughs, for two different readers. Relocating
+`grids.py`'s convention sections into it as it stands means shovelling into a
+file we have already agreed is the wrong shape, then splitting it. Split first
+(architecture keeps structure/decisions/reprs; a new numerics document takes the
+guard, the metres frame and the tuning-parameter units), drop both mermaid
+diagrams, then relocate into the result.
 
 **10. Examples rewrite.** Explicit and inline throughout: `set_lost_to_nan`
 written out in each notebook rather than shared, `advect` and `ftle_per_day`
@@ -291,11 +329,15 @@ Progressbar on. Vanilla plots, now possible given step 5. Drop the pixi
 execution instructions --- that is our dev environment, not the reader's
 concern.
 
-**11. Data story and CI gating.** Two examples currently claim to run "offline
-(bundled currents)", but `examples/data/` is gitignored, nothing in the repo
-tracks or generates `cabo_verde_currents_hourly.nc`, and both examples open it.
-A fresh clone fails on both, they can never be CI-gated, and their committed
-outputs are unreproducible by anyone else. Resolve under the online-each-run
-versus download-once distinction, committing no data. Then extend CI to gate
-every example that can be gated --- today it runs one of four, so
-"a broken example is treated like a failing test" is unenforced for three.
+**11. Data story and CI gating.** The false claims are gone: PR B corrected the
+"offline (bundled currents)" wording in the notebook intros as well as the
+Currents cells, and `examples/README.md` now states the prerequisite plainly.
+The underlying problem is untouched. `examples/data/` is gitignored, nothing in
+the repo tracks or generates `cabo_verde_currents_hourly.nc`, and three of the
+four notebooks need it --- so a fresh clone still fails on three, they can never
+be CI-gated, and their committed outputs are unreproducible by anyone else.
+Resolve under the online-each-run versus download-once distinction, committing no
+data. Then extend CI to gate every example that can be gated --- today
+`check-example` runs one of four, so "a broken example is treated like a failing
+test" is unenforced for three. That gating is one slice of #12; the rest of that
+issue (packaging, docs site, dependabot, badges, coverage) stays out of this PR.
