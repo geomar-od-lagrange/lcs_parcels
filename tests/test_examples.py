@@ -88,7 +88,9 @@ def currents():
         if not _installed("copernicusmarine"):
             _unavailable("copernicusmarine is not installed")
         if not _have_cmems_credentials():
-            _unavailable(f"{CURRENTS.name} is absent and there are no CMEMS credentials")
+            _unavailable(
+                f"{CURRENTS.name} is absent and there are no CMEMS credentials"
+            )
         run_example("get_data")
     if not CURRENTS.exists():
         pytest.fail(f"get_data.py ran but did not produce {CURRENTS}")
