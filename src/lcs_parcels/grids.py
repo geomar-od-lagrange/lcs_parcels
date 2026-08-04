@@ -78,6 +78,50 @@ EARTH_RADIUS_M = 6_371_000.0
 _DEG = np.pi / 180.0
 """Degrees-to-radians factor for the local-tangent meters convention."""
 
+# --- output metadata -------------------------------------------------------
+#
+# Attribute sets attached to every coordinate and every returned field, so a
+# displayed dataset reads itself and a vanilla plot is labelled from the object.
+
+I_ATTRS = {"long_name": "logical grid index along i"}
+J_ATTRS = {"long_name": "logical grid index along j"}
+LON_GRID_ATTRS = {
+    "long_name": "longitude of the diagnostic grid point",
+    "units": "degrees_east",
+}
+LAT_GRID_ATTRS = {
+    "long_name": "latitude of the diagnostic grid point",
+    "units": "degrees_north",
+}
+LON_0_ATTRS = {
+    "long_name": "longitude of the reference release position x_0",
+    "units": "degrees_east",
+}
+LAT_0_ATTRS = {
+    "long_name": "latitude of the reference release position x_0",
+    "units": "degrees_north",
+}
+LON_ATTRS = {
+    "long_name": "longitude of the advected position F(x_0)",
+    "units": "degrees_east",
+}
+LAT_ATTRS = {
+    "long_name": "latitude of the advected position F(x_0)",
+    "units": "degrees_north",
+}
+DISPLACEMENT_ATTRS = {"long_name": "auxiliary stencil arm"}
+T0_ATTRS = {"long_name": "release time t0"}
+T_ATTRS = {"long_name": "signed integration window T = t1 - t0"}
+ROW_ATTRS = {"long_name": "tensor row index"}
+COL_ATTRS = {"long_name": "tensor column index"}
+COMP_ATTRS = {"long_name": "eigenvector component"}
+EIG_ATTRS = {
+    "long_name": (
+        "Cauchy-Green eigenpair, ascending: "
+        "0 is the weak-stretch lambda_1, 1 is lambda_max = lambda_2"
+    )
+}
+
 
 def _lonlat_to_meters(lon, lat, lon_ref: float, lat_ref: float):
     """Project lon/lat (degrees) into the local-tangent meters frame.
@@ -108,6 +152,10 @@ def _to_meters(
 
 
 def _assemble_tensor(
+    *,
+    name: str,
+    long_name: str,
+    units: str,
     fxx: xr.DataArray,
     fxy: xr.DataArray,
     fyx: xr.DataArray,
@@ -117,15 +165,20 @@ def _assemble_tensor(
 
     ``row`` and ``col`` become dimension coordinates valued ``['x', 'y']`` with
     ``tensor.sel(row=a, col=b)`` the ``(a, b)`` component, e.g.
-    ``gradF.sel(row='y', col='x') = dF_y / dx0_x``. The fields are renamed to a
-    common name so :func:`xarray.concat` does not drop one.
+    ``gradF.sel(row='y', col='x') = dF_y / dx0_x``. The four fields are renamed
+    to the caller's ``name`` so :func:`xarray.concat` does not drop one, and the
+    result carries that name plus ``long_name``/``units``.
     """
-    fxx, fxy = fxx.rename("tensor"), fxy.rename("tensor")
-    fyx, fyy = fyx.rename("tensor"), fyy.rename("tensor")
+    fxx, fxy = fxx.rename(name), fxy.rename(name)
+    fyx, fyy = fyx.rename(name), fyy.rename(name)
     row_x = xr.concat([fxx, fxy], dim="col")
     row_y = xr.concat([fyx, fyy], dim="col")
     tensor = xr.concat([row_x, row_y], dim="row")
-    return tensor.assign_coords(row=["x", "y"], col=["x", "y"])
+    tensor = tensor.assign_coords(
+        row=xr.DataArray(["x", "y"], dims="row", attrs=ROW_ATTRS),
+        col=xr.DataArray(["x", "y"], dims="col", attrs=COL_ATTRS),
+    )
+    return tensor.assign_attrs(long_name=long_name, units=units)
 
 
 class Seed(abc.ABC):
@@ -281,7 +334,13 @@ class Seed(abc.ABC):
             raise ValueError(
                 "zero integration window T = t1 - t0; FTLE would divide by zero"
             )
-        ds = self.ds.assign(lon=lon_arm, lat=lat_arm).assign_coords(t0=t0, T=T)
+        ds = self.ds.assign(
+            lon=lon_arm.assign_attrs(LON_ATTRS),
+            lat=lat_arm.assign_attrs(LAT_ATTRS),
+        ).assign_coords(
+            t0=xr.DataArray(t0, attrs=T0_ATTRS),
+            T=xr.DataArray(T, attrs=T_ATTRS),
+        )
         return self._flowmap_cls(ds)
 
 
@@ -419,7 +478,15 @@ class FlowMap(abc.ABC):
         # index `row` by label, then relabel the two surviving `col` axes back to
         # (row, col). Pure label-based arithmetic; no positional indexing.
         C = xr.dot(gradF, gradF.rename(col="col_b"), dim="row")
-        return C.rename(col="row", col_b="col")
+        C = C.rename(col="row", col_b="col").rename("cauchy_green")
+        C = C.assign_coords(
+            row=xr.DataArray(["x", "y"], dims="row", attrs=ROW_ATTRS),
+            col=xr.DataArray(["x", "y"], dims="col", attrs=COL_ATTRS),
+        )
+        return C.assign_attrs(
+            long_name="right Cauchy-Green strain tensor C = (grad F)^T grad F",
+            units="1",
+        )
 
     def cg_eigen(self) -> xr.Dataset:
         """Eigen-decomposition of the Cauchy-Green tensor ``C``.
@@ -447,8 +514,16 @@ class FlowMap(abc.ABC):
             input_core_dims=[["row", "col"]],
             output_core_dims=[["eig"], ["comp", "eig"]],
         )
-        lam = lam.assign_coords(eig=[0, 1])
-        vec = vec.assign_coords(comp=["x", "y"], eig=[0, 1])
+        eig = xr.DataArray([0, 1], dims="eig", attrs=EIG_ATTRS)
+        comp = xr.DataArray(["x", "y"], dims="comp", attrs=COMP_ATTRS)
+        lam = lam.assign_coords(eig=eig).assign_attrs(
+            long_name="eigenvalue lambda of the Cauchy-Green tensor",
+            units="1",
+        )
+        vec = vec.assign_coords(comp=comp, eig=eig).assign_attrs(
+            long_name="eigenvector xi of the Cauchy-Green tensor",
+            units="1",
+        )
         return xr.Dataset({"lambda": lam, "xi": vec})
 
     def ftle(self) -> xr.DataArray:
@@ -468,7 +543,11 @@ class FlowMap(abc.ABC):
         lambda_max = self.cg_eigen()["lambda"].isel(eig=1, drop=True)
         t_sec = self._integration_seconds()
         # (1 / |T|) log sqrt(lambda_max) = (1 / |T|) * 0.5 * log(lambda_max).
-        return (1.0 / t_sec) * 0.5 * np.log(lambda_max)
+        ftle = (1.0 / t_sec) * 0.5 * np.log(lambda_max)
+        return ftle.rename("ftle").assign_attrs(
+            long_name="finite-time Lyapunov exponent",
+            units="1/s",
+        )
 
     def image(self, *, lon0: xr.DataArray, lat0: xr.DataArray) -> xr.Dataset:
         """Advected positions ``F_{t0}^{t1}(x_0)`` at arbitrary reference points.
@@ -514,11 +593,18 @@ class FlowMap(abc.ABC):
             )
             .rename(i="lon_grid", j="lat_grid")
         )
-        return advected.interp(
+        image = advected.interp(
             lon_grid=lon0,
             lat_grid=lat0,
             kwargs={"bounds_error": False, "fill_value": np.nan},
         )
+        image["lon"].attrs.update(LON_ATTRS)
+        image["lat"].attrs.update(LAT_ATTRS)
+        # The interpolation carries the requested reference positions through as
+        # the lon_grid/lat_grid coords, so they are labelled as the x_0 they are.
+        image["lon_grid"].attrs.update(LON_0_ATTRS)
+        image["lat_grid"].attrs.update(LAT_0_ATTRS)
+        return image
 
     def to_seed(self) -> Seed:
         """Drop the advected positions and time, recovering a time-free seed.
@@ -567,15 +653,19 @@ class NeighborSeed(Seed):
 
         ds = xr.Dataset(
             coords={
-                "i": np.arange(lon_axis.sizes["i"]),
-                "j": np.arange(lat_axis.sizes["j"]),
+                "i": xr.DataArray(
+                    np.arange(lon_axis.sizes["i"]), dims="i", attrs=I_ATTRS
+                ),
+                "j": xr.DataArray(
+                    np.arange(lat_axis.sizes["j"]), dims="j", attrs=J_ATTRS
+                ),
                 # Diagnostic grid points; stored rather than reconstructed from
                 # lon_0/lat_0, which happen to coincide for this stencil.
-                "lon_grid": lon2d,
-                "lat_grid": lat2d,
+                "lon_grid": lon2d.assign_attrs(LON_GRID_ATTRS),
+                "lat_grid": lat2d.assign_attrs(LAT_GRID_ATTRS),
                 # Reference initial positions x_0: the grid points themselves.
-                "lon_0": lon2d,
-                "lat_0": lat2d,
+                "lon_0": lon2d.assign_attrs(LON_0_ATTRS),
+                "lat_0": lat2d.assign_attrs(LAT_0_ATTRS),
             },
         )
         return cls(ds)
@@ -658,15 +748,21 @@ class AuxiliarySeed(Seed):
 
         ds = xr.Dataset(
             coords={
-                "i": np.arange(lon_axis.sizes["i"]),
-                "j": np.arange(lat_axis.sizes["j"]),
-                "displacement": displacement,
+                "i": xr.DataArray(
+                    np.arange(lon_axis.sizes["i"]), dims="i", attrs=I_ATTRS
+                ),
+                "j": xr.DataArray(
+                    np.arange(lat_axis.sizes["j"]), dims="j", attrs=J_ATTRS
+                ),
+                "displacement": xr.DataArray(
+                    displacement, dims="displacement", attrs=DISPLACEMENT_ATTRS
+                ),
                 # Diagnostic grid points (no displacement dim).
-                "lon_grid": lon_grid,
-                "lat_grid": lat_grid,
+                "lon_grid": lon_grid.assign_attrs(LON_GRID_ATTRS),
+                "lat_grid": lat_grid.assign_attrs(LAT_GRID_ATTRS),
                 # Explicit per-arm reference release positions x_0.
-                "lon_0": lon_0,
-                "lat_0": lat_0,
+                "lon_0": lon_0.assign_attrs(LON_0_ATTRS),
+                "lat_0": lat_0.assign_attrs(LAT_0_ATTRS),
             },
         )
         return cls(ds)
@@ -717,6 +813,9 @@ class NeighborFlowMap(FlowMap):
         dx0 = central_diff(x_ref, "i")
         dy0 = central_diff(y_ref, "j")
         return _assemble_tensor(
+            name="deformation_gradient",
+            long_name="deformation gradient grad F of the flow map",
+            units="1",
             fxx=central_diff(x_adv, "i") / dx0,
             fxy=central_diff(x_adv, "j") / dy0,
             fyx=central_diff(y_adv, "i") / dx0,
@@ -740,7 +839,10 @@ class AuxiliaryFlowMap(FlowMap):
         so this is the flow map image of the grid point. ``skipna=False`` so a
         lost (NaN) arm makes the whole grid point NaN, matching the
         deformation-gradient path. See :attr:`FlowMap.grid_image`."""
-        return self.ds[["lon", "lat"]].mean("displacement", skipna=False)
+        centroid = self.ds[["lon", "lat"]].mean("displacement", skipna=False)
+        centroid["lon"].attrs.update(LON_ATTRS)
+        centroid["lat"].attrs.update(LAT_ATTRS)
+        return centroid
 
     def deformation_gradient(self) -> xr.DataArray:
         """grad F differenced across the four-arm auxiliary stencil.
@@ -762,6 +864,9 @@ class AuxiliaryFlowMap(FlowMap):
         den_x = arm_diff(x_ref, "east", "west")
         den_y = arm_diff(y_ref, "north", "south")
         return _assemble_tensor(
+            name="deformation_gradient",
+            long_name="deformation gradient grad F of the flow map",
+            units="1",
             fxx=arm_diff(x_adv, "east", "west") / den_x,
             fxy=arm_diff(x_adv, "north", "south") / den_y,
             fyx=arm_diff(y_adv, "east", "west") / den_x,

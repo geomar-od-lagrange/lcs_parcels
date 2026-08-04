@@ -174,9 +174,34 @@ def shrink_lines(
     lon_lines = np.array([p[0] for p in points]).T  # (line, point)
     lat_lines = np.array([p[1] for p in points]).T
     return xr.Dataset(
-        {"lon": (("line", "point"), lon_lines), "lat": (("line", "point"), lat_lines)},
+        {
+            "lon": xr.DataArray(
+                lon_lines,
+                dims=("line", "point"),
+                attrs={
+                    "long_name": "longitude along the shrink line",
+                    "units": "degrees_east",
+                },
+            ),
+            "lat": xr.DataArray(
+                lat_lines,
+                dims=("line", "point"),
+                attrs={
+                    "long_name": "latitude along the shrink line",
+                    "units": "degrees_north",
+                },
+            ),
+        },
         coords={
-            "line": np.arange(lon_lines.shape[0]),
-            "point": np.arange(lon_lines.shape[1]),
+            "line": xr.DataArray(
+                np.arange(lon_lines.shape[0]),
+                dims="line",
+                attrs={"long_name": "shrink line index, one per seed point"},
+            ),
+            "point": xr.DataArray(
+                np.arange(lon_lines.shape[1]),
+                dims="point",
+                attrs={"long_name": "point index along the shrink line"},
+            ),
         },
     )
