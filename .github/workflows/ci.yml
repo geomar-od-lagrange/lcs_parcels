@@ -81,13 +81,17 @@ jobs:
           path: examples/data
           key: cmems-subset-${{ hashFiles('examples/get_data.py') }}
 
-      # One pytest run covers all of it: `test_get_data` downloads the subset on
-      # a cache miss and exercises get_data.py's skip path on a hit, and the
-      # three Cabo Verde examples follow. Each is a separate test, so a failure
-      # names the notebook that broke.
+      # One pytest run covers all of it: the `currents` fixture downloads the
+      # subset on a cache miss and the three Cabo Verde examples follow. Each is
+      # a separate test, so a failure names the notebook that broke.
+      #
+      # LCS_REQUIRE_EXAMPLES turns a skip into a failure. This job only reaches
+      # here with credentials in hand, so a skipped example means the gate did
+      # nothing -- which must be red, not green.
       - name: Run every example as a test
         if: steps.creds.outputs.available == 'true'
         env:
           COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
           COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
-        run: pixi run -e examples test-examples
+          LCS_REQUIRE_EXAMPLES: "1"
+        run: pixi run -e examples test-examples -ra

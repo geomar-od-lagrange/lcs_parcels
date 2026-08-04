@@ -10,9 +10,14 @@ a repr under Jupyter and is a no-op under the interpreter, so a broken repr
 survives here. The committed `.ipynb`, executed at authoring time, is what
 covers that.
 
-Each example is skipped rather than failed when its prerequisites are absent, so
-the same test file is correct in the minimal default environment (where only the
-Parcels-free example can run) and in `examples` (where all of them can).
+Prerequisites are checked *inside* each test, never with `skipif`. A module-level
+`skipif` freezes its condition at import, which silently un-gates the Cabo Verde
+examples on any run that downloads the subset during the session: the file does
+not exist at collection, so the skip is decided before `get_data` can create it.
+
+Set `LCS_REQUIRE_EXAMPLES=1` to turn every skip here into a failure. CI sets it
+for the job that has CMEMS credentials, where a skip means the gate silently did
+nothing rather than that the runner lacks the data.
 """
 
 import importlib.util
@@ -43,18 +48,11 @@ def _have_cmems_credentials():
     ).exists()
 
 
-needs_currents = pytest.mark.skipif(
-    not (_installed("parcels") and CURRENTS.exists()),
-    reason=f"needs Parcels and {CURRENTS.name}; run `pixi run -e examples get-data` once",
-)
-
-needs_cmems = pytest.mark.skipif(
-    not (
-        _installed("copernicusmarine")
-        and (CURRENTS.exists() or _have_cmems_credentials())
-    ),
-    reason="needs copernicusmarine, plus either the downloaded subset or CMEMS credentials",
-)
+def _unavailable(reason):
+    """Skip, unless the caller has declared the prerequisites must be there."""
+    if os.environ.get("LCS_REQUIRE_EXAMPLES"):
+        pytest.fail(f"LCS_REQUIRE_EXAMPLES is set but {reason}")
+    pytest.skip(reason)
 
 
 def run_example(name):
@@ -79,27 +77,47 @@ def run_example(name):
         )
 
 
+@pytest.fixture(scope="session")
+def currents():
+    """The CMEMS subset the Cabo Verde examples read, downloading it if need be.
+
+    A fixture rather than a check per test, so the three examples do not depend
+    on running in file order to see a file `test_get_data` created.
+    """
+    if not CURRENTS.exists():
+        if not _installed("copernicusmarine"):
+            _unavailable("copernicusmarine is not installed")
+        if not _have_cmems_credentials():
+            _unavailable(f"{CURRENTS.name} is absent and there are no CMEMS credentials")
+        run_example("get_data")
+    if not CURRENTS.exists():
+        pytest.fail(f"get_data.py ran but did not produce {CURRENTS}")
+    if not _installed("parcels"):
+        _unavailable("Parcels is not installed")
+    return CURRENTS
+
+
 def test_example_grid_pset():
     """The Parcels-free tour of the seed and flow-map structures."""
     run_example("example_grid_pset")
 
 
-@needs_cmems
 def test_get_data():
     """Fetching the CMEMS subset, or -- once it is there -- skipping the fetch."""
+    if not _installed("copernicusmarine"):
+        _unavailable("copernicusmarine is not installed")
+    if not (CURRENTS.exists() or _have_cmems_credentials()):
+        _unavailable("no downloaded subset and no CMEMS credentials")
     run_example("get_data")
 
 
-@needs_currents
-def test_cabo_verde_ftle():
+def test_cabo_verde_ftle(currents):
     run_example("cabo_verde_ftle")
 
 
-@needs_currents
-def test_cabo_verde_lcs():
+def test_cabo_verde_lcs(currents):
     run_example("cabo_verde_lcs")
 
 
-@needs_currents
-def test_cabo_verde_lcs_evolution():
+def test_cabo_verde_lcs_evolution(currents):
     run_example("cabo_verde_lcs_evolution")
