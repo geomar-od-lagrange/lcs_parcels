@@ -16,6 +16,9 @@ packages = ["src/lcs_parcels"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# One line per test, so a run in progress shows which test it is on and a failure
+# names it in place; `-ra` spells out every skip and failure at the end.
+addopts = "-v -ra"
 
 [tool.ruff]
 # Notebooks and prose are generated or vendored: the `.ipynb`/`.md` of an
