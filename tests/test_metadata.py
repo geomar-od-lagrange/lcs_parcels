@@ -95,7 +95,13 @@ def test_dimensionless_diagnostics_and_ftle_units(seed_cls, lon_axis, lat_axis):
 
 @pytest.mark.parametrize("seed_cls", SEED_CLASSES)
 def test_distinct_quantities_have_distinct_names(seed_cls, lon_axis, lat_axis):
-    """No two different diagnostics come back under the same name."""
+    """No two different diagnostics come back under the same name.
+
+    The two tensors are the case to watch: they are packed by the same helper,
+    which names only the assembled result, so a name that leaked from the
+    component fields would put both under one name and silently collide the
+    moment they were merged into a ``Dataset``.
+    """
     fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, T0, T1)
     eigen = fm.cg_eigen()
     names = [
@@ -106,6 +112,8 @@ def test_distinct_quantities_have_distinct_names(seed_cls, lon_axis, lat_axis):
         fm.ftle().name,
     ]
     assert len(set(names)) == len(names)
+    assert fm.deformation_gradient().name == "deformation_gradient"
+    assert fm.cauchy_green().name == "cauchy_green"
 
 
 def test_eig_coord_says_which_eigenvalue_is_which(lon_axis, lat_axis):
@@ -133,3 +141,24 @@ def test_shrink_lines_output_is_labelled(lon_axis, lat_axis):
     assert_labelled(
         lines, expected_units={"lon": "degrees_east", "lat": "degrees_north"}
     )
+
+
+def test_hyperbolic_lcs_output_is_labelled(lon_axis, lat_axis):
+    """The one-call method returns curves and the FTLE field in one dataset, so
+    both halves -- and the grid coords the FTLE brings with it -- must be
+    labelled, and the dataset itself must say which kind of LCS it holds."""
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
+    lcs = fm.hyperbolic_lcs(step_m=1_000.0, line_length_m=6_000.0)
+
+    assert_labelled(
+        lcs,
+        expected_units={
+            "lon": "degrees_east",
+            "lat": "degrees_north",
+            "ftle": "1/s",
+        },
+    )
+    assert lcs.attrs.get("long_name")
+    # The curves and the field they were seeded from are distinct quantities and
+    # must not collide in the one dataset they come back in.
+    assert set(lcs.data_vars) == {"lon", "lat", "ftle"}

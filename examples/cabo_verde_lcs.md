@@ -34,9 +34,9 @@ $\xi_1$ shrink lines:
 - **repelling** LCS = shrink lines of the **forward** $C$;
 - **attracting** LCS = shrink lines of the **backward** $C$.
 
-We anchor the analysis at the middle of the bundled window ($t_0$ =
-2025-08-06, $T = \pm 5$ d) so both runs stay inside the data. It reads the
-bundled current subset, so it runs offline — no CMEMS credentials. Run with
+We anchor the analysis at the middle of the window the local current file
+covers ($t_0$ = 2025-08-06, $T = \pm 5$ d) so both runs stay inside the data.
+Run with
 `pixi run -e examples jupytext --sync --execute examples/cabo_verde_lcs.py`.
 
 ```python
@@ -131,20 +131,22 @@ The tensor-line machinery lives in the package. `ftle_ridge_seeds` picks start
 points at the FTLE ridge tops, and `shrink_lines` integrates the $\xi_1$ tensor
 lines through them. Repelling vs attracting is just *which* flow map you pass:
 the forward one gives repelling LCS, the backward one gives attracting LCS
-(Haller–Sapsis duality). `FlowMap.lcs()` runs the whole chain — FTLE, seeds,
-lines — in one call; we keep the steps apart here so the seed points stay
-visible.
+(forward–backward duality). `FlowMap.hyperbolic_lcs()` runs the whole chain —
+FTLE, seeds, lines — in one call, *hyperbolic* because elliptic LCS are a
+different family; we keep the steps apart here so the seed points stay visible.
 
 Good seeding depends on the velocity field: how densely ridges are sampled and
 how strong a ridge must be to count. Below, a seed is the top of a ridge that
-dominates a 30 km neighbourhood and sits in the top decile of the field, and
-each curve is 1500 km long, stepped in 3 km arcs. The lengths are physical, so
-they mean the same thing on a finer grid — but a sharper field may still want a
-tighter `window_m` or a smaller `step_m`.
+dominates a 30 km neighbourhood and sits in the top decile of the whole FTLE
+field, and each curve is up to 1500 km long, stepped in 3 km arcs. The lengths
+are physical, so they mean the same thing on a finer grid — but a sharper field
+may still want a tighter `window_m` or a smaller `step_m`. The neighbourhood
+reaches half its side either way, so two seeds can sit about 15 km apart.
 
 ```python
-# Seeding: ridge tops as local maxima over a `window_m` box, above a `quantile`
-# magnitude floor. Integration: `line_length_m` of curve in `step_m` steps, half
+# Seeding: ridge tops as local maxima over a box of side `window_m` (reaching
+# `window_m / 2` either side of its own point), above a `quantile` magnitude
+# floor. Integration: at most `line_length_m` of curve in `step_m` steps, half
 # either side of the seed.
 window_m, quantile = 30_000.0, 0.90
 step_m, line_length_m = 3_000.0, 1_500_000.0

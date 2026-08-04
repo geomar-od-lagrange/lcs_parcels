@@ -18,8 +18,7 @@ from scipy.interpolate import RegularGridInterpolator
 from lcs_parcels import AuxiliarySeed, ftle_ridge_seeds, shrink_lines
 from lcs_parcels.grids import _lonlat_to_meters
 from lcs_parcels.tensorlines import (
-    SECONDS_PER_DAY,
-    _shrink_direction,
+    _shrink_line_tangent,
     _step_lonlat_by_meters,
     _trace_half_line,
     _window_cells,
@@ -149,7 +148,7 @@ def test_ftle_ridge_seeds_selectivity_is_physical(n_lon):
 # --- lifted integrator internals -------------------------------------------
 #
 # These take the state that used to be closed over (the interpolator, the
-# eigenvalue floor, the step, the reference latitude) as explicit arguments, so
+# anisotropy floor, the step, the reference latitude) as explicit arguments, so
 # they can be driven from an analytic tensor field without building a FlowMap.
 
 TENSOR_LON = np.linspace(-1.0, 1.0, 21)
@@ -172,80 +171,111 @@ def _uniform_tensor_interp(C, nan_at=None):
     )
 
 
-def test_shrink_direction_is_unit_xi1():
+def test_shrink_line_tangent_is_unit_xi1():
     """C = diag(1, 9) has xi_1 along x; the returned vector is that unit vector."""
     interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
 
-    direction = _shrink_direction(
+    direction = _shrink_line_tangent(
         np.array([0.0]),
         np.array([0.0]),
         np.array([[1.0, 0.0]]),
         tensor_interp=interp,
-        lambda_max_min=1.1,
+        min_anisotropy=1.1,
     )
 
     assert np.allclose(direction, [[1.0, 0.0]])
     assert np.allclose(np.linalg.norm(direction, axis=1), 1.0)
 
 
-def test_shrink_direction_follows_the_heading():
+def test_shrink_line_tangent_follows_the_heading():
     """An eigenvector has no intrinsic sign: the heading picks which way it points."""
     interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
     lon, lat = np.zeros(2), np.zeros(2)
 
-    direction = _shrink_direction(
+    direction = _shrink_line_tangent(
         lon,
         lat,
         np.array([[1.0, 0.0], [-1.0, 0.0]]),
         tensor_interp=interp,
-        lambda_max_min=1.1,
+        min_anisotropy=1.1,
     )
 
     assert np.allclose(direction, [[1.0, 0.0], [-1.0, 0.0]])
 
 
-def test_shrink_direction_is_nan_off_grid():
+def test_shrink_line_tangent_is_nan_off_grid():
     """Points outside the tensor grid terminate."""
     interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
 
-    direction = _shrink_direction(
+    direction = _shrink_line_tangent(
         np.array([0.0, 5.0]),
         np.array([0.0, 0.0]),
         np.ones((2, 2)),
         tensor_interp=interp,
-        lambda_max_min=1.1,
+        min_anisotropy=1.1,
     )
 
     assert np.isfinite(direction[0]).all()
     assert np.isnan(direction[1]).all()
 
 
-def test_shrink_direction_is_nan_in_a_nan_cell():
+def test_shrink_line_tangent_is_nan_in_a_nan_cell():
     """A NaN tensor cell terminates a line landing on it."""
     interp = _uniform_tensor_interp(np.diag([1.0, 9.0]), nan_at=(10, 10))
 
-    direction = _shrink_direction(
+    direction = _shrink_line_tangent(
         np.array([TENSOR_LON[10], TENSOR_LON[0]]),
         np.array([TENSOR_LAT[10], TENSOR_LAT[0]]),
         np.ones((2, 2)),
         tensor_interp=interp,
-        lambda_max_min=1.1,
+        min_anisotropy=1.1,
     )
 
     assert np.isnan(direction[0]).all()
     assert np.isfinite(direction[1]).all()
 
 
-def test_shrink_direction_is_nan_below_the_eigenvalue_floor():
-    """The degeneracy guard fires on lambda_2, whatever xi_1 happens to be."""
-    interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
+def test_shrink_line_tangent_is_nan_below_the_anisotropy_floor():
+    """The guard floors ``lambda_2 / lambda_1``, so what decides is the *gap*
+    between the eigenvalues and not the magnitude of ``lambda_2``.
+
+    Both tensors here carry the same ``lambda_2 = 9``. ``diag(1, 9)`` has a ratio
+    of 9 and clears a floor of 1.5; ``diag(8, 9)`` has a ratio of 1.125 and does
+    not, so a guard reading ``lambda_2`` alone could not tell them apart.
+    """
     args = (np.array([0.0]), np.array([0.0]), np.array([[1.0, 0.0]]))
 
-    below = _shrink_direction(*args, tensor_interp=interp, lambda_max_min=100.0)
-    above = _shrink_direction(*args, tensor_interp=interp, lambda_max_min=1.1)
+    wide_gap = _shrink_line_tangent(
+        *args,
+        tensor_interp=_uniform_tensor_interp(np.diag([1.0, 9.0])),
+        min_anisotropy=1.5,
+    )
+    narrow_gap = _shrink_line_tangent(
+        *args,
+        tensor_interp=_uniform_tensor_interp(np.diag([8.0, 9.0])),
+        min_anisotropy=1.5,
+    )
 
-    assert np.isnan(below).all()
-    assert np.isfinite(above).all()
+    assert np.isfinite(wide_gap).all()
+    assert np.isnan(narrow_gap).all()
+
+
+def test_shrink_line_tangent_passes_a_round_off_negative_lambda_1():
+    """``C`` is positive semi-definite, so a ``lambda_1`` just below zero is
+    round-off on an extremely anisotropic tensor, not a degeneracy: the tangent
+    there is as well defined as it gets and must come back finite."""
+    interp = _uniform_tensor_interp(np.diag([-1e-15, 9.0]))
+
+    direction = _shrink_line_tangent(
+        np.array([0.0]),
+        np.array([0.0]),
+        np.array([[1.0, 0.0]]),
+        tensor_interp=interp,
+        min_anisotropy=1.15,
+    )
+
+    assert np.isfinite(direction).all()
+    assert np.allclose(direction, [[1.0, 0.0]])
 
 
 def test_step_lonlat_moves_the_requested_arc_length():
@@ -339,7 +369,7 @@ def test_trace_half_line_is_second_order_in_the_step():
             np.array([0.0]),
             +1,
             tensor_interp=tensor,
-            lambda_max_min=1.1,
+            min_anisotropy=1.1,
             step_m=arc_m / n_steps,
             lat_ref=0.0,
             n_steps=n_steps,
@@ -370,7 +400,7 @@ def test_trace_half_line_guard_fires_at_the_rk2_midpoint():
         np.array([0.0]),
         +1,
         tensor_interp=tensor,
-        lambda_max_min=1.1,
+        min_anisotropy=1.1,
         step_m=111_195.0,  # about one degree of longitude at the equator
         lat_ref=0.0,
         n_steps=3,
@@ -390,7 +420,7 @@ def test_trace_half_line_point_count_and_nan_padding():
         np.array([0.0]),
         +1,
         tensor_interp=interp,
-        lambda_max_min=1.1,
+        min_anisotropy=1.1,
         step_m=50_000.0,
         lat_ref=0.0,
         n_steps=10,
@@ -451,11 +481,12 @@ def test_shrink_lines_output_structure(lon_axis, lat_axis):
     assert {"lon", "lat"} == set(lines.data_vars)
 
 
-def test_shrink_lines_stop_below_ftle_guard(lon_axis, lat_axis):
-    """M = I gives zero FTLE, below the guard, so the (untraceable) line is all NaN."""
+def test_shrink_lines_stop_at_an_isotropic_tensor(lon_axis, lat_axis):
+    """M = I gives C = I, an eigenvalue ratio of exactly 1: xi_1 is an arbitrary
+    direction in the plane, so the line is untraceable and comes back all NaN."""
     fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, np.eye(2), T0, T1)
     lines = shrink_lines(
-        fm, **_centre_seed(fm), ftle_min_per_day=0.005, line_length_m=30_000.0
+        fm, **_centre_seed(fm), min_anisotropy=1.15, line_length_m=30_000.0
     )
 
     assert bool(lines["lon"].isnull().all())
@@ -463,32 +494,61 @@ def test_shrink_lines_stop_below_ftle_guard(lon_axis, lat_axis):
 
 @pytest.mark.parametrize("sign", [+1, -1])
 @pytest.mark.parametrize("t_days", [2.0, 8.0])
-def test_shrink_lines_guard_is_a_rate_not_an_eigenvalue(
-    lon_axis, lat_axis, sign, t_days
-):
-    """The guard is an FTLE rate in 1/day, so it selects the same lines whatever
-    window the flow map spans and whichever way it runs.
+def test_shrink_lines_guard_is_an_eigenvalue_ratio(lon_axis, lat_axis, sign, t_days):
+    """The guard floors ``lambda_2 / lambda_1``, a dimensionless number the
+    window does not enter, so one floor selects the same lines whatever ``|T|``
+    the flow map spans and whichever way it runs.
 
-    ``M = diag(1, exp(rate |T|_days))`` gives ``lambda_2 = exp(2 rate |T|_days)``,
-    i.e. an FTLE of exactly ``rate`` per day at every grid point. A floor just
-    under ``rate`` must let the line through and a floor just over it must kill
-    it -- for both windows and both directions, which is what makes the
-    ``lambda_min = exp(2 |T|_days Lambda_min)`` conversion load-bearing rather
-    than decorative.
+    ``M = diag(a, b)`` gives ``C = diag(a^2, b^2)``, so for ``a > b`` the ratio
+    is exactly ``r = (a / b)^2`` at every grid point -- and, unlike the map of a
+    rate-based guard, ``M`` does not have to be restated per window. A floor just
+    under ``r`` must let the line through and a floor just over it must kill it,
+    for both windows and both directions.
     """
-    rate = 0.1  # 1/day
+    a, b = 3.0, 1.0
+    r = (a / b) ** 2
     t1 = T0 + sign * np.timedelta64(int(t_days * 24), "h")
-    M = np.diag([1.0, np.exp(rate * t_days)])
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, t1)
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, np.diag([a, b]), T0, t1)
 
-    assert np.isclose(float(fm.ftle().mean()) * SECONDS_PER_DAY, rate)
+    lam = fm.cg_eigen()["lambda"]
+    assert np.allclose(lam.isel(eig=1) / lam.isel(eig=0), r)
 
     kwargs = {**_centre_seed(fm), "step_m": 3_000.0, "line_length_m": 30_000.0}
-    survives = shrink_lines(fm, ftle_min_per_day=0.9 * rate, **kwargs)
-    dies = shrink_lines(fm, ftle_min_per_day=1.1 * rate, **kwargs)
+    survives = shrink_lines(fm, min_anisotropy=0.9 * r, **kwargs)
+    dies = shrink_lines(fm, min_anisotropy=1.1 * r, **kwargs)
 
     assert bool(survives["lon"].notnull().any())
     assert bool(dies["lon"].isnull().all())
+
+
+def test_shrink_lines_guard_passes_a_uniformly_compressive_map(lon_axis, lat_axis):
+    """The guard is a *relative* gap, not a magnitude floor on ``lambda_2``: this
+    is the case that separates the two.
+
+    ``M = diag(0.5, 0.4)`` compresses in both directions, so ``C = diag(0.25,
+    0.16)``: ``lambda_1 = 0.16``, ``lambda_2 = 0.25`` and ``det C = 0.04``. The
+    ratio is 1.5625, comfortably clear of the 1.15 default, and ``xi_1`` is as
+    well defined here as in any stretching flow -- so the line must survive.
+    Any floor on the magnitude of ``lambda_2`` at or above 1 would kill it.
+
+    Not a synthetic corner: ``det grad F = 0.2`` here, and in the backward
+    Cabo Verde example (5-day window, measured 34 km clear of any coast) the
+    0.1st percentile of ``det grad F`` is 0.196. Convergent patches this strong
+    are rare but real, and they are where attracting LCS live -- which is why a
+    magnitude floor terminating there is a directional bias, not just a
+    conservative choice.
+    """
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([0.5, 0.4]), T0, T1
+    )
+
+    lam = fm.cg_eigen()["lambda"]
+    assert np.allclose(lam.isel(eig=0), 0.16)
+    assert np.allclose(lam.isel(eig=1), 0.25)
+
+    lines = shrink_lines(fm, **_centre_seed(fm), step_m=3_000.0, line_length_m=30_000.0)
+
+    assert bool(lines["lon"].notnull().all())
 
 
 def test_shrink_lines_seed_off_grid_is_nan(lon_axis, lat_axis):
@@ -538,15 +598,15 @@ def test_shrink_line_uses_reference_latitude_metric():
     assert np.max(np.abs(resid)) < 1e3  # collinear to < 1 km over ~1000 km
 
 
-# --- FlowMap.lcs -----------------------------------------------------------
+# --- FlowMap.hyperbolic_lcs ------------------------------------------------
 #
 # A *uniform* linear map will not do here. It makes the FTLE constant to within
 # float noise, so every point ties as a ridge point and both ridge parameters
-# become inert: neither `window_m` nor `quantile` changes the seed set at all, and
-# a parity test built on it cannot see `lcs()` dropping either forward. These
-# tests therefore run on a flow map whose stretching oscillates in longitude, so
-# the FTLE has real maxima and both parameters bite (see the sweeps asserted in
-# `test_lcs_ridge_parameters_are_forwarded`).
+# become inert: neither `window_m` nor `quantile` changes the seed set at all,
+# and a parity test built on it cannot see `hyperbolic_lcs()` dropping either
+# forward. These tests therefore run on a flow map whose stretching oscillates
+# in longitude, so the FTLE has real maxima and both parameters bite (see the
+# sweeps asserted in `test_hyperbolic_lcs_ridge_parameters_are_forwarded`).
 
 LCS_LON = np.linspace(-3.0, 3.0, 25)
 LCS_LAT = np.linspace(18.0, 22.0, 11)
@@ -576,8 +636,9 @@ def _wavy_stretch_flowmap(period_m=250_000.0, base=3.0, amp=1.0):
     return advected_flowmap_f(AuxiliarySeed, LCS_LON, LCS_LAT, f, T0, LCS_T1)
 
 
-def test_lcs_matches_the_manual_pipeline():
-    """lcs() is exactly ftle -> ftle_ridge_seeds -> shrink_lines, plus the FTLE."""
+def test_hyperbolic_lcs_matches_the_manual_pipeline():
+    """hyperbolic_lcs() is exactly ftle -> ftle_ridge_seeds -> shrink_lines,
+    plus the FTLE field itself."""
     fm = _wavy_stretch_flowmap()
 
     ftle = fm.ftle()
@@ -592,7 +653,7 @@ def test_lcs_matches_the_manual_pipeline():
         line_length_m=LCS_KWARGS["line_length_m"],
     )
 
-    lcs = fm.lcs(**LCS_KWARGS)
+    lcs = fm.hyperbolic_lcs(**LCS_KWARGS)
 
     assert set(lcs.data_vars) == {"lon", "lat", "ftle"}
     assert lcs.sizes["line"] == seed_lon.size > 1  # a real, partial seed selection
@@ -601,7 +662,7 @@ def test_lcs_matches_the_manual_pipeline():
     np.testing.assert_array_equal(lcs["ftle"].values, ftle.values)
 
 
-def test_lcs_ridge_parameters_are_forwarded():
+def test_hyperbolic_lcs_ridge_parameters_are_forwarded():
     """Both ridge parameters reach ``ftle_ridge_seeds``: tightening either one
     yields strictly fewer lines, so a dropped forward cannot pass unnoticed."""
     fm = _wavy_stretch_flowmap()
@@ -610,15 +671,15 @@ def test_lcs_ridge_parameters_are_forwarded():
         "line_length_m": LCS_KWARGS["line_length_m"],
     }
 
-    loose = fm.lcs(window_m=60_000.0, quantile=0.5, **trace)
-    tight_quantile = fm.lcs(window_m=60_000.0, quantile=0.99, **trace)
-    tight_window = fm.lcs(window_m=400_000.0, quantile=0.5, **trace)
+    loose = fm.hyperbolic_lcs(window_m=60_000.0, quantile=0.5, **trace)
+    tight_quantile = fm.hyperbolic_lcs(window_m=60_000.0, quantile=0.99, **trace)
+    tight_window = fm.hyperbolic_lcs(window_m=400_000.0, quantile=0.5, **trace)
 
     assert tight_quantile.sizes["line"] < loose.sizes["line"]
     assert tight_window.sizes["line"] < loose.sizes["line"]
 
 
-def test_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):
+def test_hyperbolic_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):
     """The FTLE is computed a single time and handed to the ridge finder."""
     fm = advected_flowmap(
         AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
@@ -632,7 +693,7 @@ def test_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):
 
     monkeypatch.setattr(type(fm), "ftle", counting_ftle)
 
-    fm.lcs(**LCS_KWARGS)
+    fm.hyperbolic_lcs(**LCS_KWARGS)
 
     assert len(calls) == 1
 
@@ -640,14 +701,14 @@ def test_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):
 @pytest.mark.parametrize(
     ("t0", "t1", "kind"), [(T0, T1, "repelling"), (T1, T0, "attracting")]
 )
-def test_lcs_metadata_names_the_lcs_type(lon_axis, lat_axis, t0, t1, kind):
+def test_hyperbolic_lcs_metadata_names_the_lcs_type(lon_axis, lat_axis, t0, t1, kind):
     """A forward flow map yields repelling LCS, a backward one attracting ones,
     and the returned dataset says which without being asked."""
     fm = advected_flowmap(
         AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), t0, t1
     )
 
-    lcs = fm.lcs(**LCS_KWARGS)
+    lcs = fm.hyperbolic_lcs(**LCS_KWARGS)
 
     assert kind in lcs.attrs["long_name"]
     assert kind in lcs["lon"].attrs["long_name"]

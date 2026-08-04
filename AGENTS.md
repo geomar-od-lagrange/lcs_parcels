@@ -116,6 +116,11 @@ that.
   fine once a default turns out to be wrong, or the point being made needs it, or
   it was asked for. This is an anti-over-styling rule, not a ban on ever passing
   an argument.
+- **A notebook references only notebooks of lower rank.** Point at the notebook
+  the current one builds on, never at one of the same rank, so the reading order
+  stays a line and no pair of examples explains itself by the other. The ranks:
+  `example_grid_pset` is standalone; `cabo_verde_ftle` < `cabo_verde_lcs` <
+  `cabo_verde_lcs_evolution`.
 - **No claimed result you haven't seen.** Never write a summary/conclusion cell
   (or "this shows X" prose) without actually running the notebook and reading the
   real output first. State what the run produced, not what you expect it to.
@@ -177,6 +182,15 @@ verified against the pinned v4 alpha:
   different quantities never come back under the same `name`. Go CF where it is
   cheap — `units`, `long_name` — and no further: no bounds, no intervals, no
   cell methods.
+- **A repeated attribute set is a module constant.** When the same
+  `name`/`long_name`/`units` block is attached to more than one object — the
+  coordinates, a lon/lat pair — hoist it to a module constant so the copies
+  cannot drift apart; a one-off on a single returned field stays inline at the
+  return.
+- **Never mutate an xarray object in place.** Rebuild it functionally with
+  `assign_attrs` / `assign_coords` / `assign` rather than writing
+  `x.attrs.update(...)` or `x.attrs["units"] = ...`: pandas has removed nearly
+  all of its in-place operations and xarray may well follow.
 - **Units are SI.** Return 1/s, metres, seconds; deviate only for a field with a
   strong convention of its own (Sverdrups and the like). Conversion for display
   is the trusting user's call, made visible in the example for the inquisitive
@@ -201,6 +215,12 @@ verified against the pinned v4 alpha:
 - **Avoid over-engineering.** Favor a small, concrete API — a few well-named
   methods — over layered adapters and indirection. Add structure when a concrete
   need appears, not before.
+- **Tuning parameters are scale-free.** Express a knob so its default means the
+  same thing at another resolution, window, or flow regime: a dimensionless ratio
+  where one exists, a physical quantity otherwise. `min_anisotropy` floors
+  $\lambda_2/\lambda_1$ and so retunes with neither grid nor window. Physical is
+  not sufficient — a floor in 1/day is scale-free in no useful sense, since a
+  rate that suits a fast flow is meaningless in a slow one.
 - **Same-typed adjacent arguments are keyword-only.** A public entry point that
   takes a lon/lat pair (or any other run of interchangeable-looking arguments)
   takes it by keyword, so the trusting user cannot silently transpose them: a

@@ -34,7 +34,8 @@ Settled in review discussion; not to be relitigated while executing.
 - **Ridge-finding stays explicit.** `ftle_ridge_seeds` keeps taking the FTLE
   field, not the `FlowMap`: no hidden recomputation, and a caller can pass a
   smoothed or masked field. User convenience is bought once, in
-  `flowmap.lcs(...)`, which computes FTLE a single time and passes it down.
+  `flowmap.hyperbolic_lcs(...)`, which computes FTLE a single time and passes it
+  down.
 - **No data is committed to the repo.** Distinguish "runs against the CMEMS
   online store on every execution" from "needs a one-time download".
 - **Ruff lands early**; the rest of the infrastructure work is deferred.
@@ -182,15 +183,27 @@ fix that. Label the `eig` coord. This is the precondition for vanilla plots in
 step 10, and for dropping the hand-written `* 86400.0` that appears in three
 examples.
 
-**6. Parameters in physical units.** The reviewer flagged `window=7` as
+**6. Scale-free tuning parameters.** The reviewer flagged `window=7` as
 implicitly sensitive to grid resolution; the same defect runs wider.
 
-- `window` becomes a distance.
-- `n_steps` becomes a length in metres --- it is currently a line *length*
-  (1500 km) expressed as a step count.
-- `lambda_max_min` becomes an FTLE floor in 1/day evaluated against the flow
-  map's own `|T|`; as a raw Cauchy-Green eigenvalue it silently tightens or
-  loosens as the window changes.
+- `window` becomes a distance, `window_m`.
+- `n_steps` becomes a length in metres, `line_length_m` --- it is currently a
+  line *length* (1500 km) expressed as a step count --- with the step size
+  itself as `step_m`.
+- `lambda_max_min` goes. This plan proposed replacing it with an FTLE floor in
+  1/day evaluated against the flow map's own `|T|`, on the argument that a raw
+  Cauchy-Green eigenvalue floor silently retunes as the window changes. Review
+  established that a raw *rate* floor retunes worse, only along a different
+  axis: it is steady across windows and wildly unsteady across flow regimes.
+  Measured as a fraction of the flow's own FTLE signal, a fixed 0.005/day floor
+  is 0.1% for a fast laboratory flow and 45.5% for a slow large-scale one; the
+  ratio form is 2.3% and 1.8% for the same two. So the parameter shipped instead
+  as the dimensionless `min_anisotropy`, a floor on $\lambda_2 / \lambda_1$,
+  which retunes with neither the window nor the regime --- and which is the
+  actual well-definedness criterion for $\xi_1$, an eigenvector that only exists
+  as a direction while the two eigenvalues are separated. Its default, 1.15,
+  reproduces the old behaviour essentially exactly at the 7-day example window.
+
 `quantile` stays as it is for now. It is as grid-dependent as `window` was, but
 turning it into an absolute FTLE floor changes ridge selection from
 relative-to-this-field to absolute --- a science decision, not a units one.
@@ -198,6 +211,11 @@ Revisit it in a dedicated pass on tuning parameters.
 
 Signature changes, so this lands before the tests and examples are written
 against them.
+
+Deferred out of this step: `window_m` is the ridge-detection scale, and the
+seed grid has to resolve it, so it implies a minimum seed spacing of about
+`window_m / 2` --- half the window, not the window. Nothing computes, enforces,
+or reports that today.
 
 **7. `tensorlines` internals: lift, rename, explain, test.** `xi1`, `step`, and
 `half` become top-level tested functions or get inlined; same for the nested
@@ -238,9 +256,14 @@ Document and check, per the "explain *and* check" comment:
 There are currently no unit tests for any of this --- `tests/test_tensorlines.py`
 covers only end-to-end straight-line behaviour.
 
-**8. Reprs and `flowmap.lcs(...)`.** Terse summary reprs on `Seed` and
-`FlowMap`. `lcs()` computes FTLE once and passes it to ridge-finding, so the
-convenience lives in one place and the ridge logic is not duplicated.
+**8. Reprs and `flowmap.hyperbolic_lcs(...)`.** Terse summary reprs on `Seed`
+and `FlowMap`. The one-call convenience shipped as `hyperbolic_lcs()`, not
+`lcs()` --- the package will grow other LCS families (#8, #15), and the name has
+to say which one this is. It computes FTLE once and passes it to ridge-finding,
+so the convenience lives in one place and the ridge logic is not duplicated. The
+repr carries the signed `T` and no direction word: repelling versus attracting
+is a property of the diagnostic, not of the flow map, so printing both was
+redundant.
 
 ### PR C --- prose, examples, and CI
 

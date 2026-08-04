@@ -27,8 +27,6 @@ from scipy.interpolate import RegularGridInterpolator
 
 from lcs_parcels.grids import _DEG, EARTH_RADIUS_M, _lonlat_to_meters
 
-SECONDS_PER_DAY = 86_400.0
-
 
 def _odd_cells(window_m: float, spacing_m: float) -> int:
     """Cells spanning ``window_m`` at grid spacing ``spacing_m``, odd and at least 1.
@@ -67,9 +65,8 @@ def ftle_ridge_seeds(
     A grid point is a seed when its FTLE is the maximum over a neighbourhood
     spanning ``window_m`` in each direction (a windowed local maximum on the raw
     value) *and* is at or above the ``quantile`` of the field -- an absolute
-    magnitude floor, not a local-contrast test. Well separated (spacing set by
-    ``window_m``) so the tensor lines through them do not bundle. NaN cells (e.g.
-    the :class:`~lcs_parcels.NeighborFlowMap` edge) never qualify.
+    magnitude floor, not a local-contrast test. NaN cells (e.g. the
+    :class:`~lcs_parcels.NeighborFlowMap` edge) never qualify.
 
     Parameters
     ----------
@@ -82,6 +79,11 @@ def ftle_ridge_seeds(
         separation between seeds is a physical distance and does not change with
         grid resolution. On a 1/25-degree grid at 20 N (about 4.2 km cells) the
         default is 7 cells.
+
+        A window of side ``window_m`` reaches ``window_m / 2`` to either side of
+        its own grid point, so **the closest two seeds can be is about
+        ``window_m / 2``**, not ``window_m``: halve it to get the minimum
+        spacing between the tensor lines this seeds.
     quantile : float, optional
         Global magnitude floor in ``[0, 1]`` (default 0.90 = top decile).
 
@@ -99,15 +101,25 @@ def ftle_ridge_seeds(
     return lon[mask], lat[mask]
 
 
-def _shrink_direction(
+def _shrink_line_tangent(
     lon: np.ndarray,
     lat: np.ndarray,
     heading: np.ndarray,
     *,
     tensor_interp: RegularGridInterpolator,
-    lambda_max_min: float,
+    min_anisotropy: float,
 ) -> np.ndarray:
     """Unit ``xi_1`` at each ``(lon, lat)``, oriented to ``heading``.
+
+    ``xi_1`` is both the direction material line elements *shrink* along and the
+    tangent of the shrink line -- the two readings coincide, which is what makes
+    the tensor line the curve it is.
+
+    Returns ``NaN`` wherever the tangent is **not well defined**, which is one
+    condition with three causes: the point is off-grid, it sits in a NaN cell, or
+    the tensor is too close to isotropic for its eigenvectors to mean anything
+    (``min_anisotropy``). Callers read a NaN row as "the line ends here" without
+    needing to know which of the three fired.
 
     Parameters
     ----------
@@ -120,14 +132,15 @@ def _shrink_direction(
     tensor_interp : RegularGridInterpolator
         Interpolator over the Cauchy-Green tensor field, returning ``(n, 2, 2)``
         and ``NaN`` off-grid.
-    lambda_max_min : float
-        Degeneracy guard: points whose ``lambda_2`` falls below this return NaN.
+    min_anisotropy : float
+        Well-definedness guard on ``lambda_2 / lambda_1``; see
+        :func:`shrink_lines`.
 
     Returns
     -------
     np.ndarray
-        Shape ``(n, 2)`` unit vectors in the metres frame; ``NaN`` rows where the
-        point is off-grid, in a NaN cell, or below ``lambda_max_min``.
+        Shape ``(n, 2)`` unit vectors in the metres frame; ``NaN`` rows wherever
+        the tangent is not well defined.
     """
     cauchy_green = tensor_interp(np.column_stack([lon, lat]))
     terminated = ~np.isfinite(cauchy_green).all(axis=(1, 2))
@@ -139,10 +152,16 @@ def _shrink_direction(
     eigenvalues, eigenvectors = np.linalg.eigh(
         np.where(terminated[:, None, None], np.eye(2), cauchy_green)
     )
-    # Stop at near-degenerate points: where lambda_1 ~ lambda_2 the tensor is
-    # close to isotropic and xi_1 is an arbitrary direction in the plane, so
-    # continuing would trace numerical noise.
-    terminated = terminated | (eigenvalues[:, 1] < lambda_max_min)
+    # Stop where the eigenvalues are too close together to separate: an
+    # eigenvector's sensitivity to perturbation of C goes as the inverse of the
+    # *relative* gap between the eigenvalues, so lambda_2 / lambda_1 -- not
+    # lambda_2 alone -- is what decides whether xi_1 is a direction or noise.
+    # C is positive semi-definite, so a lambda_1 at or below zero is round-off on
+    # an extremely anisotropic tensor; clamping it to zero passes those points,
+    # which is the right answer for them.
+    terminated = terminated | (
+        eigenvalues[:, 1] < min_anisotropy * np.maximum(eigenvalues[:, 0], 0.0)
+    )
     direction = eigenvectors[:, :, 0]
     # An eigenvector has no intrinsic sign, so eigh's choice flips arbitrarily
     # between neighbouring points. Flip each one to the acute side of the running
@@ -163,7 +182,7 @@ def _step_lonlat_by_meters(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Advance ``(lon, lat)`` by ``step_m`` metres along ``direction``.
 
-    ``direction`` is a vector in the single-reference-latitude metres frame the
+    ``direction`` is a vector in the single-standard-parallel metres frame the
     Cauchy-Green tensor lives in (:func:`~lcs_parcels.grids._to_meters`), so the
     conversion back to degrees uses the one ``lat_ref``, not a per-point
     ``cos(lat)``. A unit ``direction`` moves exactly ``step_m``; a shorter one
@@ -199,7 +218,7 @@ def _trace_half_line(
     sign: int,
     *,
     tensor_interp: RegularGridInterpolator,
-    lambda_max_min: float,
+    min_anisotropy: float,
     step_m: float,
     lat_ref: float,
     n_steps: int,
@@ -217,8 +236,8 @@ def _trace_half_line(
     sign : int
         ``+1`` or ``-1``, selecting which of the two opposite ``xi_1`` branches
         this half follows away from the seeds.
-    tensor_interp, lambda_max_min, step_m, lat_ref
-        As for :func:`_shrink_direction` and :func:`_step_lonlat_by_meters`.
+    tensor_interp, min_anisotropy, step_m, lat_ref
+        As for :func:`_shrink_line_tangent` and :func:`_step_lonlat_by_meters`.
     n_steps : int
         Number of steps taken; the returned track has ``n_steps + 1`` entries,
         the first being the seeds themselves.
@@ -237,39 +256,39 @@ def _trace_half_line(
     # A seed whose xi_1 lies near the anti-diagonal therefore flips branch on
     # numerical noise. The tie-break itself does not depend on `sign`, so the two
     # halves start from exactly opposite headings.
-    heading = sign * _shrink_direction(
+    heading = sign * _shrink_line_tangent(
         lon,
         lat,
         np.ones((lon.size, 2)),
         tensor_interp=tensor_interp,
-        lambda_max_min=lambda_max_min,
+        min_anisotropy=min_anisotropy,
     )
-    # A seed we cannot trace from (off-grid, NaN cell, or below the guard)
-    # makes an all-NaN line rather than a dangling seed point.
+    # A seed whose tangent is not well defined makes an all-NaN line rather than
+    # a dangling seed point.
     untraceable = ~np.isfinite(heading).all(axis=1)
     lon[untraceable] = np.nan
     lat[untraceable] = np.nan
     track = [(lon.copy(), lat.copy())]
     for _ in range(n_steps):
-        direction = _shrink_direction(
+        direction = _shrink_line_tangent(
             lon,
             lat,
             heading,
             tensor_interp=tensor_interp,
-            lambda_max_min=lambda_max_min,
+            min_anisotropy=min_anisotropy,
         )
         mid_lon, mid_lat = _step_lonlat_by_meters(
             lon, lat, 0.5 * direction, step_m=step_m, lat_ref=lat_ref
         )
-        # The degeneracy guard is evaluated at the RK2 midpoint too, so a step
-        # whose two endpoints are both fine still terminates the line if the
+        # The well-definedness guard is evaluated at the RK2 midpoint too, so a
+        # step whose two endpoints are both fine still terminates the line if the
         # tensor is degenerate halfway along it.
-        mid_direction = _shrink_direction(
+        mid_direction = _shrink_line_tangent(
             mid_lon,
             mid_lat,
             direction,
             tensor_interp=tensor_interp,
-            lambda_max_min=lambda_max_min,
+            min_anisotropy=min_anisotropy,
         )
         lon, lat = _step_lonlat_by_meters(
             lon, lat, mid_direction, step_m=step_m, lat_ref=lat_ref
@@ -289,7 +308,7 @@ def shrink_lines(
     *,
     seed_lon,
     seed_lat,
-    ftle_min_per_day: float = 0.005,
+    min_anisotropy: float = 1.15,
     step_m: float = 3_000.0,
     line_length_m: float = 1_500_000.0,
 ) -> xr.Dataset:
@@ -298,19 +317,19 @@ def shrink_lines(
     Traces the tensor-line ODE ``dr/ds = xi_1(r)`` both ways from each seed,
     where ``xi_1`` is the weak-stretch eigenvector of ``flowmap.cauchy_green()``.
     A *forward* flow map yields repelling LCS; a *backward* one yields attracting
-    LCS (Haller-Sapsis duality). The integrator:
+    LCS (forward-backward duality). The integrator:
 
     - interpolates the tensor ``C`` (not the eigenvector) and re-diagonalises at
       each point, so it stays smooth through the near-degenerate
       ``lambda_1 ~ lambda_2`` spots where ``xi_1`` is otherwise sign-ambiguous;
     - orients each step to the running heading (an eigenvector has no intrinsic
       sign);
-    - stops a line where the local stretching falls below ``ftle_min_per_day``
-      (a low guard against the rare degenerate points), or where it leaves the
-      grid / hits a NaN cell.
+    - stops a line where ``xi_1`` stops being well defined -- ``min_anisotropy``,
+      off the grid, or a NaN cell.
 
-    Marches all seeds together with a midpoint (arc-length) step. Every line is
-    the same length, NaN-filled past termination.
+    Marches all seeds together with a midpoint (arc-length) step. ``line_length_m``
+    is a *cap*: a line that terminates early is shorter, and the returned block is
+    NaN-filled past termination so every row has the same length.
 
     Parameters
     ----------
@@ -319,20 +338,24 @@ def shrink_lines(
         the ``lon_grid``/``lat_grid`` axes.
     seed_lon, seed_lat : array_like
         Seed positions (degrees), e.g. from :func:`ftle_ridge_seeds`.
-    ftle_min_per_day : float, optional
-        Stop a line where the local FTLE falls below this, in 1/day (default
-        0.005). Expressed as a stretching *rate* so the guard means the same
-        thing whatever ``|T|`` the flow map spans; it converts to the eigenvalue
-        floor ``lambda_min = exp(2 |T|_days Lambda_min)`` used against
-        ``lambda_2``, which over a 7-day window is ``lambda_min = 1.07``. Over
-        long windows the flow is hyperbolic almost everywhere, so this is a
-        degeneracy guard, not an LCS selector.
+    min_anisotropy : float, optional
+        Stop a line where ``lambda_2 / lambda_1`` falls below this (default
+        1.15). An eigenvector's sensitivity to perturbation of ``C`` scales as
+        the inverse of the *relative* gap between the eigenvalues, so this ratio
+        is what decides whether ``xi_1`` is a direction or numerical noise; at
+        the default a 1% error in ``C`` swings ``xi_1`` by about 2 degrees.
+        Being a ratio it is free of ``T``, of the grid scale, and of the flow's
+        own stretching rate: the same value means the same thing for a six-hour
+        laboratory flow and a six-month basin-scale one. This is a
+        well-definedness guard, not an LCS selector -- ``quantile`` in
+        :func:`ftle_ridge_seeds` is what selects.
     step_m : float, optional
         Arc-length step in metres (default 3000).
     line_length_m : float, optional
-        Full length of each line in metres (default 1500 km), traced half in
+        Maximum length of each line in metres (default 1500 km), traced half in
         each direction from the seed; the step count per direction is
-        ``line_length_m / (2 * step_m)``, at least 1.
+        ``line_length_m / (2 * step_m)``, at least 1. Lines that terminate early
+        are shorter.
 
     Returns
     -------
@@ -341,16 +364,13 @@ def shrink_lines(
         seed, ordered along the curve. Terminated points are ``NaN``.
     """
     n_steps = max(1, round(line_length_m / (2.0 * step_m)))
-    # FTLE = (1 / |T|) * 0.5 * log(lambda_max), so a floor on the FTLE in 1/day
-    # is a floor exp(2 |T|_days Lambda_min) on lambda_max.
-    t_days = flowmap._integration_seconds() / SECONDS_PER_DAY
-    lambda_max_min = float(np.exp(2.0 * t_days * ftle_min_per_day))
     lon_axis = flowmap.lon_grid.isel(j=0).values
     lat_axis = flowmap.lat_grid.isel(i=0).values
     # xi_1 is a direction in the single-reference-latitude metres frame C lives in
     # (grids._to_meters), so the arc-length step converts back to degrees with that
     # one reference latitude, not a per-point cos(lat).
     lat_ref = float(flowmap.ds["lat_0"].mean())
+    # (grids._to_meters anchors the frame at the same mean, so the two agree.)
     # CG_grid (not "C-grid": no Arakawa staggering here) is the Cauchy-Green
     # tensor on the analysis grid, interpolated point-by-point during the trace.
     CG_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
@@ -363,7 +383,7 @@ def shrink_lines(
 
     trace_kwargs = {
         "tensor_interp": tensor_interp,
-        "lambda_max_min": lambda_max_min,
+        "min_anisotropy": min_anisotropy,
         "step_m": step_m,
         "lat_ref": lat_ref,
         "n_steps": n_steps,

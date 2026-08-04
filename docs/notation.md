@@ -25,8 +25,9 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 | $t_0$ | release time; supplied at ingest (`pset_to_flowmap`) and stored as a scalar coord on the `FlowMap` | 3 | `t0` (flow map coord) |
 | $t_1$ | integration end time; supplied at ingest, consumed to derive $T$, not stored (recoverable as $t_0 + T$) | 3 | `t1` (input) |
 | $T = t_1 - t_0$ | integration window, **signed**; derived at ingest from $t_0$ and the end time $t_1$, stored as a scalar coord on the `FlowMap`; its sign sets the integration direction | 3 | `T` (flow map coord) |
-| $dx = R\cos\phi_{\mathrm{ref}}\,d\lambda,\ \ dy = R\,d\phi$ | local-tangent meters convention, anchored at one grid reference latitude $\phi_{\mathrm{ref}}$ ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ meters) | — | (internal metric) |
-| $\dot r = \xi_1(r)$ | shrink line: tensor line tangent to $\xi_1$; a repelling LCS (forward flow) or, by duality, attracting LCS (backward flow) | Table 1 ($n = 2$) | `shrink_lines`, `ftle_ridge_seeds` |
+| $dx = R\cos\phi_{\mathrm{ref}}\,d\lambda,\ \ dy = R\,d\phi$ | equirectangular metres frame with the single standard parallel $\phi_{\mathrm{ref}}$ ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ metres) | — | (internal metric) |
+| $\dot r = \xi_1(r)$ | shrink line: tensor line tangent to $\xi_1$; a repelling LCS (forward flow) or, by forward–backward duality, attracting LCS (backward flow) | Table 1 ($n = 2$) | `shrink_lines`, `ftle_ridge_seeds` |
+| $\lambda_2 / \lambda_1 \ge a_{\min}$ | anisotropy floor: the ratio of the Cauchy–Green eigenvalues below which $\xi_1$ is not a well-defined direction (dimensionless) | — | `min_anisotropy` |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 | — |
 | $\eta^\pm(x_0)$ | shear vector field; stretch/shear lines (**deferred**) | 10, 11, Table 1 | — |
 
@@ -140,33 +141,41 @@ Both ends of the window enter at ingest — `pset_to_flowmap(*, lon, lat, t0, t1
 takes the release time $t_0$ and the end time $t_1$, derives $T = t_1 - t_0$,
 and stores $t_0$ and $T$ as scalar coords on the `FlowMap` ($t_1$ is recoverable
 as $t_0 + T$). This package never chooses the direction —
-$\operatorname{sign}(T)$ follows from $t_1$ relative to $t_0$. A zero window
+$\mathrm{sign}(T)$ follows from $t_1$ relative to $t_0$. A zero window
 ($t_1 = t_0$) is rejected with `ValueError`, since the FTLE's $1/|T|$ would
 divide by zero. A release series (sweep $t_0$ or $t_1$) is an external loop over
 scalar-`(t0, T)` flow maps, assembled with `xr.concat` / `combine_by_coords`
 into the $(i, j, t_0, T)$ cube. See
 [`plans/timing-design.md`](../plans/timing-design.md).
 
-### Local-tangent meters convention
+### Equirectangular metres frame
 
-Haller's math is Cartesian, but the grid is lon/lat. Positions are converted to a
-**single** local tangent frame in meters before differencing, anchored at the
-grid centroid — the one reference point
+Haller's math is Cartesian, but the grid is lon/lat. Positions are converted to
+metres by an **equirectangular** projection with a **single** standard parallel
+before differencing. The projection is anchored at the grid centroid — the one
+reference point
 $\lambda_{\mathrm{ref}} = \overline{\lambda_0}$, $\phi_{\mathrm{ref}} = \overline{\phi_0}$
-(the means of `lon_0`/`lat_0`):
+(the means of `lon_0`/`lat_0`), with $\phi_{\mathrm{ref}}$ the standard parallel:
 
 $$X = R\cos\phi_{\mathrm{ref}}\,(\lambda - \lambda_{\mathrm{ref}})\,\tfrac{\pi}{180},
 \qquad Y = R\,(\phi - \phi_{\mathrm{ref}})\,\tfrac{\pi}{180},$$
 
-with $R$ the Earth radius, $\phi$ latitude, $\lambda$ longitude. The cosine
-factor uses that **one** grid reference latitude $\phi_{\mathrm{ref}}$ for every
-point, not a per-point $\cos\phi$: a single shared frame is what makes the
-off-diagonal $\nabla F$ terms exact — a per-point cosine would corrupt them by a
-cosine ratio. In the tiny-separation regime this flat-tangent approximation is
-adequate; it is a convention, not a correctness blocker. Both `NeighborFlowMap`
-and `AuxiliaryFlowMap` share the identical metric code (and `AuxiliarySeed`
-reuses it to lay out its arms), so positions are read back in the same frame the
-seed was emitted in.
+with $R$ the Earth radius, $\phi$ latitude, $\lambda$ longitude. This is a map
+projection of the whole domain, **not** a tangent plane: the cosine factor is
+that one $\cos\phi_{\mathrm{ref}}$ everywhere, not a per-point $\cos\phi$, and
+the *same* frame carries both the reference positions and the advected ones, so
+$\nabla F$ is a ratio of separations measured in one consistent set of
+coordinates. Both `NeighborFlowMap` and `AuxiliaryFlowMap` share the identical
+metric code (and `AuxiliarySeed` reuses it to lay out its arms), so positions
+are read back in the same frame the seed was emitted in.
+
+Because the zonal scale factor is fixed at $\phi_{\mathrm{ref}}$, $\nabla F$
+picks up a bias that grows with how far the release and arrival latitudes stray
+from the standard parallel. Measured median FTLE error is 0.65% over a 5-degree
+domain, 3.0% over 20 degrees and 15% over 60 degrees, so the convention is
+sound for regional domains of modest latitude range and away from the dateline,
+and not for basin-scale ones. The exact form of the bias is in
+[`architecture.md`](architecture.md#why-the-metres-frame-is-equirectangular).
 
 ### Geometric LCS layer (tensor lines)
 
@@ -175,20 +184,32 @@ $\xi_1$, solving $\dot r = \xi_1(r)$ (Haller Table 1, $n = 2$) — in
 [`src/lcs_parcels/tensorlines.py`](../src/lcs_parcels/tensorlines.py)
 (`shrink_lines`, with `ftle_ridge_seeds` for start points). Repelling LCS are the
 shrink lines of the forward flow map; attracting LCS those of the backward flow
-map (forward–backward duality, Haller & Sapsis 2011). `FlowMap.lcs()` runs the
-FTLE, the ridge seeds and the tensor lines in one call.
+map (forward–backward duality, Haller & Sapsis 2011,
+[doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)).
+`FlowMap.hyperbolic_lcs()` runs the FTLE, the ridge seeds and the tensor lines
+in one call.
 
-The layer's tuning parameters are physical quantities, so that a call means the
-same thing at any grid resolution and over any window: the ridge-seed
-neighbourhood `window_m` and the tensor-line arc step `step_m` and full length
-`line_length_m` are metres, and the degeneracy guard `ftle_min_per_day` is a
-stretching rate $\Lambda_{\min}$ in **1/day** — the one deliberate departure
-from SI in the package, carried in the parameter name. It converts against the
-flow map's own window to the Cauchy-Green floor
+The layer's tuning parameters are stated in the units of the thing itself, so
+that a call means the same thing at any grid resolution and over any window: the
+ridge-seed neighbourhood `window_m`, the tensor-line arc step `step_m` and the
+length cap `line_length_m` are metres, and the well-definedness guard
+`min_anisotropy` is the dimensionless eigenvalue ratio $a_{\min}$, a line
+terminating where
 
-$$\lambda_{\min} = \exp\!\left(2\,|T|_{\mathrm{days}}\,\Lambda_{\min}\right),$$
+$$\frac{\lambda_2}{\lambda_1} < a_{\min}.$$
 
-applied to $\lambda_{\max}$, which is the inverse of the FTLE definition above.
+`line_length_m` is a cap on the traced arc, not the achieved length: a line that
+terminates early is shorter, and the returned block is NaN-filled past
+termination so every row has equal length. `window_m` is the *side* of the
+ridge-seed neighbourhood, which reaches `window_m / 2` to either side of its own
+grid point, so two ridge seeds can be about `window_m / 2` apart, not
+`window_m`.
+
+$a_{\min}$ carries no $T$, no grid scale and no stretching rate: it is the
+relative gap between the eigenvalues of $C$, which is what sets how sensitive
+$\xi_1$ is to a perturbation of $C$ — and therefore whether $\xi_1$ is a
+direction at all or numerical noise. Default $a_{\min} = 1.15$. It is a
+well-definedness guard, never an LCS selector; `quantile` selects.
 
 The following remain deferred:
 

@@ -53,9 +53,9 @@ Three coordinate pairs, all in degrees:
 
 Sphere metric convention
 ------------------------
-Separations are formed in a single local-tangent meters frame anchored at the
-grid centroid ``lon_ref = lon_0.mean()``, ``lat_ref = lat_0.mean()``. With ``R``
-the Earth radius and ``deg = pi / 180``:
+Separations are formed in a single equirectangular meters frame whose standard
+parallel is the grid centroid ``lon_ref = lon_0.mean()``,
+``lat_ref = lat_0.mean()``. With ``R`` the Earth radius and ``deg = pi / 180``:
 ``X = R cos(phi_ref) (lambda - lambda_ref) deg`` and
 ``Y = R (phi - phi_ref) deg``. The cosine factor uses the one reference latitude
 ``phi_ref`` for every point, not a per-point ``cos(phi)``. The metric only
@@ -73,15 +73,18 @@ import numpy as np
 import xarray as xr
 
 EARTH_RADIUS_M = 6_371_000.0
-"""Mean Earth radius in meters, used for the local-tangent meters convention."""
+"""Mean Earth radius in meters, used for the equirectangular meters convention."""
 
 _DEG = np.pi / 180.0
-"""Degrees-to-radians factor for the local-tangent meters convention."""
+"""Degrees-to-radians factor for the equirectangular meters convention."""
 
 # --- output metadata -------------------------------------------------------
 #
 # Attribute sets attached to every coordinate and every returned field, so a
 # displayed dataset reads itself and a vanilla plot is labelled from the object.
+# A set becomes a constant here when it is attached to more than one object (the
+# coordinates, the lon/lat pairs); a set attached to one returned field only
+# (`cauchy_green`, `ftle`, ...) is written inline where that field is built.
 
 I_ATTRS = {"long_name": "logical grid index along i"}
 J_ATTRS = {"long_name": "logical grid index along j"}
@@ -124,11 +127,12 @@ EIG_ATTRS = {
 
 
 def _lonlat_to_meters(lon, lat, lon_ref: float, lat_ref: float):
-    """Project lon/lat (degrees) into the local-tangent meters frame.
+    """Project lon/lat (degrees) into the equirectangular meters frame.
 
-    Uses the single reference latitude ``lat_ref`` for the cosine factor
-    (``X = R cos(phi_ref) (lambda - lambda_ref) deg``, ``Y = R (phi - phi_ref) deg``).
-    Works on plain arrays or xarray objects.
+    An equirectangular projection with the single standard parallel ``lat_ref``:
+    ``X = R cos(phi_ref) (lambda - lambda_ref) deg``, ``Y = R (phi - phi_ref) deg``.
+    One cosine for every point, not a per-point ``cos(phi)``. Works on plain
+    arrays or xarray objects.
     """
     c = np.cos(lat_ref * _DEG)
     x = EARTH_RADIUS_M * c * (lon - lon_ref) * _DEG
@@ -144,8 +148,9 @@ def _reference_lonlat(lon_0: xr.DataArray, lat_0: xr.DataArray) -> tuple[float, 
 def _to_meters(
     lon: xr.DataArray, lat: xr.DataArray, lon_0: xr.DataArray, lat_0: xr.DataArray
 ):
-    """Project ``lon``/``lat`` into the meters frame anchored at the centroid of
-    ``lon_0``/``lat_0`` (one ``cos(phi_ref)``, not a per-point cosine).
+    """Project ``lon``/``lat`` into the equirectangular meters frame whose
+    standard parallel is the centroid of ``lon_0``/``lat_0`` (one
+    ``cos(phi_ref)``, not a per-point cosine).
     """
     lon_ref, lat_ref = _reference_lonlat(lon_0, lat_0)
     return _lonlat_to_meters(lon, lat, lon_ref, lat_ref)
@@ -183,12 +188,9 @@ def _assemble_tensor(
 
     ``row`` and ``col`` become dimension coordinates valued ``['x', 'y']`` with
     ``tensor.sel(row=a, col=b)`` the ``(a, b)`` component, e.g.
-    ``gradF.sel(row='y', col='x') = dF_y / dx0_x``. The four fields are renamed
-    to the caller's ``name`` so :func:`xarray.concat` does not drop one, and the
-    result carries that name plus ``long_name``/``units``.
+    ``gradF.sel(row='y', col='x') = dF_y / dx0_x``. The caller's ``name``,
+    ``long_name`` and ``units`` are applied to the assembled result.
     """
-    fxx, fxy = fxx.rename(name), fxy.rename(name)
-    fyx, fyy = fyx.rename(name), fyy.rename(name)
     row_x = xr.concat([fxx, fxy], dim="col")
     row_y = xr.concat([fyx, fyy], dim="col")
     tensor = xr.concat([row_x, row_y], dim="row")
@@ -196,12 +198,12 @@ def _assemble_tensor(
         row=xr.DataArray(["x", "y"], dims="row", attrs=ROW_ATTRS),
         col=xr.DataArray(["x", "y"], dims="col", attrs=COL_ATTRS),
     )
-    return tensor.assign_attrs(long_name=long_name, units=units)
+    return tensor.rename(name).assign_attrs(long_name=long_name, units=units)
 
 
 def _extent(values: xr.DataArray) -> str:
     """``min..max`` of a coordinate in degrees, or ``nan..nan`` if it is all NaN."""
-    return f"{float(values.min()):.3f}..{float(values.max()):.3f}"
+    return f"{float(values.min()):.2f}..{float(values.max()):.2f}"
 
 
 def _grid_summary(obj: Seed | FlowMap) -> str:
@@ -446,11 +448,16 @@ class FlowMap(abc.ABC):
         return (
             f"{_grid_summary(self)}, "
             f"t0 {np.datetime64(self.ds['t0'].values, 's')}, "
-            f"T {self._window_days():+.2f} days ({self._direction()})>"
+            f"T {self._window_days():+.1f} days>"
         )
 
     def _direction(self) -> str:
-        """``'forward/repelling'`` or ``'backward/attracting'``, from ``sign(T)``."""
+        """``'forward/repelling'`` or ``'backward/attracting'``, from ``sign(T)``.
+
+        Output metadata only (:meth:`hyperbolic_lcs`); repelling versus
+        attracting is a property of the diagnostic, not of the flow map, so it
+        stays out of the repr.
+        """
         if self.ds["T"] > np.timedelta64(0, "s"):
             return "forward/repelling"
         return "backward/attracting"
@@ -487,6 +494,23 @@ class FlowMap(abc.ABC):
         differenced from these is reported at the diagnostic grid point, so it
         must be labelled ``lon_grid``/``lat_grid`` and not by a release
         position -- which for :class:`AuxiliaryFlowMap` is one stencil arm.
+
+        Projection error
+        ----------------
+        Reference *and* advected positions are read in the *same* equirectangular
+        frame (:func:`_to_meters`), one standard parallel ``lat_ref``; the frame
+        does not follow the particle. With ``c0``, ``c1``, ``c_ref`` the cosines
+        of the release latitude, the arrival latitude and ``lat_ref``, the true
+        gradient is::
+
+            grad F_true = diag(c1 / c_ref, 1) @ grad F_ours @ diag(c_ref / c0, 1)
+
+        So ``F_yy`` is exact, ``F_xx`` is off by ``c1 / c0`` -- driven by the
+        particle's meridional excursion, ``c_ref`` cancelling -- and the
+        off-diagonals by ``c1 / c_ref`` and ``c_ref / c0``. Measured median FTLE
+        error: 0.65% over a 5-degree domain, 3.0% over 20 degrees, 15% over 60
+        degrees. Tracked in issue #18; the related dateline/longitude arithmetic
+        is issue #13.
         """
         lon_0, lat_0 = self.ds["lon_0"], self.ds["lat_0"]
         release = ["lon_0", "lat_0"]
@@ -663,8 +687,6 @@ class FlowMap(abc.ABC):
             lat_grid=lat0,
             kwargs={"bounds_error": False, "fill_value": np.nan},
         )
-        image["lon"].attrs.update(LON_ATTRS)
-        image["lat"].attrs.update(LAT_ATTRS)
         # The interpolation carries the requested reference positions through
         # under the axis names it interpolated along; they are reference
         # positions x_0, not diagnostic grid points, so they come back as
@@ -674,16 +696,20 @@ class FlowMap(abc.ABC):
         image = image.drop_vars(["lon_0", "lat_0"], errors="ignore").rename(
             lon_grid="lon_0", lat_grid="lat_0"
         )
-        image["lon_0"].attrs.update(LON_0_ATTRS)
-        image["lat_0"].attrs.update(LAT_0_ATTRS)
-        return image
+        return image.assign(
+            lon=image["lon"].assign_attrs(LON_ATTRS),
+            lat=image["lat"].assign_attrs(LAT_ATTRS),
+        ).assign_coords(
+            lon_0=image["lon_0"].assign_attrs(LON_0_ATTRS),
+            lat_0=image["lat_0"].assign_attrs(LAT_0_ATTRS),
+        )
 
-    def lcs(
+    def hyperbolic_lcs(
         self,
         *,
         window_m: float | None = None,
         quantile: float | None = None,
-        ftle_min_per_day: float | None = None,
+        min_anisotropy: float | None = None,
         step_m: float | None = None,
         line_length_m: float | None = None,
     ) -> xr.Dataset:
@@ -698,15 +724,22 @@ class FlowMap(abc.ABC):
         drives the three steps directly.
 
         A *forward* flow map (``T > 0``) yields repelling LCS, a *backward* one
-        (``T < 0``) attracting LCS, by the Haller-Sapsis duality; the sign of the
-        stored window decides, and the returned dataset says which it holds.
+        (``T < 0``) attracting LCS, by the forward-backward duality (Haller &
+        Sapsis 2011, https://doi.org/10.1063/1.3579597); the sign of the stored
+        window decides, and the returned dataset says which it holds.
+
+        Every call recomputes :meth:`ftle`, which is the expensive part of the
+        chain. Re-tuning the ridge or integration parameters against a fixed
+        field is therefore a case for driving :meth:`ftle`,
+        :func:`~lcs_parcels.ftle_ridge_seeds` and
+        :func:`~lcs_parcels.shrink_lines` yourself, computing the field once.
 
         Parameters
         ----------
         window_m, quantile : float, optional
             Ridge-selection parameters, passed to
             :func:`~lcs_parcels.ftle_ridge_seeds`.
-        ftle_min_per_day, step_m, line_length_m : float, optional
+        min_anisotropy, step_m, line_length_m : float, optional
             Integration parameters, passed to
             :func:`~lcs_parcels.shrink_lines`.
 
@@ -718,38 +751,44 @@ class FlowMap(abc.ABC):
             ``(i, j)`` that the seeds were picked from, so the curves can be
             plotted over it without recomputing.
         """
-        # tensorlines imports from this module, so the import is made here: at
-        # module level it would close an import cycle.
+        # This method is a layering inversion: `grids` is the lower layer, and
+        # here it reaches up into `tensorlines`, which imports from it. The
+        # deferred import is the standard remedy, taken deliberately because the
+        # one-call ergonomics of this method are worth the inversion.
         from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
 
-        # Only arguments the caller actually set are forwarded, so the defaults
-        # live once, in the function that consumes them.
-        def given(**kwargs) -> dict[str, float]:
+        # Forwarding a None would push the sentinel into the public signatures of
+        # ftle_ridge_seeds and shrink_lines, which would each then have to
+        # resolve it; dropping the unset arguments here keeps exactly one home
+        # for every default.
+        def _filter_kwargs(**kwargs) -> dict[str, float]:
             return {k: v for k, v in kwargs.items() if v is not None}
 
         ftle = self.ftle()
         seed_lon, seed_lat = ftle_ridge_seeds(
-            ftle, **given(window_m=window_m, quantile=quantile)
+            ftle, **_filter_kwargs(window_m=window_m, quantile=quantile)
         )
         lines = shrink_lines(
             self,
             seed_lon=seed_lon,
             seed_lat=seed_lat,
-            **given(
-                ftle_min_per_day=ftle_min_per_day,
+            **_filter_kwargs(
+                min_anisotropy=min_anisotropy,
                 step_m=step_m,
                 line_length_m=line_length_m,
             ),
         )
         direction, kind = self._direction().split("/")
-        lines["lon"].attrs["long_name"] = f"longitude along the {kind} LCS"
-        lines["lat"].attrs["long_name"] = f"latitude along the {kind} LCS"
-        lcs = lines.assign(ftle=ftle)
-        lcs.attrs["long_name"] = (
-            f"{kind} LCS: shrink lines of the {direction} flow map, "
-            "with the FTLE field their seeds were picked from"
+        lines = lines.assign(
+            lon=lines["lon"].assign_attrs(long_name=f"longitude along the {kind} LCS"),
+            lat=lines["lat"].assign_attrs(long_name=f"latitude along the {kind} LCS"),
         )
-        return lcs
+        return lines.assign(ftle=ftle).assign_attrs(
+            long_name=(
+                f"{kind} LCS: shrink lines of the {direction} flow map, "
+                "with the FTLE field their seeds were picked from"
+            )
+        )
 
     def to_seed(self) -> Seed:
         """Drop the advected positions and time, recovering a time-free seed.
@@ -831,7 +870,7 @@ class AuxiliarySeed(Seed):
     Each grid point carries four arms ``east, north, west, south`` at offsets
     ``east = (+s, 0)``, ``north = (0, +s)``, ``west = (-s, 0)``,
     ``south = (0, -s)`` for ``s = aux_separation_m`` -- no centre point, no
-    diagonals. The arms are placed in the single grid local-tangent meters frame
+    diagonals. The arms are placed in the single grid equirectangular meters frame
     (see :func:`_to_meters`), decoupling the gradient step from the seed grid
     resolution. The paired :class:`AuxiliaryFlowMap` differences ``grad F``
     across the four arms (east-west, north-south).
@@ -949,18 +988,18 @@ class NeighborFlowMap(FlowMap):
         """
         x_adv, y_adv, x_ref, y_ref = self._stencil_meters()
 
-        # lon_0 varies along i, lat_0 along j, so these are the pure x- and y-
-        # reference steps in meters.
-        reference_step_x = _central_diff(x_ref, "i")
-        reference_step_y = _central_diff(y_ref, "j")
+        # lon_0 varies along i and lat_0 along j, so the denominators are the
+        # pure x- and y-separations of the two neighbours in meters. Each is
+        # written out where it is used: a name for a two-cell centred span reads
+        # as a one-cell step.
         return _assemble_tensor(
             name="deformation_gradient",
             long_name="deformation gradient grad F of the flow map",
             units="1",
-            fxx=_central_diff(x_adv, "i") / reference_step_x,
-            fxy=_central_diff(x_adv, "j") / reference_step_y,
-            fyx=_central_diff(y_adv, "i") / reference_step_x,
-            fyy=_central_diff(y_adv, "j") / reference_step_y,
+            fxx=_central_diff(x_adv, "i") / _central_diff(x_ref, "i"),
+            fxy=_central_diff(x_adv, "j") / _central_diff(y_ref, "j"),
+            fyx=_central_diff(y_adv, "i") / _central_diff(x_ref, "i"),
+            fyy=_central_diff(y_adv, "j") / _central_diff(y_ref, "j"),
         )
 
 
@@ -981,9 +1020,10 @@ class AuxiliaryFlowMap(FlowMap):
         lost (NaN) arm makes the whole grid point NaN, matching the
         deformation-gradient path. See :attr:`FlowMap.grid_image`."""
         centroid = self.ds[["lon", "lat"]].mean("displacement", skipna=False)
-        centroid["lon"].attrs.update(LON_ATTRS)
-        centroid["lat"].attrs.update(LAT_ATTRS)
-        return centroid
+        return centroid.assign(
+            lon=centroid["lon"].assign_attrs(LON_ATTRS),
+            lat=centroid["lat"].assign_attrs(LAT_ATTRS),
+        )
 
     def deformation_gradient(self) -> xr.DataArray:
         """grad F differenced across the four-arm auxiliary stencil.

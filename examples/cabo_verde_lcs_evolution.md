@@ -30,7 +30,7 @@ where perturbations decay: an attracting LCS attracts forward in time, a
 repelling LCS attracts backward. So the attracting curve is carried by the
 forward maps and the repelling curve by the backward maps.
 
-It reads the bundled current subset, so it runs offline. Run with
+Run with
 `pixi run -e examples jupytext --sync --execute examples/cabo_verde_lcs_evolution.py`.
 
 ```python
@@ -60,8 +60,9 @@ z_surface = float(currents["depth"].values[0])
 ## Seed and horizons
 
 A rectilinear `NeighborSeed` over the release box, anchored at the middle of the
-bundled window. We evolve out to two horizons, $\tfrac{T}{2}$ and $T$, in each
-direction; the longest is where we diagnose the LCS.
+window the local current file covers. We evolve out to two horizons,
+$\tfrac{T}{2}$ and $T$, in each direction; the longest is where we diagnose the
+LCS.
 
 ```python
 t0 = np.datetime64("2025-08-06")
@@ -118,18 +119,19 @@ forward, backward = forward_maps[-1], backward_maps[-1]
 
 ## Extract the LCS at the longest window
 
-The ridges are sharpest at $T$, so we diagnose there: repelling LCS from the
-forward flow, attracting from the backward one (Haller–Sapsis duality,
+The ridges are sharpest at the longest available time horizon $T$, so we
+diagnose there: repelling LCS from the forward flow, attracting from the
+backward one (forward–backward duality, Haller & Sapsis 2011,
 [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)), each
-seeded at the local maxima of its own FTLE. `FlowMap.lcs` runs that chain —
-FTLE, ridge seeds, shrink lines — in one call and reads repelling or attracting
-off the sign of its own window; `cabo_verde_lcs` walks the same three steps by
-hand. It returns the curves as `lon`/`lat` on `(line, point)`, alongside the
-FTLE field they were seeded from.
+seeded at the local maxima of its own FTLE. `FlowMap.hyperbolic_lcs` runs that
+chain — FTLE, ridge seeds, shrink lines — in one call and reads repelling or
+attracting off the sign of its own window; *hyperbolic* because elliptic LCS
+are a different family. It returns the curves as `lon`/`lat` on
+`(line, point)`, alongside the FTLE field they were seeded from.
 
 ```python
-repelling = forward.lcs()
-attracting = backward.lcs()
+repelling = forward.hyperbolic_lcs()
+attracting = backward.hyperbolic_lcs()
 print(
     f"{repelling.sizes['line']} repelling, {attracting.sizes['line']} attracting lines"
 )

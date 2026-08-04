@@ -9,6 +9,8 @@ coords and ``lon``/``lat`` data vars.
 
 import numpy as np
 import pytest
+import xarray as xr
+from conftest import advected_flowmap
 
 from lcs_parcels import AuxiliarySeed, NeighborFlowMap, NeighborSeed
 from lcs_parcels.grids import _lonlat_to_meters
@@ -16,6 +18,9 @@ from lcs_parcels.grids import _lonlat_to_meters
 # Release/end times supplied only at ingest (the seed itself is time-free).
 T0 = np.datetime64("2020-01-01")
 T1 = np.datetime64("2020-01-02")
+
+# Generic (sheared) linear flow map, for the diagnostics driven below.
+M = np.array([[2.0, 0.5], [0.0, 3.0]])
 
 
 # --- seed shape ------------------------------------------------------------
@@ -234,6 +239,34 @@ def test_grid_image_is_on_the_diagnostic_grid(lon_axis, lat_axis):
         assert np.allclose(image["lat"], fm.lat_grid)
 
 
+# --- the wrapped dataset is the caller's -----------------------------------
+
+
+@pytest.mark.parametrize("seed_cls", (NeighborSeed, AuxiliarySeed))
+def test_diagnostics_leave_the_flowmap_dataset_untouched(seed_cls, lon_axis, lat_axis):
+    """Running the diagnostics writes nothing back into ``.ds``.
+
+    Every operator builds a new object and stamps its metadata onto that, so the
+    dataset the caller handed in comes out of the whole chain identical --
+    values, names, coords and attrs alike. A field that attached its attributes
+    by updating an ``attrs`` dict in place would fail this the moment the object
+    it updated turned out to be a view of the input rather than a fresh array.
+    """
+    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, T0, T1)
+    before = fm.ds.copy(deep=True)
+
+    fm.deformation_gradient()
+    fm.cauchy_green()
+    fm.cg_eigen()
+    fm.ftle()
+    _ = fm.grid_image
+    fm.image(lon0=fm.ds["lon_grid"], lat0=fm.ds["lat_grid"])
+    fm.hyperbolic_lcs(step_m=1_000.0, line_length_m=6_000.0)
+    fm.to_seed()
+
+    xr.testing.assert_identical(fm.ds, before)
+
+
 # --- reprs -----------------------------------------------------------------
 
 
@@ -245,13 +278,17 @@ def test_seed_repr_is_a_one_line_summary(lon_axis, lat_axis):
         assert "\n" not in text
         assert seed_cls.__name__ in text
         assert "4x5 grid" in text
-        assert "lon -2.000..1.000" in text
-        assert "lat 10.000..14.000" in text
+        assert "lon -2.00..1.00" in text
+        assert "lat 10.00..14.00" in text
 
 
-def test_flowmap_repr_adds_the_window_and_its_direction(lon_axis, lat_axis):
-    """The flow-map repr is the seed summary plus t0 and the signed window,
-    which reads forward/repelling or backward/attracting from sign(T)."""
+def test_flowmap_repr_adds_the_release_time_and_signed_window(lon_axis, lat_axis):
+    """The flow-map repr is the seed summary plus t0 and the signed window.
+
+    The window carries its sign and nothing else: repelling versus attracting is
+    a property of the diagnostic, not of the flow map, so the repr names no
+    direction -- the sign of T already says which way the map runs.
+    """
     seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
 
@@ -262,8 +299,11 @@ def test_flowmap_repr_adds_the_window_and_its_direction(lon_axis, lat_axis):
     assert "NeighborFlowMap" in forward
     assert "4x5 grid" in forward
     assert "t0 2020-01-01T00:00:00" in forward
-    assert "T +1.00 days (forward/repelling)" in forward
-    assert "T -1.00 days (backward/attracting)" in backward
+    assert forward.endswith("T +1.0 days>")
+    assert backward.endswith("T -1.0 days>")
+    for text in (forward, backward):
+        assert "repelling" not in text
+        assert "attracting" not in text
 
 
 def test_repr_survives_an_all_nan_grid(lon_axis, lat_axis):
@@ -275,7 +315,7 @@ def test_repr_survives_an_all_nan_grid(lon_axis, lat_axis):
     fm = seed.pset_to_flowmap(lon=lost, lat=lost, t0=T0, t1=T1)
 
     assert "NeighborFlowMap" in repr(fm)
-    assert "lon -2.000..1.000" in repr(fm)  # the grid itself is intact
+    assert "lon -2.00..1.00" in repr(fm)  # the grid itself is intact
 
     nan_grid = NeighborFlowMap(
         fm.ds.assign_coords(

@@ -57,7 +57,7 @@ classDiagram
         +cg_eigen() xr.Dataset
         +ftle() xr.DataArray
         +image(kw lon0, lat0) xr.Dataset
-        +lcs(kw window_m, quantile, ftle_min_per_day, step_m, line_length_m) xr.Dataset
+        +hyperbolic_lcs(kw window_m, quantile, min_anisotropy, step_m, line_length_m) xr.Dataset
         +to_seed() Seed
     }
 
@@ -85,7 +85,7 @@ classDiagram
     FlowMap ..> Seed : to_seed (_seed_cls)
 
     note for Seed "Time-free, all-coordinates: diagnostic grid points\nlon_grid/lat_grid and reference release positions lon_0/lat_0 (x_0);\nno t0, no T, no advected lon/lat, no data vars.\nEmits a particle set and ingests it back."
-    note for FlowMap "Holds reference + advected positions (lon/lat = F(x_0), the\nonly data vars) plus scalar t0/T. cauchy_green / cg_eigen / ftle / image / lcs\nare concrete on the base, defined via deformation_gradient() and grid_image."
+    note for FlowMap "Holds reference + advected positions (lon/lat = F(x_0), the\nonly data vars) plus scalar t0/T. cauchy_green / cg_eigen / ftle / image /\nhyperbolic_lcs are concrete on the base, defined via deformation_gradient() and grid_image."
     note for NeighborSeed "Stencil = neighbouring grid points (i +/- 1, j +/- 1).\nNo extra dims beyond (i, j); lon_0/lat_0 equal lon_grid/lat_grid.\nSPASSO / d'Ovidio approach."
     note for AuxiliarySeed "Stencil = fixed four arms east/north/west/south on one\ndisplacement dim, stored explicitly as the reference positions lon_0/lat_0\naround the grid points lon_grid/lat_grid; no centre arm, no diagonals;\ndecouples the gradient step from seed resolution."
 ```
@@ -167,21 +167,85 @@ that `to_parcels_pset` and `ftle_ridge_seeds` return are unpacked into named
 locals first. That is a fair trade for a call form whose entire risk was that it
 hid which value went where.
 
-### Why the tuning parameters are physical
+### Why the tuning parameters are stated in their own units
 
-The three tunable quantities of the tensor-line layer are stated in the units of
-the thing itself — `window_m` and `line_length_m` in metres, `ftle_min_per_day`
-as a stretching rate — and converted internally against the field's own grid
-spacing and the flow map's own window, so the same call means the same thing at
+The tunable quantities of the tensor-line layer are stated in the units of the
+thing itself — `window_m`, `step_m` and `line_length_m` in metres,
+`min_anisotropy` as a dimensionless eigenvalue ratio — and converted internally
+against the field's own grid spacing, so the same call means the same thing at
 any resolution and over any horizon. Expressed the natural implementation way
-instead, each would depend on something other than what the caller is asking
-for: a neighbourhood as a cell count depends on grid resolution, a line as a
-step count depends on the step size, and a degeneracy guard as a raw
-Cauchy–Green eigenvalue floor silently tightens as $|T|$ grows, turning a guard
-into a selector.
+instead, the two lengths would depend on something other than what the caller is
+asking for: a neighbourhood as a cell count depends on grid resolution, a line
+as a step count depends on the step size.
 `quantile` is left alone: making it absolute would change ridge selection from
 relative-to-this-field to an absolute threshold, which is a science decision
 rather than a units one.
+
+Both lengths are budgets, not achieved quantities, and both invite the same
+misreading. `line_length_m` bounds the traced arc: the
+integrator spends at most `line_length_m / (2 * step_m)` steps per direction and
+a line that terminates earlier is shorter, with the returned block NaN-filled
+past termination so every row has equal length. `window_m` is the *side* of the
+ridge-seed neighbourhood, which reaches only `window_m / 2` to either side of
+its own grid point; two seeds can therefore sit about `window_m / 2` apart, and
+the measured nearest-neighbour spacing runs 1.67–1.89 times `window_m / 2`
+across window sizes. Anyone reading either as "the length you get" or "the
+spacing you get" is off by a factor of two.
+
+### Why the degeneracy guard is an eigenvalue ratio
+
+`min_anisotropy` floors $\lambda_2 / \lambda_1$. It is the third form the guard
+has taken, and the two rejected ones are recorded here because each was defended
+on grounds the replacement also has to answer.
+
+A raw $\lambda_2$ floor was rejected on the argument that it "silently retunes
+as the window changes" — true: $\lambda_2$ grows exponentially in $|T|$, so a
+fixed floor tightens as the window lengthens and a well-definedness guard drifts
+into being a selector. A stretching-rate floor, `ftle_min_per_day`, cured that
+by dividing out $|T|$ — but it retunes *worse*, across flow regimes rather than
+across windows, which is the direction that actually bites. The 0.005/day
+default was calibrated to the mesoscale ocean at a 7-day window; measured as a
+fraction of the flow's own FTLE signal, that fixed rate is 0.1% for a fast
+laboratory flow and 45.5% for a slow large-scale one, where it would eat nearly
+half the field. The same two flows put the dimensionless ratio at 2.3% and 1.8%.
+So the first argument was right about its target and too narrow: a rate is
+scale-free in $T$ only.
+
+The ratio retunes with neither, and it is also the physically correct quantity
+rather than merely the scale-free one. The sensitivity of an eigenvector of $C$
+to a perturbation of $C$ scales as the inverse of the *relative* gap between the
+eigenvalues, so $\lambda_2 / \lambda_1$ is exactly what decides whether $\xi_1$
+is a direction or numerical noise, and no stretching rate can stand in for it.
+Measured: at the default 1.15 a 1% error in $C$ swings $\xi_1$ by about 2
+degrees; at a ratio of 1.05 by 6 degrees; by a ratio of 4 it has flattened out
+at about 0.25 degrees.
+
+The default 1.15 is the old `ftle_min_per_day=0.005` behaviour carried over
+essentially exactly: at the 7-day window of the examples that rate corresponded
+to a $\lambda_2$ floor of 1.0725, which for incompressible flow
+($\lambda_1 \lambda_2 = 1$) is a ratio of 1.15. The change of quantity is
+therefore not a change of tuning at the calibration point — it is a change in
+what happens away from it.
+
+And away from it the difference is not academic, because the ocean surface is
+not incompressible. Measured on the Cabo Verde example (5-day window, points
+taken 34 km clear of any coast), the flow map's areal factor $\det \nabla F$ has
+a median of 1.08 forward and 0.97 backward — nearly area-preserving in the bulk —
+but ranges from 0.63 to 2.4 forward and from 0.045 to 14 backward. The implied
+divergence reaches 0.08–0.13 /day at the 99th percentile, against a median FTLE
+of about 0.13 /day: the same order as the signal.
+
+Where $\det \nabla F$ departs from 1, a $\lambda_2$ floor and a
+$\lambda_2/\lambda_1$ floor stop being interchangeable, and the divergence is
+one-sided. On the backward flow the old $\lambda_2$ floor terminates 0.97% of
+grid points against the ratio floor's 0.135%, and the 78 points it kills alone
+have a median $\det \nabla F$ of 0.75 with a median ratio of 1.6 — strongly
+convergent, and with $\xi_1$ perfectly well defined. A magnitude floor cannot
+distinguish "nothing is stretching here" from "everything is contracting here",
+so it preferentially terminates shrink lines inside convergence zones — which is
+where attracting LCS live. On the forward flow, where the median areal factor is
+above 1, the two guards agree almost exactly, which is why the bias never
+surfaced during forward-only development.
 
 ### Why the metadata is attached at construction
 
@@ -199,6 +263,41 @@ the `units` *is* the colorbar caption. It is also why no two quantities share a
 helper but come back as `deformation_gradient` and `cauchy_green`, since two
 distinct quantities under one name silently collide the moment they are merged
 into a `Dataset`.
+
+### Why the metres frame is equirectangular
+
+Positions go into metres through an **equirectangular projection with a single
+standard parallel** $\phi_{\mathrm{ref}}$ (the mean of `lon_0`/`lat_0`), and
+both the reference and the advected positions are read in that one frame. It is
+not a tangent plane, and describing it as one obscures where the error lives: a
+tangent plane would be a local linearisation whose error grows with distance
+from the touch point in *every* direction, whereas here $Y$ is exact by
+construction and only the zonal scale is approximated, by being frozen at
+$\cos\phi_{\mathrm{ref}}$.
+
+Writing $c_0 = \cos(\text{release latitude})$, $c_1 = \cos(\text{arrival
+latitude})$ and $c_{\mathrm{ref}} = \cos\phi_{\mathrm{ref}}$, the true gradient
+relates to the one the package computes as
+
+$$\nabla F_{\mathrm{true}}
+= \mathrm{diag}\!\left(\tfrac{c_1}{c_{\mathrm{ref}}},\, 1\right)
+  \nabla F_{\mathrm{ours}}
+  \mathrm{diag}\!\left(\tfrac{c_{\mathrm{ref}}}{c_0},\, 1\right).$$
+
+So $F_{yy}$ is exact; $F_{xx}$ is off by $c_1 / c_0$ — driven by *meridional
+excursion* of the particle, with $c_{\mathrm{ref}}$ cancelling entirely — and
+the two off-diagonals are off by $c_1 / c_{\mathrm{ref}}$ and
+$c_{\mathrm{ref}} / c_0$. The dominant error term is therefore not the size of
+the domain in longitude but how far particles travel in latitude relative to the
+standard parallel.
+
+Measured median FTLE error: 0.65% over a 5-degree domain, 3.0% over 20 degrees,
+15% over 60 degrees. The package is consequently valid for regional domains of
+modest latitude range with no dateline crossing, and is not currently correct
+for basin-scale ones. Tracked in GitHub issue #18, alongside the related
+dateline/longitude arithmetic in #13; the fix is exact and cheap — two diagonal
+rescalings by cosines already carried in the dataset — so it need not wait for
+the dateline work.
 
 ## Flow chart: a typical session
 
@@ -268,36 +367,43 @@ external dependency (`scipy`, for grid interpolation) at the boundary:
   returning an `xr.Dataset` of polylines on `(line, point)`.
 
 Repelling vs. attracting is just *which* flow map is passed: forward gives
-repelling LCS, backward gives attracting LCS (the same forward/backward duality
-that selects the FTLE's sign of `T`). `FlowMap.lcs()` runs the whole chain:
+repelling LCS, backward gives attracting LCS — the forward–backward duality of
+Haller & Sapsis 2011,
+[doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597).
+`FlowMap.hyperbolic_lcs()` runs the whole chain:
 
 ```python
-lcs = forward.lcs()      # repelling; backward.lcs() for attracting
+lcs = forward.hyperbolic_lcs()   # repelling; backward.hyperbolic_lcs() for attracting
 ```
 
-`lcs()` is convenience, not a new abstraction. It exists because a caller who
-just wants the curves should not have to know that the FTLE is computed twice if
-they wire the three steps naively — it evaluates the field once and hands it
-down. Ridge-finding deliberately keeps taking a *field* rather than a
-`FlowMap`: passing the flow map would hide a recomputation, and a caller who
-wants to smooth or mask the FTLE before picking ridges must be able to. The
-convenience is therefore bought exactly once, in `lcs()`, and the three
-functions underneath stay independently callable.
+The method is named for the *family* of LCS it extracts, not for LCS in general:
+elliptic LCS are a separate extraction with a separate parameter set, and giving
+hyperbolic extraction the generic name `lcs()` would have to be undone the day
+that lands (GitHub issue #8).
 
-`lcs()` returns the curves *and* the FTLE field they were seeded from in one
-`Dataset`. The first plot anyone makes is the curves over that field, and the
-alternative is re-running an eigendecomposition of the whole grid to recover
-something `lcs()` had in hand; the `(line, point)` and `(i, j)` dims coexist
+`hyperbolic_lcs()` is convenience, not a new abstraction. It exists because a
+caller who just wants the curves should not have to know that the FTLE is
+computed twice if they wire the three steps naively — it evaluates the field
+once and hands it down. Ridge-finding deliberately keeps taking a *field* rather
+than a `FlowMap`: passing the flow map would hide a recomputation, and a caller
+who wants to smooth or mask the FTLE before picking ridges must be able to. The
+convenience is therefore bought exactly once, in `hyperbolic_lcs()`, and the
+three functions underneath stay independently callable.
+
+`hyperbolic_lcs()` returns the curves *and* the FTLE field they were seeded from
+in one `Dataset`. The first plot anyone makes is the curves over that field, and
+the alternative is re-running an eigendecomposition of the whole grid to recover
+something it had in hand; the `(line, point)` and `(i, j)` dims coexist
 without conflict. Its parameters all default to `None` and only those the caller
 set are forwarded, so `ftle_ridge_seeds` and `shrink_lines` remain the single
 owners of their defaults. There is no direction argument — the flow map already
-carries $\operatorname{sign}(T)$, and the returned dataset announces repelling
+carries $\mathrm{sign}(T)$, and the returned dataset announces repelling
 or attracting in its own `long_name` attributes.
 
-`lcs()` being a method while the extraction lives in `tensorlines` means `grids`
-would import `tensorlines`, which already imports the metric helpers from
-`grids`. The two names are therefore imported inside `lcs()` rather than at
-module level. The alternative — moving the metres frame into a third module —
+`hyperbolic_lcs()` being a method while the extraction lives in `tensorlines`
+means `grids` would import `tensorlines`, which already imports the metric
+helpers from `grids`. The two names are therefore imported inside
+`hyperbolic_lcs()` rather than at module level. The alternative — moving the metres frame into a third module —
 would touch every import in the package to buy back two lines, so the deferred
 import stands until something else needs that module to exist.
 
@@ -307,9 +413,9 @@ import stands until something else needs that module to exist.
 reading the `lon_grid`/`lat_grid` accessors, so neither concrete class overrides
 anything and a future stencil gets a correct repr for free:
 
-```
-<NeighborSeed 6x5 grid, lon -25.000..-20.000, lat 15.000..20.000>
-<NeighborFlowMap 6x5 grid, lon -25.000..-20.000, lat 15.000..20.000, t0 2020-01-01T00:00:00, T +7.00 days (forward/repelling)>
+```text
+<NeighborSeed 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00>
+<NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00, t0 2020-01-01T00:00:00, T +7.0 days>
 ```
 
 They are summaries, not dataset dumps: `.ds` remains how the dataset is

@@ -11,7 +11,7 @@ from lcs_parcels import Seed, NeighborSeed, AuxiliarySeed, FlowMap, NeighborFlow
 Plus two functions that turn a `FlowMap`'s strain field into hyperbolic-LCS
 curves — `ftle_ridge_seeds` and `shrink_lines` (see
 [Hyperbolic LCS: shrink lines](#hyperbolic-lcs-shrink-lines) below), which
-`FlowMap.lcs()` runs in one call.
+`FlowMap.hyperbolic_lcs()` runs in one call.
 
 Every adjacent same-typed argument pair on the public surface — every
 lon/lat pair — is **keyword-only**, so a transposed call raises `TypeError`.
@@ -22,8 +22,8 @@ deformation gradient $\nabla F$ and everything downstream (Cauchy–Green $C$, i
 eigen-decomposition, and the FTLE). The two families are **siblings, not an
 inheritance pair**: a `FlowMap` is not a kind of `Seed` (it emits nothing to
 Parcels) and a `Seed` is not a kind of `FlowMap` (it has no advected positions
-or window). What the two families genuinely share — the local-tangent metric —
-lives in module-level helpers, not in a common base above both.
+or window). What the two families genuinely share — the equirectangular metres
+frame — lives in module-level helpers, not in a common base above both.
 Symbols and units are defined in [`notation.md`](notation.md); the class diagram
 and session flow are in [`architecture.md`](architecture.md). Naming follows
 Haller (2015),
@@ -65,7 +65,7 @@ being recoverable as `t0 + T`.
 Both families expose the diagnostic grid directly, so no consumer indexes `.ds`
 for it:
 
-```python
+```text
 Seed.lon_grid -> xr.DataArray        # property, (i, j), degrees east
 Seed.lat_grid -> xr.DataArray        # property, (i, j), degrees north
 FlowMap.lon_grid -> xr.DataArray     # same, on the flow map
@@ -85,9 +85,9 @@ dataset itself is displayed.
 
 ```pycon
 >>> seed
-<NeighborSeed 6x5 grid, lon -25.000..-20.000, lat 15.000..20.000>
+<NeighborSeed 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00>
 >>> flowmap
-<NeighborFlowMap 6x5 grid, lon -25.000..-20.000, lat 15.000..20.000, t0 2020-01-01T00:00:00, T +7.00 days (forward/repelling)>
+<NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00, t0 2020-01-01T00:00:00, T +7.0 days>
 ```
 
 ## Constructors and round-trip
@@ -96,7 +96,7 @@ A seed is built, emitted, ingested into a flow map, and (optionally) collapsed
 back to a seed. The two families are connected by two crossings; neither holds a
 reference to the other.
 
-```python
+```text
 Seed.from_axes(*, lon, lat) -> Self                       # classmethod (abstract)
 Seed.to_parcels_pset() -> tuple[list, list]               # concrete (base)
 Seed.pset_to_flowmap(*, lon, lat, t0, t1) -> FlowMap      # concrete (base)
@@ -151,7 +151,7 @@ the seed is a spatial template and every release passes its own `(t0, t1)`.
 The diagnostics live on `FlowMap`; a time-free `Seed` has none (it carries no
 advected positions or window).
 
-```python
+```text
 FlowMap.deformation_gradient() -> xr.DataArray   # abstract (per-stencil)
 FlowMap.cauchy_green() -> xr.DataArray            # concrete (base)
 FlowMap.cg_eigen() -> xr.Dataset                  # concrete (base)
@@ -161,8 +161,12 @@ FlowMap.ftle() -> xr.DataArray                    # concrete (base)
 - **`deformation_gradient()`** — $\nabla F = \partial(\text{lon},
   \text{lat}) / \partial(\text{lon}_0, \text{lat}_0)$ as advected separations
   (numerator, from the ingested outputs) over reference separations
-  (denominator), both taken in the shared single-reference-latitude meters frame
-  (see *Sphere metric convention*). Dims `(i, j, row, col)` with `row`/`col`
+  (denominator), both taken in the shared equirectangular metres frame — one
+  standard parallel `lat_ref` for the whole grid, and the same frame for
+  reference and advected positions (see
+  [`notation.md`](notation.md#equirectangular-metres-frame)). It is accurate for
+  a regional domain of modest latitude range and not for a basin spanning tens of
+  degrees of latitude. Dims `(i, j, row, col)` with `row`/`col`
   dimension coordinates valued `['x', 'y']` and
   `gradF.sel(row=a, col=b) = dF_a / dx0_b`. There is **no** `comp` coord on the
   tensor. The stencil is per-subclass:
@@ -205,68 +209,84 @@ lines = shrink_lines(flowmap, seed_lon=seed_lon, seed_lat=seed_lat)      # curve
 A repelling LCS is a **shrink line** — a curve tangent to the weak-stretch
 eigenvector $\xi_1$ of $C$, solving the tensor-line ODE $\dot r = \xi_1(r)$.
 Attracting LCS need no separate call: by the forward–backward duality (Haller &
-Sapsis 2011) they are the shrink lines of the *backward* flow, so `shrink_lines`
-of a **forward** `FlowMap` gives repelling LCS and of a **backward** one gives
-attracting LCS.
+Sapsis 2011,
+[doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)) they are the shrink
+lines of the *backward* flow, so `shrink_lines` of a **forward** `FlowMap` gives
+repelling LCS and of a **backward** one gives attracting LCS.
 
-```python
+```text
 ftle_ridge_seeds(ftle, *, window_m=30_000.0,
                  quantile=0.90) -> tuple[np.ndarray, np.ndarray]
-shrink_lines(flowmap, *, seed_lon, seed_lat, ftle_min_per_day=0.005,
+shrink_lines(flowmap, *, seed_lon, seed_lat, min_anisotropy=1.15,
              step_m=3_000.0, line_length_m=1_500_000.0) -> xr.Dataset
 ```
 
-The three tuning parameters are physical distances and rates, so the same call
-means the same thing at any resolution and over any window:
+Every tuning parameter is stated in the units of the thing itself — metres for
+the three lengths, a dimensionless eigenvalue ratio for the guard — so the same
+call means the same thing at any resolution and over any window:
 
 - **`ftle_ridge_seeds(ftle)`** — start points at strong local maxima of an FTLE
   field: grid points that are the maximum over a square neighbourhood of side
   `window_m` **metres** (a windowed local maximum on the raw value) *and* at or
   above the `quantile` magnitude floor. `window_m` is converted to an odd cell
   count per dimension from the field's own `lon_grid`/`lat_grid` spacing (the
-  default 30 km is 7 cells on a $1/25^\circ$ grid at $20^\circ$N). The field must carry
-  `lon_grid`/`lat_grid`; `flowmap.ftle()` does. Returns `(lon, lat)` 1-D arrays.
-  NaN cells never qualify.
+  default 30 km is 7 cells on a $1/25^\circ$ grid at $20^\circ$N). The window
+  reaches `window_m / 2` to either side of its own grid point, so two seeds can
+  be as close as about `window_m / 2`, not `window_m`; measured across window
+  sizes, the nearest-neighbour seed spacing comes out at 1.67–1.89 times
+  `window_m / 2`. The field must carry `lon_grid`/`lat_grid`; `flowmap.ftle()`
+  does. Returns `(lon, lat)` 1-D arrays. NaN cells never qualify.
 - **`shrink_lines(flowmap, seed_lon=..., seed_lat=...)`** — integrate the
   $\xi_1$ tensor line through each seed, both directions, on the flow map's
   rectilinear grid. It interpolates the tensor $C$ (via `scipy`'s
   `RegularGridInterpolator`) and re-diagonalises at each step — robust to the
   eigenvector sign ambiguity — and orients each step to the running heading.
-  `line_length_m` is the **full** line length, traced half in each direction:
-  the step count per direction is $n = $ `line_length_m / (2 * step_m)` rounded,
-  at least 1, so every line has $2n + 1$ points. A line stops where the local FTLE
-  falls below `ftle_min_per_day` (in **1/day**, converted against the flow map's
-  own $|T|$ to the eigenvalue floor
-  $\lambda_{\min} = \exp(2\,|T|_{\mathrm{days}}\,\Lambda_{\min})$ — a low guard
-  against the rare degenerate $\lambda_1 \approx \lambda_2$ points, *not* an LCS
-  selector), or where it leaves the grid / hits a NaN cell; a seed that cannot
-  be traced yields an all-NaN line. Returns an `xr.Dataset` with `lon`/`lat` on
-  dims `(line, point)` — one `line` per seed, fixed length, NaN past
-  termination.
+  `line_length_m` is a **cap**, not the achieved length: it is traced half in
+  each direction, with $n = $ `line_length_m / (2 * step_m)` steps per direction
+  (rounded, at least 1), so a line that runs the full budget has $2n + 1$
+  points. A line stops early where $\xi_1$ stops being a well-defined direction
+  — where $\lambda_2 / \lambda_1$ falls below `min_anisotropy` — or where it
+  leaves the grid or hits a NaN cell. Returns an `xr.Dataset` with `lon`/`lat`
+  on dims `(line, point)`, one `line` per seed; every row is the same length,
+  NaN-filled past termination, and a seed that cannot be traced at all is an
+  all-NaN row.
+
+**`min_anisotropy`** is a floor on $\lambda_2 / \lambda_1$, the ratio of the two
+Cauchy–Green eigenvalues, and so dimensionless. It is a **well-definedness
+guard, not an LCS selector** — `quantile` is what selects. The ratio is the
+quantity that matters because an eigenvector's sensitivity to a perturbation of
+$C$ scales as the inverse of the *relative* gap between the eigenvalues: at the
+default 1.15 a 1% error in $C$ swings $\xi_1$ by about 2 degrees, at a ratio of
+1.05 by 6 degrees, and by a ratio of 4 it has flattened out at about 0.25
+degrees. Being a ratio it carries no $T$, no grid scale and no stretching rate,
+so 1.15 means the same thing for a six-hour laboratory flow and a six-month
+basin-scale one.
 
 This layer interpolates on the axis-aligned `lon_grid`/`lat_grid` axes, so (like
 `NeighborFlowMap`) it assumes a rectilinear flow map.
 
-### One call: `FlowMap.lcs()`
+### One call: `FlowMap.hyperbolic_lcs()`
 
-```python
-FlowMap.lcs(*, window_m=None, quantile=None, ftle_min_per_day=None,
-            step_m=None, line_length_m=None) -> xr.Dataset
+```text
+FlowMap.hyperbolic_lcs(*, window_m=None, quantile=None, min_anisotropy=None,
+                       step_m=None, line_length_m=None) -> xr.Dataset
 ```
 
 Runs the three steps — `ftle()`, `ftle_ridge_seeds`, `shrink_lines` — in one
 call, computing the FTLE exactly once. Every parameter is optional and only the
 ones actually passed are forwarded, so the defaults stay in
 `ftle_ridge_seeds`/`shrink_lines`. There is no direction argument: the flow map
-already carries $\operatorname{sign}(T)$, so a forward map yields repelling LCS
+already carries $\mathrm{sign}(T)$, so a forward map yields repelling LCS
 and a backward one attracting LCS, and the returned dataset says which it holds.
+The name says *hyperbolic* because it extracts hyperbolic (repelling and
+attracting) LCS only.
 
 The result is the `shrink_lines` dataset — `lon`/`lat` on `(line, point)` —
 with the `ftle` field on `(i, j)` that the seeds were picked from riding along,
 so the curves can be plotted over it without recomputing an eigendecomposition:
 
 ```python
-lcs = forward.lcs()
+lcs = forward.hyperbolic_lcs()
 lcs["ftle"].plot(x="lon_grid", y="lat_grid")
 plt.plot(lcs["lon"].T, lcs["lat"].T)
 ```
@@ -287,7 +307,7 @@ flow: $\mathcal{M}(t) = F_{t_0}^{t}(\mathcal{M}(t_0))$ (Haller 2015, Eq. 5).
 evolving a curve is just interpolating that map at the curve's vertices — no
 second advection.
 
-```python
+```text
 FlowMap.image(*, lon0, lat0) -> xr.Dataset
 ```
 
@@ -324,7 +344,7 @@ rather than against the logical `i`/`j` axes.
 | `ftle()` | `ftle` | finite-time Lyapunov exponent | `1/s` |
 | `image()`, `grid_image` | `lon` / `lat` | longitude/latitude of the advected position F(x_0) | `degrees_east` / `degrees_north` |
 | `shrink_lines()` | `lon` / `lat` | longitude/latitude along the shrink line | `degrees_east` / `degrees_north` |
-| `lcs()` | `lon` / `lat` | longitude/latitude along the repelling (or attracting) LCS | `degrees_east` / `degrees_north` |
+| `hyperbolic_lcs()` | `lon` / `lat` | longitude/latitude along the repelling (or attracting) LCS | `degrees_east` / `degrees_north` |
 
 Units are SI: the FTLE is `1/s`, not 1/day. Converting for display is the
 reader's call and belongs in the plotting code, where it is visible; re-set
