@@ -25,6 +25,19 @@ Three defects the build surfaced:
   `pixi.lock`.
 - `requires-python = ">=3.11"` is never tested. Both pixi environments pin 3.13.
 
+## Governance
+
+Two `AGENTS.md` rules change with this plan, because publishing invalidates their
+premise. Both edits are in this PR.
+
+- The greenfield rule said the users are ~100% the developers and there is no
+  external user base. On PyPI that stops being true. Breaking changes stay
+  allowed and deprecation shims stay banned; what is added is that a break is
+  recorded in the release notes for the version that makes it.
+- The environments rule gave Python 3.13 as a universal pin. Supported versions
+  now follow SPEC 0, so the window moves on a published schedule and a floor bump
+  is a date lookup.
+
 ## Sequencing
 
 Three orderings force the split into separate PRs:
@@ -110,39 +123,54 @@ upper cap: a pin in a library's metadata propagates into every downstream
 resolution and stops `lcs_parcels` being co-installable. `pixi.lock` pins the
 development environment; `[project]` declares what the library can live with.
 
-Set the floors generously. The third-party surface is small and old —
-`np.linalg.eigh`, `np.column_stack`, `xr.apply_ufunc`, `xr.dot`, `xr.concat`,
-`scipy.interpolate.RegularGridInterpolator` — so the code would run against much
-older releases than these, and there is no reason to promise that it does.
+Floors come from SPEC 0, except where a measurement puts one higher:
 
-Floor each dependency at the version where that project dropped Python 3.10, so
-the line is not an arbitrary number:
-
-| | floor | released |
+| | floor | why |
 |---|---|---|
-| numpy | `>=2.3` | 2025-06 |
-| scipy | `>=1.16` | 2025-06 |
-| xarray | `>=2025.7` | 2025-07 |
+| numpy | `>=2.2` | SPEC 0. 2.1 drops 2026-08; nothing in the suite needs it |
+| scipy | `>=1.15` | SPEC 0. 1.14 dropped 2026-06; nothing in the suite needs it |
+| xarray | `>=2025.11` | measured, above the SPEC 0 line |
 
-This is bounded above by `requires-python = ">=3.11"`. numpy 2.5 and scipy 1.18
-both require Python 3.12, and the default pixi environment currently holds
-exactly those, so the development stack is 3.12-only while the declared Python
-floor is 3.11. numpy 2.4.6 and scipy 1.17.1 are the newest releases the 3.11 job
-can resolve. Accept that the 3.11 job tests a different dependency stack from the
-one we develop against — that is the floor being exercised.
+The numpy and scipy floors are policy rather than capability. The whole
+third-party surface is `np.linalg.eigh`, `np.column_stack`, `xr.apply_ufunc`,
+`xr.dot`, `xr.concat` and `scipy.interpolate.RegularGridInterpolator`; the suite
+passes on numpy 1.26 and scipy 1.11. There is no reason to promise support that
+far back.
+
+The xarray floor is measured. Bisected on 3.11 and 3.12, xarray 2023.12, 2024.7,
+2025.1, 2025.3, 2025.9 and 2025.10 all fail the same three tests
+(`test_diagnostics_are_labelled` for both seeds, plus
+`test_hyperbolic_lcs_output_is_labelled`); 2025.11 and later pass all 102. Older
+xarray drops `attrs` from index coordinates, so `i` comes back with no
+`long_name`. That breaks the rule that output metadata *is* the axis label, so it
+is a real floor and not a test artifact. SPEC 0's two-year window would allow
+xarray 2024.8, and this sits above it.
 
 Test the floor rather than assert it: a CI job resolving `--resolution
 lowest-direct` and running the suite, so a floor that is wrong fails.
 
-**Python matrix.** Add pixi features `py311`, `py312`, `py313`, each pinning its
-interpreter, and the matching `test-py311`/`test-py312`/`test-py313`
-environments. `default` and `examples` stay on 3.13, which is the newest Parcels
-v4 supports. Verify `>=3.11` actually solves and passes before keeping the floor;
-`typing.Self` is the only version-sensitive import today. Update the environments
-section of `AGENTS.md`, which currently states there are two environments and
-gives the 3.13 pin as universal.
+**Python range.** Set `requires-python = ">=3.12"` and test 3.12, 3.13 and 3.14.
+This is SPEC 0 applied on today's date: a Python is supported for 3 years after
+release, so 3.11's drop date was 2025-10-23 and 3.12's is 2026-10-01.
 
-CI: keep the OS matrix at 3.13, add ubuntu jobs for 3.11 and 3.12.
+Three facts behind that choice:
+
+- 3.14 was released 2025-10-07 and is currently tested nowhere. The suite passes
+  on it unmodified — 102 passed, verified. The gap in coverage is at the top of
+  the range, not the bottom.
+- numpy 2.5 and scipy 1.18 require Python 3.12, because they follow SPEC 0 too.
+  The default pixi environment holds exactly those. A 3.11 floor would mean the
+  declared range resolves a dependency stack we never run.
+- 3.12 drops out on 2026-10-01, two months out. Expect to move to `>=3.13` then;
+  under the SPEC 0 rule in `AGENTS.md` that is a date lookup, not a discussion.
+
+Add pixi features `py312`, `py313`, `py314`, each pinning its interpreter, and
+the matching test environments. `examples` stays on 3.13, the newest Parcels v4
+supports. Update the environments section of `AGENTS.md`, which states there are
+two environments and gives the 3.13 pin as universal, and add SPEC 0 as the rule
+that moves these numbers.
+
+CI: keep the OS matrix at 3.13, add ubuntu jobs for 3.12 and 3.14.
 
 **Coverage.** Add `.coverage` and `htmlcov/` to `.gitignore`; neither is there
 today. Add `pytest-cov`, a `test-cov` pixi task running
@@ -169,6 +197,10 @@ coverage as a CI gate with no badge. This plan proposes the gate alone.
   wheel, uploads with PyPI Trusted Publishing (OIDC, no token in secrets).
 - Release commit bumping `version` in `pyproject.toml` and `__version__` in
   `src/lcs_parcels/__init__.py` to the same unpadded CalVer string, then the tag.
+- Release notes, now that the loosened compatibility rule requires them. PRs 1
+  and 2 change `deformation_gradient` output and the `ftle_ridge_seeds`
+  signature; those go in the notes for this first version even though nobody can
+  have depended on them yet, so the format starts as it continues.
 
 **User action, blocking:** a pending publisher for `lcs_parcels` must be
 configured on pypi.org before the tag is pushed. Only the account owner can do

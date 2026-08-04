@@ -143,13 +143,21 @@ that.
   manifest.** Use `pixi add`, `pixi add --pypi`, `pixi add --feature <f> ...`,
   `pixi project ...` so pixi edits `pyproject.toml` and `pixi.lock` together.
   Don't hand-write the `[tool.pixi.*]` tables.
-- **Two environments, split on weight.** The `default` env stays **minimal** —
-  the core package and its tests only — and is pinned to **Python 3.13** (the
-  newest Parcels v4 supports) so tests run on a Parcels-compatible interpreter.
-  The `examples` env adds the heavy example stack (Parcels v4,
-  `copernicusmarine`, matplotlib). Run tests with `pixi run test`; run the real
-  examples with `pixi run -e examples ...`. Do not push Parcels/CMEMS/plotting
-  deps into the default env.
+- **Environments split on weight.** The `default` env stays **minimal** — the
+  core package and its tests only. The `examples` env adds the heavy example
+  stack (Parcels v4, `copernicusmarine`, matplotlib) and is pinned to **Python
+  3.13**, the newest Parcels v4 supports. Run tests with `pixi run test`; run the
+  real examples with `pixi run -e examples ...`. Do not push Parcels/CMEMS/
+  plotting deps into the default env. One further env per supported Python
+  carries the test matrix.
+- **Supported versions follow SPEC 0**, which numpy, scipy, xarray, matplotlib
+  and zarr all endorse: drop a Python version 3 years after its release, and a
+  core dependency 2 years after its release
+  ([SPEC 0](https://scientific-python.org/specs/spec-0000/)). So the window moves
+  on a schedule rather than on an argument — bumping `requires-python` or a
+  dependency floor is a date lookup against that table. A floor may sit *above*
+  the SPEC 0 line where a measured failure puts it there; record the measurement
+  next to the floor. It never sits below.
 - **Ruff lints and formats everything, and CI gates it.** Run `pixi run lint`
   (`ruff check` plus `ruff format --check`) before handing work over; `ruff
   format` fixes the formatting half. It covers `src/`, `tests/`, and the example
@@ -253,15 +261,18 @@ verified against the pinned v4 alpha:
   The squash message is the PR title and body, so write the PR body as the
   commit message it will become, `Closes #N` included, and let the merge close
   the issues.
-- **Greenfield: the user is the developer; no backward compatibility.** This is a
-  specialized research tool whose users are (to ~100%) its developers; there is
-  no external user base and no compatibility contract. Change signatures, data
-  layouts, dim names, and file formats freely when the design improves. Do not
-  add deprecation shims, compatibility aliases, migration code, or "legacy"
-  branches — delete the old form outright and update all call sites. This governs
-  the compatibility contract, not what gets written where: the same person reads
-  as a trusting user on Monday and a developer on Friday, so the three-reader
-  model above still decides what belongs in which file.
+- **Breaking changes are allowed, but they are announced.** The package is
+  published on PyPI, so there are users who are not developers of it and who did
+  not read the PR that changed things under them. Change signatures, data
+  layouts, dim names, and file formats when the design improves — that freedom
+  stays. What changes is that a break is no longer silent: a release that breaks
+  a documented call records what broke and what to write instead, in the release
+  notes for that version.
+  Still do not add deprecation shims, compatibility aliases, migration code, or
+  "legacy" branches. Delete the old form outright and update all call sites; the
+  release notes carry the migration, not the code.
+  This governs the compatibility contract, not what gets written where: the
+  three-reader model above still decides what belongs in which file.
 
 ## Releases
 
