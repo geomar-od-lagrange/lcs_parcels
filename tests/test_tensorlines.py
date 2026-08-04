@@ -10,6 +10,7 @@ point, no NaN edges).
 """
 
 import numpy as np
+import pytest
 import xarray as xr
 from conftest import advected_flowmap
 
@@ -74,7 +75,11 @@ def test_ftle_ridge_seeds_skips_nan(lon_axis, lat_axis):
 
 
 def _centre_seed(flowmap):
-    return [float(flowmap.ds["lon_c"].mean())], [float(flowmap.ds["lat_c"].mean())]
+    """A single seed at the grid centre, as ``shrink_lines`` keyword arguments."""
+    return {
+        "seed_lon": [float(flowmap.ds["lon_c"].mean())],
+        "seed_lat": [float(flowmap.ds["lat_c"].mean())],
+    }
 
 
 def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
@@ -82,7 +87,7 @@ def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
     fm = advected_flowmap(
         AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
     )
-    lines = shrink_lines(fm, *_centre_seed(fm), step_m=10_000.0, n_steps=4)
+    lines = shrink_lines(fm, **_centre_seed(fm), step_m=10_000.0, n_steps=4)
 
     lon = lines["lon"].isel(line=0).values
     lat = lines["lat"].isel(line=0).values
@@ -101,7 +106,7 @@ def test_shrink_lines_output_structure(lon_axis, lat_axis):
     seed_lon = [float(fm.ds["lon_c"].mean()), float(fm.ds["lon_c"].mean()) + 0.1]
     seed_lat = [float(fm.ds["lat_c"].mean()), float(fm.ds["lat_c"].mean())]
 
-    lines = shrink_lines(fm, seed_lon, seed_lat, n_steps=6)
+    lines = shrink_lines(fm, seed_lon=seed_lon, seed_lat=seed_lat, n_steps=6)
 
     assert set(lines.dims) == {"line", "point"}
     assert lines.sizes["line"] == 2
@@ -112,7 +117,7 @@ def test_shrink_lines_output_structure(lon_axis, lat_axis):
 def test_shrink_lines_stop_below_lambda_guard(lon_axis, lat_axis):
     """M = I gives lambda_2 = 1 < guard, so the (untraceable) line is all NaN."""
     fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, np.eye(2), T0, T1)
-    lines = shrink_lines(fm, *_centre_seed(fm), lambda_max_min=1.1, n_steps=5)
+    lines = shrink_lines(fm, **_centre_seed(fm), lambda_max_min=1.1, n_steps=5)
 
     assert bool(lines["lon"].isnull().all())
 
@@ -122,7 +127,12 @@ def test_shrink_lines_seed_off_grid_is_nan(lon_axis, lat_axis):
     fm = advected_flowmap(
         AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
     )
-    lines = shrink_lines(fm, [lon_axis[0] - 50.0], [lat_axis[0] - 50.0], n_steps=5)
+    lines = shrink_lines(
+        fm,
+        seed_lon=[lon_axis[0] - 50.0],
+        seed_lat=[lat_axis[0] - 50.0],
+        n_steps=5,
+    )
 
     assert bool(lines["lon"].isnull().all())
     assert bool(lines["lat"].isnull().all())
@@ -144,7 +154,9 @@ def test_shrink_line_uses_reference_latitude_metric():
     lat_axis = np.linspace(0.0, 40.0, 41)
     fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
 
-    lines = shrink_lines(fm, [0.0], [20.0], step_m=20_000.0, n_steps=60)
+    lines = shrink_lines(
+        fm, seed_lon=[0.0], seed_lat=[20.0], step_m=20_000.0, n_steps=60
+    )
     lon = lines["lon"].isel(line=0).values
     lat = lines["lat"].isel(line=0).values
     valid = np.isfinite(lon) & np.isfinite(lat)
@@ -155,3 +167,14 @@ def test_shrink_line_uses_reference_latitude_metric():
     x, y = _lonlat_to_meters(lon[valid], lat[valid], lon_ref, lat_ref)
     resid = y - np.polyval(np.polyfit(x, y, 1), x)
     assert np.max(np.abs(resid)) < 1e3  # collinear to < 1 km over ~1000 km
+
+
+def test_shrink_lines_seed_pair_is_keyword_only(lon_axis, lat_axis):
+    """Passing the seed lon/lat pair positionally raises, so a swap cannot pass
+    silently -- including the ``*ftle_ridge_seeds(...)`` unpacking form."""
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
+    )
+    seed = _centre_seed(fm)
+    with pytest.raises(TypeError):
+        shrink_lines(fm, seed["seed_lon"], seed["seed_lat"])

@@ -2,12 +2,13 @@
 
 A ``Seed`` is time-free: ``from_axes`` takes no ``t0``, and the dataset is
 all-coordinates (no ``t0``/``T``, no advected ``lon``/``lat``). Time and the
-advected positions enter at ingest, ``seed.pset_to_flowmap(lon, lat, *, t0,
-t1)``, which returns a ``FlowMap`` carrying scalar ``t0``/``T`` coords and
-``lon``/``lat`` data vars.
+advected positions enter at ingest, ``seed.pset_to_flowmap(lon=..., lat=...,
+t0=..., t1=...)``, which returns a ``FlowMap`` carrying scalar ``t0``/``T``
+coords and ``lon``/``lat`` data vars.
 """
 
 import numpy as np
+import pytest
 
 from lcs_parcels import AuxiliarySeed, NeighborSeed
 from lcs_parcels.grids import _lonlat_to_meters
@@ -21,7 +22,7 @@ T1 = np.datetime64("2020-01-02")
 
 
 def test_neighbor_seed_from_axes_dims(lon_axis, lat_axis):
-    seed = NeighborSeed.from_axes(lon_axis, lat_axis)
+    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
     ds = seed.ds
 
     # curvilinear reference lon_0/lat_0 on logical dims (i, j)
@@ -43,7 +44,7 @@ def test_neighbor_seed_from_axes_dims(lon_axis, lat_axis):
 
 
 def test_neighbor_seed_lon_lat_values(lon_axis, lat_axis):
-    seed = NeighborSeed.from_axes(lon_axis, lat_axis)
+    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
     ds = seed.ds
 
     # 2D reference lon_0/lat_0 broadcast from the 1D axes (label-based access).
@@ -57,7 +58,7 @@ def test_neighbor_seed_lon_lat_values(lon_axis, lat_axis):
 
 
 def test_auxiliary_seed_from_axes_dims(lon_axis, lat_axis):
-    seed = AuxiliarySeed.from_axes(lon_axis, lat_axis)
+    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
     ds = seed.ds
 
     assert ds.sizes["i"] == lon_axis.size
@@ -87,8 +88,8 @@ def test_auxiliary_seed_from_axes_dims(lon_axis, lat_axis):
 
 
 def test_only_auxiliary_has_stencil(lon_axis, lat_axis):
-    ns = NeighborSeed.from_axes(lon_axis, lat_axis)
-    aus = AuxiliarySeed.from_axes(lon_axis, lat_axis)
+    ns = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+    aus = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
 
     # NeighborSeed has no auxiliary stencil: no displacement dim, no centres, and
     # its reference positions are the grid points themselves on (i, j).
@@ -113,7 +114,7 @@ def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
     of each labelled arm is correct.
     """
     s = 2_500.0  # non-default aux_separation_m
-    seed = AuxiliarySeed.from_axes(lon_axis, lat_axis, aux_separation_m=s)
+    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis, aux_separation_m=s)
     lon0, lat0 = seed.ds["lon_0"], seed.ds["lat_0"]
     lon_c, lat_c = seed.ds["lon_c"], seed.ds["lat_c"]
     lon_ref, lat_ref = float(lon_c.mean()), float(lat_c.mean())
@@ -147,8 +148,9 @@ def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
 
 
 def test_neighbor_flowmap_shape(lon_axis, lat_axis):
-    seed = NeighborSeed.from_axes(lon_axis, lat_axis)
-    fm = seed.pset_to_flowmap(*seed.to_parcels_pset(), t0=T0, t1=T1)
+    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+    lon, lat = seed.to_parcels_pset()
+    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1)
     ds = fm.ds
 
     # The flow map adds the advected positions as its only data vars, on (i, j).
@@ -169,8 +171,9 @@ def test_neighbor_flowmap_shape(lon_axis, lat_axis):
 
 
 def test_auxiliary_flowmap_shape(lon_axis, lat_axis):
-    seed = AuxiliarySeed.from_axes(lon_axis, lat_axis)
-    fm = seed.pset_to_flowmap(*seed.to_parcels_pset(), t0=T0, t1=T1)
+    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
+    lon, lat = seed.to_parcels_pset()
+    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1)
     ds = fm.ds
 
     # Advected arm positions carry the displacement dim on top of (i, j).
@@ -189,3 +192,23 @@ def test_auxiliary_flowmap_shape(lon_axis, lat_axis):
     assert ds["T"].ndim == 0
     assert ds["t0"] == T0
     assert ds["T"] == (T1 - T0)
+
+
+# --- keyword-only lon/lat pairs --------------------------------------------
+
+
+def test_lonlat_pairs_are_keyword_only(lon_axis, lat_axis):
+    """Passing a lon/lat pair positionally raises, so a swap cannot pass silently."""
+    with pytest.raises(TypeError):
+        NeighborSeed.from_axes(lon_axis, lat_axis)
+    with pytest.raises(TypeError):
+        AuxiliarySeed.from_axes(lon_axis, lat_axis)
+
+    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+    lon, lat = seed.to_parcels_pset()
+    with pytest.raises(TypeError):
+        seed.pset_to_flowmap(lon, lat, t0=T0, t1=T1)
+
+    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1)
+    with pytest.raises(TypeError):
+        fm.image(fm.ds["lon_0"], fm.ds["lat_0"])

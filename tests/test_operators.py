@@ -4,7 +4,7 @@ For a constant linear flow map ``F(x) = M @ x`` in the local meters frame,
 ``gradF`` equals ``M`` at every grid point, so the whole chain has closed-form
 answers. The ``conftest.advected_flowmap`` helper seeds a time-free grid, emits
 its particle set, advects through ``M`` about the seed centroid, and ingests via
-``seed.pset_to_flowmap(..., t0, t1)`` (the signed window ``T = t1 - t0`` lands on
+``seed.pset_to_flowmap`` (the signed window ``T = t1 - t0`` lands on
 the ``FlowMap``).
 
 A non-symmetric ``M = [[2.0, 0.5], [0.0, 3.0]]`` is used for the general tests so

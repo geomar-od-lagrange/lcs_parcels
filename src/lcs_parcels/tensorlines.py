@@ -64,9 +64,9 @@ def ftle_ridge_seeds(
 
 def shrink_lines(
     flowmap,
+    *,
     seed_lon,
     seed_lat,
-    *,
     lambda_max_min: float = 1.1,
     step_m: float = 3_000.0,
     n_steps: int = 250,

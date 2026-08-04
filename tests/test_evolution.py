@@ -29,7 +29,7 @@ def test_image_at_grid_node_returns_stored_position(lon_axis, lat_axis):
     """At a reference grid node, image returns that node's stored advected position."""
     fm = _flowmap(lon_axis, lat_axis)
     node = {"i": 1, "j": 2}
-    out = fm.image(fm.ds["lon_0"].isel(**node), fm.ds["lat_0"].isel(**node))
+    out = fm.image(lon0=fm.ds["lon_0"].isel(**node), lat0=fm.ds["lat_0"].isel(**node))
 
     assert np.isclose(out["lon"], fm.ds["lon"].isel(**node))
     assert np.isclose(out["lat"], fm.ds["lat"].isel(**node))
@@ -41,7 +41,7 @@ def test_image_off_node_is_exact_for_linear_map(lon_axis, lat_axis):
     a, b = {"i": 1, "j": 2}, {"i": 2, "j": 2}  # neighbours along i (same latitude row)
     lon0_mid = 0.5 * (fm.ds["lon_0"].isel(**a) + fm.ds["lon_0"].isel(**b))
     lat0_mid = fm.ds["lat_0"].isel(**a)
-    out = fm.image(lon0_mid, lat0_mid)
+    out = fm.image(lon0=lon0_mid, lat0=lat0_mid)
 
     assert np.isclose(
         out["lon"], 0.5 * (fm.ds["lon"].isel(**a) + fm.ds["lon"].isel(**b))
@@ -56,11 +56,11 @@ def test_image_preserves_indexer_dims(lon_axis, lat_axis):
     fm = _flowmap(lon_axis, lat_axis)
 
     curve = fm.ds[["lon_0", "lat_0"]].isel(j=2).rename(i="param")
-    along = fm.image(curve["lon_0"], curve["lat_0"])
+    along = fm.image(lon0=curve["lon_0"], lat0=curve["lat_0"])
     assert along["lon"].dims == ("param",)
 
     grid = fm.ds[["lon_0", "lat_0"]].rename(i="line", j="point")
-    lattice = fm.image(grid["lon_0"], grid["lat_0"])
+    lattice = fm.image(lon0=grid["lon_0"], lat0=grid["lat_0"])
     assert set(lattice["lon"].dims) == {"line", "point"}
 
 
@@ -72,7 +72,7 @@ def test_image_off_grid_and_nan_inputs_are_nan(lon_axis, lat_axis):
 
     lon0 = xr.DataArray([centre_lon, lon_axis[0] - 50.0, np.nan], dims="param")
     lat0 = xr.DataArray([centre_lat, lat_axis[0] - 50.0, centre_lat], dims="param")
-    out = fm.image(lon0, lat0)
+    out = fm.image(lon0=lon0, lat0=lat0)
 
     assert np.isfinite(out["lon"].isel(param=0))  # interior point: finite
     assert bool(out["lon"].isel(param=1).isnull())  # off-grid: NaN
@@ -86,7 +86,7 @@ def test_image_on_auxiliary_flowmap(lon_axis, lat_axis):
     node = {"i": 1, "j": 2}
     lon_c = fm.ds["lon_c"].isel(**node)
     lat_c = fm.ds["lat_c"].isel(**node)
-    out = fm.image(lon_c, lat_c)
+    out = fm.image(lon0=lon_c, lat0=lat_c)
 
     # For a linear map the arm centroid is exactly the centre's advected position.
     origin = (float(fm.ds["lon_0"].mean()), float(fm.ds["lat_0"].mean()))
@@ -104,6 +104,6 @@ def test_image_auxiliary_lost_arm_maps_to_nan(lon_axis, lat_axis):
     bad = (fm.ds["i"] == 1) & (fm.ds["j"] == 2) & (fm.ds["displacement"] == "west")
     fm.ds["lon"] = fm.ds["lon"].where(~bad)
 
-    out = fm.image(fm.ds["lon_c"], fm.ds["lat_c"])
+    out = fm.image(lon0=fm.ds["lon_c"], lat0=fm.ds["lat_c"])
     assert bool(out["lon"].isel(i=1, j=2).isnull())  # the crippled centre
     assert bool(out["lon"].isel(i=2, j=2).notnull())  # an intact neighbour

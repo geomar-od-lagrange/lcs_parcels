@@ -189,6 +189,10 @@ verified against the pinned v4 alpha:
 - **Avoid over-engineering.** Favor a small, concrete API — a few well-named
   methods — over layered adapters and indirection. Add structure when a concrete
   need appears, not before.
+- **Same-typed adjacent arguments are keyword-only.** A public entry point that
+  takes a lon/lat pair (or any other run of interchangeable-looking arguments)
+  takes it by keyword, so a caller cannot silently transpose them: a swap must
+  be a `TypeError`, not a plausible answer off the coast of nowhere.
 
 ## Process & change discipline
 

@@ -73,17 +73,17 @@ def advected_flowmap_f(seed_cls, lon_axis, lat_axis, f, t0, t1):
 
     Seed ``seed_cls`` from the 1-D axes, emit its particle set, advect every flat
     position through ``f(dx, dy) -> (dx_out, dy_out)`` about the seed centroid,
-    then ingest via ``seed.pset_to_flowmap(..., t0, t1)`` and return the
-    ``FlowMap``. The advection ``origin`` is the seed centroid
+    then ingest via ``seed.pset_to_flowmap(lon=..., lat=..., t0=..., t1=...)``
+    and return the ``FlowMap``. The advection ``origin`` is the seed centroid
     ``(seed.ds['lon_0'].mean(), seed.ds['lat_0'].mean())``, which coincides with
     the implementation's reference point, so the recovered deformation gradient
     is the Jacobian of ``f``.
     """
-    seed = seed_cls.from_axes(lon_axis, lat_axis)
+    seed = seed_cls.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
     origin = (float(seed.ds["lon_0"].mean()), float(seed.ds["lat_0"].mean()))
     lon_out, lat_out = apply_map_to_pset(lon, lat, f, origin)
-    return seed.pset_to_flowmap(lon_out, lat_out, t0=t0, t1=t1)
+    return seed.pset_to_flowmap(lon=lon_out, lat=lat_out, t0=t0, t1=t1)
 
 
 def advected_flowmap(seed_cls, lon_axis, lat_axis, M, t0, t1):

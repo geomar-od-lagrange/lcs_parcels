@@ -173,7 +173,7 @@ class Seed(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def from_axes(cls, lon: np.ndarray, lat: np.ndarray) -> Self:
+    def from_axes(cls, *, lon: np.ndarray, lat: np.ndarray) -> Self:
         """Build a time-free seed from 1-D lon/lat axes.
 
         The 1-D axes are broadcast into 2-D reference fields ``lon_0``/``lat_0``
@@ -217,7 +217,7 @@ class Seed(abc.ABC):
             list(lat0.stack(particle=dims).values),
         )
 
-    def pset_to_flowmap(self, lon, lat, *, t0, t1) -> FlowMap:
+    def pset_to_flowmap(self, *, lon, lat, t0, t1) -> FlowMap:
         """Reattach advected flat lon/lat and produce a :class:`FlowMap`.
 
         Inverse of :meth:`to_parcels_pset`: the flat advected positions are
@@ -412,7 +412,7 @@ class FlowMap(abc.ABC):
         # (1 / |T|) log sqrt(lambda_max) = (1 / |T|) * 0.5 * log(lambda_max).
         return (1.0 / t_sec) * 0.5 * np.log(lambda_max)
 
-    def image(self, lon0: xr.DataArray, lat0: xr.DataArray) -> xr.Dataset:
+    def image(self, *, lon0: xr.DataArray, lat0: xr.DataArray) -> xr.Dataset:
         """Advected positions ``F_{t0}^{t1}(x_0)`` at arbitrary reference points.
 
         Interpolates the stored advected-position field ``lon``/``lat`` at the
@@ -497,7 +497,7 @@ class NeighborSeed(Seed):
     """
 
     @classmethod
-    def from_axes(cls, lon: np.ndarray, lat: np.ndarray) -> Self:
+    def from_axes(cls, *, lon: np.ndarray, lat: np.ndarray) -> Self:
         """Build a neighbour-stencil seed from 1-D lon/lat axes.
 
         See :meth:`Seed.from_axes`. The 1-D axes are broadcast into axis-aligned
@@ -546,9 +546,9 @@ class AuxiliarySeed(Seed):
     @classmethod
     def from_axes(
         cls,
+        *,
         lon: np.ndarray,
         lat: np.ndarray,
-        *,
         aux_separation_m: float = 1_000.0,
     ) -> Self:
         """Build an auxiliary-stencil seed from 1-D lon/lat axes.

@@ -18,7 +18,7 @@ T1 = np.datetime64("2020-01-02")
 
 
 def test_neighbor_pset_length(lon_axis, lat_axis):
-    seed = NeighborSeed.from_axes(lon_axis, lat_axis)
+    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
 
     expected = lon_axis.size * lat_axis.size
@@ -28,7 +28,7 @@ def test_neighbor_pset_length(lon_axis, lat_axis):
 
 
 def test_auxiliary_pset_length(lon_axis, lat_axis):
-    seed = AuxiliarySeed.from_axes(lon_axis, lat_axis)
+    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
 
     ds = seed.ds
@@ -38,12 +38,12 @@ def test_auxiliary_pset_length(lon_axis, lat_axis):
 
 
 def test_neighbor_roundtrip_identity(lon_axis, lat_axis):
-    seed = NeighborSeed.from_axes(lon_axis, lat_axis)
+    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
 
     # Reattach the SAME positions (identity flow map): ingest must reproduce the
     # seed positions exactly, pinning the lossless stack -> unstack inverse.
-    fm = seed.pset_to_flowmap(lon, lat, t0=T0, t1=T1)
+    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1)
 
     # Advected positions land in lon/lat; with identity input they equal the
     # reference seed positions lon_0/lat_0, which are carried through unchanged.
@@ -58,10 +58,10 @@ def test_neighbor_roundtrip_identity(lon_axis, lat_axis):
 
 
 def test_auxiliary_emit_ingest_emit_lossless(lon_axis, lat_axis):
-    seed = AuxiliarySeed.from_axes(lon_axis, lat_axis)
+    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
 
-    fm = seed.pset_to_flowmap(lon, lat, t0=T0, t1=T1)
+    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1)
 
     # to_seed drops the advected lon/lat and the time coords, yielding a
     # time-free seed; re-emitting it reproduces the same flat particle set
@@ -84,9 +84,9 @@ def test_auxiliary_emit_ingest_emit_lossless(lon_axis, lat_axis):
 
 
 def test_roundtrip_preserves_grid_dims(lon_axis, lat_axis):
-    seed = NeighborSeed.from_axes(lon_axis, lat_axis)
+    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
-    fm = seed.pset_to_flowmap(lon, lat, t0=T0, t1=T1)
+    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1)
 
     # Ingest unstacks back to the logical (i, j) grid.
     assert fm.ds.sizes["i"] == lon_axis.size
@@ -97,8 +97,8 @@ def test_roundtrip_preserves_grid_dims(lon_axis, lat_axis):
 def test_zero_window_raises(lon_axis, lat_axis):
     """Ingesting with t1 == t0 (zero window) must raise -- FTLE's 1/|T| would
     otherwise divide by zero."""
-    seed = NeighborSeed.from_axes(lon_axis, lat_axis)
+    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
 
     with pytest.raises(ValueError):
-        seed.pset_to_flowmap(lon, lat, t0=T0, t1=T0)
+        seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T0)
