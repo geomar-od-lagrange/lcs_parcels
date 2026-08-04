@@ -109,13 +109,12 @@ def set_lost_to_nan(particles, fieldset):
 # ## Advect to each horizon
 #
 # One advection per direction, stopped at each horizon to read the positions
-# off: the five-day run passes through the one-day state anyway, so restarting
-# from $t_0$ for every horizon would integrate 15 days per direction instead of
-# 5.
+# off: the five-day run passes through the one-day state on its way.
 #
-# Each leg is given an absolute `endtime`. With `runtime` the particles keep
-# their positions across calls but every leg re-enters at $t_0$, so the second
-# day would be advected with the first day's currents.
+# Each leg is given an absolute `endtime`. `runtime` is measured from the
+# earliest particle time in the set, which a lost particle freezes at the moment
+# it beached, so the legs after the first would ask for an interval the healthy
+# particles had already passed.
 
 # %%
 forward_maps, backward_maps = [], []

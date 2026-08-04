@@ -14,8 +14,8 @@ advection::
     ftle = flowmap.ftle()            # 1/s, on the (i, j) diagnostic grid
     lcs = flowmap.hyperbolic_lcs()   # or straight to the LCS curves
 
-Pass ``t1`` before ``t0`` for backward integration (attracting LCS); a zero
-window is rejected. Two stencils for the deformation gradient are two pairs of
+Pass ``t1`` before ``t0`` for backward integration; a zero window is rejected.
+Two stencils for the deformation gradient are two pairs of
 classes: :class:`NeighborSeed` / :class:`NeighborFlowMap` difference against
 neighbouring grid points, :class:`AuxiliarySeed` / :class:`AuxiliaryFlowMap`
 against a four-arm stencil laid around each grid point.
@@ -313,8 +313,8 @@ class Seed(abc.ABC):
             Release time of the seed positions.
         t1 : datetime64-like
             End time of the integration. The signed window ``T = t1 - t0`` sets
-            the direction (``t1 < t0`` backward/attracting; ``t1 > t0``
-            forward/repelling). ``t1`` is not stored (recoverable as ``t0 + T``).
+            the direction (``t1 < t0`` backward; ``t1 > t0`` forward).
+            ``t1`` is not stored (recoverable as ``t0 + T``).
 
         Returns
         -------

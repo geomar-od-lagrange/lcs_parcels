@@ -67,10 +67,9 @@ jobs:
           path: examples/data
           key: cmems-subset-${{ hashFiles('examples/get_data.py') }}
 
-      # Takes ~15 min, nearly all of it cabo_verde_lcs_evolution. Unbuffered
-      # output is what makes it stream, so each example reports as it finishes
-      # rather than the step looking hung for a quarter of an hour.
-      - name: Run every example as a test (~15 min)
+      # Unbuffered output makes each example report as it finishes rather than
+      # the step going quiet until the end.
+      - name: Run every example as a test
         env:
           COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
           COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}

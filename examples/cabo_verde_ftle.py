@@ -54,10 +54,12 @@ seed_lon, seed_lat = (-27.0, -21.0), (13.5, 18.5)  # release box
 
 # %% [markdown]
 # ## Currents
+#
+# The local file that `get_data` writes.
 
 # %%
-ds = xr.open_dataset("data/cabo_verde_currents_hourly.nc").load()
-ds
+currents = xr.open_dataset("data/cabo_verde_currents_hourly.nc").load()
+currents
 
 # %% [markdown]
 # ## Parcels v4 field set
@@ -66,9 +68,9 @@ ds
 # `from_sgrid_conventions` wraps it as a spherical `FieldSet`.
 
 # %%
-sgrid = copernicusmarine_to_sgrid(fields={"U": ds["uo"], "V": ds["vo"]})
+sgrid = copernicusmarine_to_sgrid(fields={"U": currents["uo"], "V": currents["vo"]})
 fieldset = FieldSet.from_sgrid_conventions(sgrid, mesh="spherical")
-z_surface = float(ds["depth"].values[0])
+z_surface = float(currents["depth"].values[0])
 
 
 # %% [markdown]
