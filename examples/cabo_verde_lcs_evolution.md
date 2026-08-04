@@ -107,38 +107,33 @@ def set_lost_to_nan(particles, fieldset):
 
 ## Advect to each horizon
 
-One advection per direction, stopped at each horizon to read the positions
-off: the five-day run passes through the one-day state on its way.
-
-Each leg is given an absolute `endtime`. `runtime` is measured from the
-earliest particle time in the set, which a lost particle freezes at the moment
-it beached, so the legs after the first would ask for an interval the healthy
-particles had already passed.
+Each horizon is its own integration from $t_0$, in each direction. Carrying a
+single integration through all five horizons and reading the positions off
+along the way would be cheaper, but a particle lost partway through then
+re-enters the next leg with a stale clock, which perturbs the values its
+surviving neighbours are interpolated from.
 
 ```python
 forward_maps, backward_maps = [], []
 for direction, maps in ((1, forward_maps), (-1, backward_maps)):
-    lon0, lat0 = seed.to_parcels_pset()
-    pset = ParticleSet(
-        fieldset,
-        pclass=Particle,
-        x=lon0,
-        y=lat0,
-        z=np.full(len(lon0), z_surface),
-        t=t0,
-    )
     for horizon in horizons:
+        lon0, lat0 = seed.to_parcels_pset()
+        pset = ParticleSet(
+            fieldset,
+            pclass=Particle,
+            x=lon0,
+            y=lat0,
+            z=np.full(len(lon0), z_surface),
+            t=t0,
+        )
         pset.execute(
             [AdvectionRK4, set_lost_to_nan],
             dt=direction * np.timedelta64(1, "h"),
-            endtime=t0 + direction * horizon,
+            runtime=horizon,
         )
         maps.append(
             seed.pset_to_flowmap(
-                lon=np.asarray(pset.x).copy(),
-                lat=np.asarray(pset.y).copy(),
-                t0=t0,
-                t1=t0 + direction * horizon,
+                lon=pset.x, lat=pset.y, t0=t0, t1=t0 + direction * horizon
             )
         )
 ```
