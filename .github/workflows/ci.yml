@@ -39,34 +39,22 @@ jobs:
         with:
           locked: true
 
-      # `pixi run test` covers tests/test_examples.py, which executes the
-      # Parcels-free example here and skips the ones needing CMEMS data.
+      # `-m "not needs_creds"`, so this covers the unit suite plus the one
+      # example that needs neither Parcels nor data.
       - name: Run tests
         run: pixi run test
 
   examples:
     name: examples (CMEMS)
     runs-on: ubuntu-latest
+    # Forks get no secrets on `pull_request`, so the credentialled examples
+    # cannot run there. Gate the whole job rather than teaching the tests to
+    # cope: they assume their prerequisites are present and fail loudly.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' }}
     steps:
       - uses: actions/checkout@v4
 
-      # Forks get no secrets on `pull_request`, so the CMEMS examples cannot run
-      # there. Report that in the summary and stop, rather than failing red.
-      - name: Check for CMEMS credentials
-        id: creds
-        env:
-          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
-        run: |
-          if [ -n "$COPERNICUSMARINE_SERVICE_USERNAME" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "### CMEMS examples skipped" >> "$GITHUB_STEP_SUMMARY"
-            echo "No \`COPERNICUSMARINE_SERVICE_USERNAME\` secret is visible to this run (forked pull requests get none), so the three Cabo Verde notebooks were not executed." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
       - uses: prefix-dev/setup-pixi@v0.10.0
-        if: steps.creds.outputs.available == 'true'
         with:
           locked: true
           environments: examples
@@ -74,29 +62,17 @@ jobs:
       # The subset is ~52 MB and the request lives in `get_data.py`, so key the
       # cache on that file: it is restored verbatim until the request changes.
       - name: Restore the CMEMS subset
-        id: data
-        if: steps.creds.outputs.available == 'true'
         uses: actions/cache@v4
         with:
           path: examples/data
           key: cmems-subset-${{ hashFiles('examples/get_data.py') }}
 
-      # One pytest run covers all of it: the `currents` fixture downloads the
-      # subset on a cache miss and the three Cabo Verde examples follow. Each is
-      # a separate test, so a failure names the notebook that broke.
-      #
-      # LCS_REQUIRE_EXAMPLES turns a skip into a failure. This job only reaches
-      # here with credentials in hand, so a skipped example means the gate did
-      # nothing -- which must be red, not green.
-      # Takes ~15 min, nearly all of it cabo_verde_lcs_evolution. `-v` comes from
-      # addopts; unbuffered output is what makes it stream, so each example
-      # reports as it finishes rather than the step looking hung for a quarter of
-      # an hour.
+      # Takes ~15 min, nearly all of it cabo_verde_lcs_evolution. Unbuffered
+      # output is what makes it stream, so each example reports as it finishes
+      # rather than the step looking hung for a quarter of an hour.
       - name: Run every example as a test (~15 min)
-        if: steps.creds.outputs.available == 'true'
         env:
           COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
           COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
-          LCS_REQUIRE_EXAMPLES: "1"
           PYTHONUNBUFFERED: "1"
         run: pixi run -e examples test-examples --durations=0

@@ -24,8 +24,8 @@ from lcs_parcels.tensorlines import (
     _window_cells,
 )
 
-T0 = np.datetime64("2020-01-01")
-T1 = np.datetime64("2020-01-02")
+RELEASE_TIME = np.datetime64("2020-01-01")
+END_TIME = np.datetime64("2020-01-02")
 
 
 # --- ftle_ridge_seeds ------------------------------------------------------
@@ -448,7 +448,7 @@ def _centre_seed(flowmap):
 def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
     """M = diag(1, 3) => xi_1 is the x-axis => the shrink line has constant latitude."""
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
     )
     lines = shrink_lines(
         fm, **_centre_seed(fm), step_m=10_000.0, line_length_m=80_000.0
@@ -466,7 +466,7 @@ def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
 def test_shrink_lines_output_structure(lon_axis, lat_axis):
     """Dataset has lon/lat on (line, point); one line per seed, an odd point count."""
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
     )
     seed_lon = [float(fm.ds["lon_grid"].mean()), float(fm.ds["lon_grid"].mean()) + 0.1]
     seed_lat = [float(fm.ds["lat_grid"].mean()), float(fm.ds["lat_grid"].mean())]
@@ -484,7 +484,9 @@ def test_shrink_lines_output_structure(lon_axis, lat_axis):
 def test_shrink_lines_stop_at_an_isotropic_tensor(lon_axis, lat_axis):
     """M = I gives C = I, an eigenvalue ratio of exactly 1: xi_1 is an arbitrary
     direction in the plane, so the line is untraceable and comes back all NaN."""
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, np.eye(2), T0, T1)
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.eye(2), RELEASE_TIME, END_TIME
+    )
     lines = shrink_lines(
         fm, **_centre_seed(fm), min_anisotropy=1.15, line_length_m=30_000.0
     )
@@ -505,7 +507,9 @@ def test_shrink_lines_default_guard_stops_a_barely_anisotropic_tensor(
     and leave the default free to drift down to 1.0 (guard off) unnoticed.
     """
     a, b = 1.05, 1.0
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, np.diag([a, b]), T0, T1)
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([a, b]), RELEASE_TIME, END_TIME
+    )
 
     lam = fm.cg_eigen()["lambda"]
     ratio = float((lam.isel(eig=1) / lam.isel(eig=0)).mean())
@@ -532,8 +536,10 @@ def test_shrink_lines_guard_is_an_eigenvalue_ratio(lon_axis, lat_axis, sign, t_d
     """
     a, b = 3.0, 1.0
     r = (a / b) ** 2
-    t1 = T0 + sign * np.timedelta64(int(t_days * 24), "h")
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, np.diag([a, b]), T0, t1)
+    t1 = RELEASE_TIME + sign * np.timedelta64(int(t_days * 24), "h")
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([a, b]), RELEASE_TIME, t1
+    )
 
     lam = fm.cg_eigen()["lambda"]
     assert np.allclose(lam.isel(eig=1) / lam.isel(eig=0), r)
@@ -564,7 +570,7 @@ def test_shrink_lines_guard_passes_a_uniformly_compressive_map(lon_axis, lat_axi
     conservative choice.
     """
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([0.5, 0.4]), T0, T1
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([0.5, 0.4]), RELEASE_TIME, END_TIME
     )
 
     lam = fm.cg_eigen()["lambda"]
@@ -579,7 +585,7 @@ def test_shrink_lines_guard_passes_a_uniformly_compressive_map(lon_axis, lat_axi
 def test_shrink_lines_seed_off_grid_is_nan(lon_axis, lat_axis):
     """A seed outside the grid produces an all-NaN line."""
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
     )
     lines = shrink_lines(
         fm,
@@ -606,7 +612,7 @@ def test_shrink_line_uses_reference_latitude_metric():
     M = R @ np.diag([1.0, 3.0]) @ R.T
     lon_axis = np.linspace(-15.0, 15.0, 31)
     lat_axis = np.linspace(0.0, 40.0, 41)
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
 
     lines = shrink_lines(
         fm, seed_lon=[0.0], seed_lat=[20.0], step_m=20_000.0, line_length_m=2_400_000.0
@@ -635,7 +641,7 @@ def test_shrink_line_uses_reference_latitude_metric():
 
 LCS_LON = np.linspace(-3.0, 3.0, 25)
 LCS_LAT = np.linspace(18.0, 22.0, 11)
-LCS_T1 = T0 + np.timedelta64(7, "D")
+LCS_END_TIME = RELEASE_TIME + np.timedelta64(7, "D")
 
 LCS_KWARGS = {
     "window_m": 150_000.0,
@@ -658,7 +664,9 @@ def _wavy_stretch_flowmap(period_m=250_000.0, base=3.0, amp=1.0):
     def f(dx, dy):
         return dx, dy * (base + amp * np.cos(2.0 * np.pi * dx / period_m))
 
-    return advected_flowmap_f(AuxiliarySeed, LCS_LON, LCS_LAT, f, T0, LCS_T1)
+    return advected_flowmap_f(
+        AuxiliarySeed, LCS_LON, LCS_LAT, f, RELEASE_TIME, LCS_END_TIME
+    )
 
 
 def test_hyperbolic_lcs_matches_the_manual_pipeline():
@@ -713,7 +721,7 @@ def test_hyperbolic_lcs_min_anisotropy_is_forwarded(lon_axis, lat_axis):
     forward is dropped both calls fall back to the same default and trace alike.
     """
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([3.0, 1.0]), T0, T1
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([3.0, 1.0]), RELEASE_TIME, END_TIME
     )
     trace = {
         "step_m": LCS_KWARGS["step_m"],
@@ -730,7 +738,7 @@ def test_hyperbolic_lcs_min_anisotropy_is_forwarded(lon_axis, lat_axis):
 def test_hyperbolic_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):
     """The FTLE is computed a single time and handed to the ridge finder."""
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
     )
     calls = []
     original = type(fm).ftle
@@ -747,7 +755,8 @@ def test_hyperbolic_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("t0", "t1", "kind"), [(T0, T1, "repelling"), (T1, T0, "attracting")]
+    ("t0", "t1", "kind"),
+    [(RELEASE_TIME, END_TIME, "repelling"), (END_TIME, RELEASE_TIME, "attracting")],
 )
 def test_hyperbolic_lcs_metadata_names_the_lcs_type(lon_axis, lat_axis, t0, t1, kind):
     """A forward flow map yields repelling LCS, a backward one attracting ones,
@@ -768,7 +777,7 @@ def test_shrink_lines_seed_pair_is_keyword_only(lon_axis, lat_axis):
     """Passing the seed lon/lat pair positionally raises, so a swap cannot pass
     silently -- including the ``*ftle_ridge_seeds(...)`` unpacking form."""
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
     )
     seed = _centre_seed(fm)
     with pytest.raises(TypeError):

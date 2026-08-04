@@ -62,8 +62,9 @@ def ftle_ridge_seeds(
     """Seed points at strong local maxima of an FTLE field.
 
     A grid point is a seed when its FTLE is the maximum over a neighbourhood
-    spanning ``window_m`` in each direction (a windowed local maximum on the raw
-    value) *and* is at or above the ``quantile`` of the field -- an absolute
+    ``window_m`` wide in total, centred on it (a windowed local maximum on the
+    raw value), so two seeds cannot be closer than about ``window_m / 2``,
+    *and* is at or above the ``quantile`` of the field -- an absolute
     magnitude floor, not a local-contrast test. NaN cells (e.g. the
     :class:`~lcs_parcels.NeighborFlowMap` edge) never qualify.
 

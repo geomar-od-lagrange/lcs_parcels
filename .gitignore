@@ -5,5 +5,5 @@
 # bytecode
 *.pyc
 
-# CMEMS subset written by `examples/get_data.py` (large, re-downloadable)
+# We don't bundle any data
 examples/data/

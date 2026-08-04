@@ -12,8 +12,8 @@ from conftest import advected_flowmap
 
 from lcs_parcels import AuxiliarySeed, NeighborSeed, shrink_lines
 
-T0 = np.datetime64("2020-01-01")
-T1 = np.datetime64("2020-01-02")
+RELEASE_TIME = np.datetime64("2020-01-01")
+END_TIME = np.datetime64("2020-01-02")
 M = np.array([[2.0, 0.5], [0.0, 3.0]])  # generic (sheared) linear map
 
 SEED_CLASSES = [NeighborSeed, AuxiliarySeed]
@@ -58,7 +58,7 @@ def test_seed_coords_are_labelled(seed_cls, lon_axis, lat_axis):
 
 @pytest.mark.parametrize("seed_cls", SEED_CLASSES)
 def test_flowmap_dataset_is_labelled(seed_cls, lon_axis, lat_axis):
-    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     assert_labelled(
         fm.ds, expected_units={"lon": "degrees_east", "lat": "degrees_north"}
     )
@@ -66,7 +66,7 @@ def test_flowmap_dataset_is_labelled(seed_cls, lon_axis, lat_axis):
 
 @pytest.mark.parametrize("seed_cls", SEED_CLASSES)
 def test_grid_image_is_labelled(seed_cls, lon_axis, lat_axis):
-    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     assert_labelled(
         fm.grid_image, expected_units={"lon": "degrees_east", "lat": "degrees_north"}
     )
@@ -74,7 +74,7 @@ def test_grid_image_is_labelled(seed_cls, lon_axis, lat_axis):
 
 @pytest.mark.parametrize("seed_cls", SEED_CLASSES)
 def test_diagnostics_are_labelled(seed_cls, lon_axis, lat_axis):
-    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     assert_labelled(fm.deformation_gradient())
     assert_labelled(fm.cauchy_green())
     assert_labelled(fm.cg_eigen())
@@ -84,7 +84,7 @@ def test_diagnostics_are_labelled(seed_cls, lon_axis, lat_axis):
 @pytest.mark.parametrize("seed_cls", SEED_CLASSES)
 def test_dimensionless_diagnostics_and_ftle_units(seed_cls, lon_axis, lat_axis):
     """Tensors and eigenpairs are dimensionless; the FTLE is SI (1/s)."""
-    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     assert fm.deformation_gradient().attrs["units"] == "1"
     assert fm.cauchy_green().attrs["units"] == "1"
     eigen = fm.cg_eigen()
@@ -102,7 +102,7 @@ def test_distinct_quantities_have_distinct_names(seed_cls, lon_axis, lat_axis):
     component fields would put both under one name and silently collide the
     moment they were merged into a ``Dataset``.
     """
-    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     eigen = fm.cg_eigen()
     names = [
         fm.deformation_gradient().name,
@@ -117,20 +117,20 @@ def test_distinct_quantities_have_distinct_names(seed_cls, lon_axis, lat_axis):
 
 
 def test_eig_coord_says_which_eigenvalue_is_which(lon_axis, lat_axis):
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     long_name = fm.cg_eigen()["eig"].attrs["long_name"]
     assert "lambda_1" in long_name
     assert "lambda_max" in long_name
 
 
 def test_image_output_is_labelled(lon_axis, lat_axis):
-    fm = advected_flowmap(NeighborSeed, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(NeighborSeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     out = fm.image(lon0=fm.ds["lon_0"], lat0=fm.ds["lat_0"])
     assert_labelled(out, expected_units={"lon": "degrees_east", "lat": "degrees_north"})
 
 
 def test_shrink_lines_output_is_labelled(lon_axis, lat_axis):
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     lines = shrink_lines(
         fm,
         seed_lon=lon_axis[1:3],
@@ -147,7 +147,7 @@ def test_hyperbolic_lcs_output_is_labelled(lon_axis, lat_axis):
     """The one-call method returns curves and the FTLE field in one dataset, so
     both halves -- and the grid coords the FTLE brings with it -- must be
     labelled, and the dataset itself must say which kind of LCS it holds."""
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     lcs = fm.hyperbolic_lcs(step_m=1_000.0, line_length_m=6_000.0)
 
     assert_labelled(

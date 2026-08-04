@@ -16,13 +16,13 @@ from conftest import advected_flowmap, apply_linear_map_to_pset
 
 from lcs_parcels import AuxiliarySeed, NeighborSeed
 
-T0 = np.datetime64("2020-01-01")
-T1 = np.datetime64("2020-01-02")
+RELEASE_TIME = np.datetime64("2020-01-01")
+END_TIME = np.datetime64("2020-01-02")
 M = np.array([[2.0, 0.5], [0.0, 3.0]])  # generic (sheared) linear map
 
 
 def _flowmap(lon_axis, lat_axis):
-    return advected_flowmap(NeighborSeed, lon_axis, lat_axis, M, T0, T1)
+    return advected_flowmap(NeighborSeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
 
 
 def test_image_at_grid_node_returns_stored_position(lon_axis, lat_axis):
@@ -139,7 +139,7 @@ def test_image_accepts_cf_named_indexer_dims(lon_axis, lat_axis):
 def test_image_on_auxiliary_flowmap(lon_axis, lat_axis):
     """image works on the auxiliary (i, j, displacement) layout that shrink_lines
     supports: it maps the grid point through the flow map (arm centroid)."""
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     node = {"i": 1, "j": 2}
     lon_grid = fm.ds["lon_grid"].isel(**node)
     lat_grid = fm.ds["lat_grid"].isel(**node)
@@ -157,7 +157,7 @@ def test_image_on_auxiliary_flowmap(lon_axis, lat_axis):
 def test_image_auxiliary_lost_arm_maps_to_nan(lon_axis, lat_axis):
     """A grid point with a lost (NaN) arm images to NaN, not the centroid of the
     surviving arms -- matching the deformation-gradient path."""
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     bad = (fm.ds["i"] == 1) & (fm.ds["j"] == 2) & (fm.ds["displacement"] == "west")
     fm.ds["lon"] = fm.ds["lon"].where(~bad)
 

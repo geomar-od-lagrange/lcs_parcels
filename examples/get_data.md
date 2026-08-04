@@ -23,13 +23,9 @@ it is cheap: if the file is already there and opens, nothing is downloaded.
 `examples/data/` is gitignored — the file is never committed, so a fresh clone
 starts here.
 
-## Credentials
-
-CMEMS data needs a free Copernicus Marine account
-(<https://data.marine.copernicus.eu/register>). Either run `copernicusmarine
-login` once, which stores the credentials, or set
-`COPERNICUSMARINE_SERVICE_USERNAME` and `COPERNICUSMARINE_SERVICE_PASSWORD` in
-the environment.
+This assumes
+[`copernicusmarine`](https://help.marine.copernicus.eu/en/collections/4060068-copernicus-marine-toolbox)
+has credentials.
 
 ```python
 from pathlib import Path
@@ -40,11 +36,13 @@ import xarray as xr
 
 ## The subset
 
-Hourly surface velocity (`uo`, `vo`) from the global analysis-and-forecast
-product `cmems_mod_glo_phy_anfc_0.083deg_PT1H-m`, on a box around Cabo Verde and
-the first depth level only. The examples release particles between 2025-08-01
-and 2025-08-11 inside a smaller box; the extra day at each end and the margin in
-longitude and latitude are there so trajectories stay inside the data.
+Hourly surface velocity (`uo`, `vo`) from Global Ocean Physics Analysis and
+Forecast, `GLOBAL_ANALYSISFORECAST_PHY_001_024`,
+[doi:10.48670/moi-00016](https://doi.org/10.48670/moi-00016), dataset
+`cmems_mod_glo_phy_anfc_0.083deg_PT1H-m`. A box around Cabo Verde, first depth
+level only. The examples release particles between 2025-08-01 and 2025-08-11
+inside a smaller box; the extra day at each end and the margin in longitude and
+latitude are there so trajectories stay inside the data.
 
 ```python
 target = Path("data/cabo_verde_currents_hourly.nc")

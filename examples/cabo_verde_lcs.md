@@ -17,7 +17,8 @@ jupyter:
 # Repelling and attracting LCS as strain tensor lines
 
 The FTLE map (see `cabo_verde_ftle`) shows *where* the flow stretches, but not
-the material curves themselves. Haller (2015, §5.1 / Table 1,
+the material curves along which it does. Those curves are tensor lines of the
+strain tensor. Haller (2015, §5.1 / Table 1,
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322))
 constructs those curves directly from the Cauchy–Green strain tensor
 $C = (\nabla F)^\top \nabla F$, whose eigenpairs satisfy
@@ -45,12 +46,14 @@ from lcs_parcels import NeighborSeed, ftle_ridge_seeds, shrink_lines
 
 ## Currents
 
-Hourly CMEMS surface velocity from the local file that `get_data` writes.
+The local file that `get_data` writes.
 
 ```python
-currents = xr.open_dataset("data/cabo_verde_currents_hourly.nc")
+currents = xr.open_dataset("data/cabo_verde_currents_hourly.nc").load()
 currents
 ```
+
+## Parcels v4 field set
 
 `copernicusmarine_to_sgrid` tags the CMEMS A-grid with SGRID metadata;
 `from_sgrid_conventions` wraps it as a spherical `FieldSet`.
@@ -85,7 +88,9 @@ seed
 
 Particles that leave the domain or hit land are turned into `NaN` in place
 (Parcels would otherwise abort the run), so losses propagate as `NaN` through
-every diagnostic below.
+every diagnostic below. `StatusCode.EndofLoop` rather than
+`StatusCode.Delete`: deleting shrinks the particle array and breaks the
+alignment with the seed order.
 
 
 ```python
@@ -110,7 +115,6 @@ pset.execute(
     [AdvectionRK4, set_lost_to_nan],
     dt=np.timedelta64(1, "h"),
     runtime=T,
-    verbose_progress=True,
 )
 forward = seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t0 + T)
 forward
@@ -129,7 +133,6 @@ pset.execute(
     [AdvectionRK4, set_lost_to_nan],
     dt=-np.timedelta64(1, "h"),
     runtime=T,
-    verbose_progress=True,
 )
 backward = seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t0 - T)
 backward
@@ -147,13 +150,18 @@ ftle_forward
 
 `ftle_ridge_seeds` picks start points at the ridge tops: grid points that are
 the maximum over a `window_m`-wide neighbourhood and lie in the top `quantile`
-of the field. 30 km is the separation we want between neighbouring filaments in
-this eddy field — the window reaches half its side either way, so two seeds can
-end up about 15 km apart, still three to four cells of the 1/25-degree grid.
-The top decile keeps the seeds on the pronounced ridges of *this* field.
+of the field. The window is the full width, so two seeds cannot be closer than
+about half of it. We want neighbouring filaments about 15 km apart in this eddy
+field, which is three to four cells of the 1/25-degree seed grid, so the window
+is 30 km. The top decile keeps the seeds on the pronounced ridges of *this*
+field.
 
 ```python
+# Ridge selection.
 window_m, quantile = 30_000.0, 0.90
+```
+
+```python
 repelling_seed_lon, repelling_seed_lat = ftle_ridge_seeds(
     ftle_forward, window_m=window_m, quantile=quantile
 )
@@ -161,8 +169,9 @@ repelling_seed_lon.shape, repelling_seed_lon[:5], repelling_seed_lat[:5]
 ```
 
 `shrink_lines` integrates $\dot r = \xi_1(r)$ through each seed, half the
-length either way. The 3 km step is below the ~4 km grid cell, so the RK2 trace
-samples every cell it crosses; the 1500 km cap is longer than the box diagonal,
+length either way. The 3 km step is below the ~4.4 km seed-grid cell, so the
+RK2 trace samples every cell it crosses; the 1500 km cap is longer than the box
+diagonal,
 so what actually ends a curve is leaving the grid, hitting a NaN cell, or
 `min_anisotropy` — the floor on $\lambda_2 / \lambda_1$ below which $\xi_1$ is
 no longer a well-defined direction. Being a ratio, it is free of the window and
@@ -170,8 +179,12 @@ of the flow's own stretching rate, so the 1.15 default carries over unchanged
 from a longer window or a faster flow.
 
 ```python
+# Line integration.
 step_m, line_length_m, min_anisotropy = 3_000.0, 1_500_000.0, 1.15
-repelling = shrink_lines(
+```
+
+```python
+repelling_lcs = shrink_lines(
     forward,
     seed_lon=repelling_seed_lon,
     seed_lat=repelling_seed_lat,
@@ -179,30 +192,23 @@ repelling = shrink_lines(
     line_length_m=line_length_m,
     min_anisotropy=min_anisotropy,
 )
-repelling
+repelling_lcs
 ```
 
-Every line is one row of a fixed `(line, point)` rectangle, NaN-padded past the
-point where it terminated — so the rows are all the same length and the curves
-are not. A row that is NaN in *every* column is a different thing from a short
-curve: it means $\xi_1$ was already undefined at the seed itself, so no curve
-was traced through that seed at all.
+The lines are a fixed `(line, point)` rectangle, NaN-padded past termination:
+same number of columns, different curve lengths.
 
 ```python
-repelling["lon"].isnull().sum("point")
+repelling_lcs["lon"].isnull().sum("point")
 ```
 
-That is about a quarter of the seeds here, and the reason is the NaN mask
-rather than `min_anisotropy`. Each of these seeds sits on a grid point whose own
-Cauchy–Green tensor is finite — a NaN grid point could not have been picked as a
-ridge seed in the first place — but the tensor is interpolated bilinearly, and
-the cell around the seed reaches into a neighbouring grid point that *is* NaN:
-either a particle that beached on an island, or the outermost ring of the
-`NeighborFlowMap`, which has no neighbour to difference $\nabla F$ against.
+Rows that are NaN in every column traced no curve at all. About a quarter of
+the seeds here sit close to land, so the interpolated tensor is NaN at the seed
+and no LCS materialises.
 
 ```python
-untraceable = repelling["lon"].isnull().all("point")
-int(untraceable.sum()), repelling.sizes["line"]
+untraceable = repelling_lcs["lon"].isnull().all("point")
+int(untraceable.sum()), repelling_lcs.sizes["line"]
 ```
 
 ## Attracting LCS, in one call
@@ -213,14 +219,14 @@ finder, and returns the curves together with the field they were picked from.
 *Hyperbolic* because elliptic LCS are a different family.
 
 ```python
-attracting = backward.hyperbolic_lcs(
+attracting_lcs = backward.hyperbolic_lcs(
     window_m=window_m,
     quantile=quantile,
     step_m=step_m,
     line_length_m=line_length_m,
     min_anisotropy=min_anisotropy,
 )
-attracting
+attracting_lcs
 ```
 
 ## Repelling LCS over the forward FTLE
@@ -232,7 +238,12 @@ with no curve through them are the untraceable seeds counted above.
 ```python
 fig, ax = plt.subplots()
 ftle_forward.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
-ax.plot(repelling["lon"].values.T, repelling["lat"].values.T, color="tab:red", lw=0.8)
+ax.plot(
+    repelling_lcs["lon"].values.T,
+    repelling_lcs["lat"].values.T,
+    color="tab:red",
+    lw=0.8,
+)
 ax.scatter(repelling_seed_lon, repelling_seed_lat, s=8, color="tab:red")
 ```
 
@@ -243,9 +254,12 @@ Same picture for the backward flow map, straight out of the one dataset
 
 ```python
 fig, ax = plt.subplots()
-attracting["ftle"].plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
+attracting_lcs["ftle"].plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
 ax.plot(
-    attracting["lon"].values.T, attracting["lat"].values.T, color="tab:blue", lw=0.8
+    attracting_lcs["lon"].values.T,
+    attracting_lcs["lat"].values.T,
+    color="tab:blue",
+    lw=0.8,
 )
 ```
 
@@ -257,8 +271,16 @@ attracting curve cross, the flow is locally hyperbolic.
 ```python
 fig, ax = plt.subplots()
 ftle_forward.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
-ax.plot(repelling["lon"].values.T, repelling["lat"].values.T, color="tab:red", lw=0.8)
 ax.plot(
-    attracting["lon"].values.T, attracting["lat"].values.T, color="tab:blue", lw=0.8
+    repelling_lcs["lon"].values.T,
+    repelling_lcs["lat"].values.T,
+    color="tab:red",
+    lw=0.8,
+)
+ax.plot(
+    attracting_lcs["lon"].values.T,
+    attracting_lcs["lat"].values.T,
+    color="tab:blue",
+    lw=0.8,
 )
 ```

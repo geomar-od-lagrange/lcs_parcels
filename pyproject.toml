@@ -19,6 +19,10 @@ testpaths = ["tests"]
 # One line per test, so a run in progress shows which test it is on and a failure
 # names it in place; `-ra` spells out every skip and failure at the end.
 addopts = "-v -ra"
+markers = [
+  "minimal: needs neither CMEMS credentials nor downloaded data",
+  "needs_creds: needs CMEMS credentials, and downloads data if it is absent",
+]
 
 [tool.ruff]
 # Notebooks and prose are generated or vendored: the `.ipynb`/`.md` of an
@@ -51,8 +55,8 @@ platforms = ["linux-64", "osx-arm64", "win-64"]
 lcs_parcels = { path = ".", editable = true }
 
 [tool.pixi.tasks]
-test = "pytest"
 lint = "ruff check . && ruff format --check ."
+test = { cmd = 'pytest -m "not needs_creds"', description = "Unit suite plus the examples that need no credentials" }
 
 [tool.pixi.dependencies]
 pytest = ">=9.0.3,<10"
@@ -97,8 +101,8 @@ matplotlib-base = "*"
 parcels = { git = "https://github.com/OceanParcels/Parcels.git", rev = "5a0df965fe70f37add860230cbcd3b2fc03ffd2e" }
 
 [tool.pixi.feature.examples.tasks]
-test-examples = { cmd = "pytest tests/test_examples.py", description = "Run every example as a test (needs examples/data/ or CMEMS credentials)" }
 get-data = { cmd = "python examples/get_data.py", description = "Download the CMEMS subset to examples/data/ (needs CMEMS credentials)" }
+test-examples = { cmd = "pytest -m needs_creds", description = "The examples that need CMEMS credentials" }
 
 [tool.pixi.environments]
 # Both envs pin Python 3.13 (the newest Parcels v4 supports); the `examples` env

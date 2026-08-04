@@ -37,11 +37,11 @@ from lcs_parcels import NeighborSeed
 
 Ten days is roughly one eddy turnover time at these latitudes -- the FTLE map
 below comes out around 0.1/day over most of the box, an e-folding time of about
-ten days. That is long enough for the
-stretching to separate neighbouring particles by more than a grid cell, short
-enough that the seed grid still resolves where they went. The seed spacing
-(1/25°) is finer than the 1/12° currents, so the differencing stencil is not
-what limits the FTLE.
+ten days. That is long enough for the stretching to separate neighbouring
+particles by more than one seed-grid cell (1/25°, about 4.4 km), short enough
+that the seed grid still resolves where they went. The seed spacing is finer
+than the 1/12° currents, so the differencing stencil is not what limits the
+FTLE.
 
 ```python
 t0 = np.datetime64("2025-08-01")
@@ -117,13 +117,12 @@ pset.execute(
     [AdvectionRK4, set_lost_to_nan],
     dt=np.timedelta64(1, "h"),
     runtime=T,
-    verbose_progress=True,
 )
 ```
 
 ## Flow map
 
-The finals go back in the seeding order. `pset_to_flowmap` takes both `t0` and
+The final positions go back in the seeding order. `pset_to_flowmap` takes both `t0` and
 `t1` and records the signed window `T = t1 - t0`.
 
 ```python
@@ -142,16 +141,13 @@ ftle
 
 `ftle()` returns SI $1/\mathrm{s}$, which over a 10-day window is a field of
 numbers around $10^{-6}$; rescaling to $1/\mathrm{day}$ makes the map
-readable. The rescaled field is renamed and relabelled so it still says what
-it is. The grid points are 2-D coords on the logical dims `(i, j)`, so the plot
-is told which coords are the axes; the labels come from the metadata.
+readable. The scaling carries the name and `long_name` over, so only `units`
+has to be corrected. The grid points are 2-D coords on the logical dims
+`(i, j)`, so the plot is told which coords are the axes; the labels come from
+the metadata.
 
 ```python
-ftle_per_day = (
-    (ftle * 86400.0)
-    .rename("ftle_per_day")
-    .assign_attrs(long_name="finite-time Lyapunov exponent", units="1/day")
-)
+ftle_per_day = (ftle * 86400.0).assign_attrs(units="1/day")
 ```
 
 ```python

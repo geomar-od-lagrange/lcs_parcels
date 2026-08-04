@@ -3,8 +3,9 @@
 A :class:`Seed` lays out a time-free grid of release positions and emits a
 particle set; the advected positions are ingested back into a :class:`FlowMap`,
 which computes the deformation gradient, the Cauchy-Green tensor, its
-eigen-decomposition and the FTLE. This module contains no Parcels code -- you
-run the advection yourself, between the two calls::
+eigen-decomposition and the FTLE. This module contains no Parcels code but just
+provides data to construct particle sets and ingests particle positions after
+advection::
 
     seed = NeighborSeed.from_axes(lon=lon, lat=lat)
     lon0, lat0 = seed.to_parcels_pset()
@@ -21,8 +22,8 @@ against a four-arm stencil laid around each grid point.
 
 Every object wraps an ``xr.Dataset``, available as ``.ds``. Diagnostics are
 reported at the grid points ``lon_grid``/``lat_grid`` (degrees) and every
-returned array carries ``long_name`` and ``units``, so a vanilla plot labels
-itself. Lon/lat pairs are keyword-only throughout. Positions are differenced in
+returned array carries ``long_name`` and ``units``. Lon/lat pairs are
+keyword-only throughout. Positions are differenced in
 metres, in an equirectangular frame with one standard parallel, so the package
 is valid for regional domains of modest latitude range that do not cross the
 dateline.
@@ -419,15 +420,16 @@ class FlowMap(abc.ABC):
             f"T {self._window_days():+.1f} days>"
         )
 
-    def _direction(self) -> str:
-        """``'forward/repelling'`` or ``'backward/attracting'``, from ``sign(T)``.
+    def _time_direction(self) -> str:
+        """``'forward'`` or ``'backward'``, from ``sign(T)``.
 
-        Output metadata only (:meth:`hyperbolic_lcs`); the repr does not carry
-        it.
+        A flow map is integrated one way or the other and knows nothing more
+        than that. Which LCS family that yields is a property of the diagnostic,
+        so the repelling/attracting wording lives in :meth:`hyperbolic_lcs`.
         """
         if self.ds["T"] > np.timedelta64(0, "s"):
-            return "forward/repelling"
-        return "backward/attracting"
+            return "forward"
+        return "backward"
 
     def _window_days(self) -> float:
         """The signed window ``T`` in days."""
@@ -745,7 +747,9 @@ class FlowMap(abc.ABC):
                 line_length_m=line_length_m,
             ),
         )
-        direction, kind = self._direction().split("/")
+        # The forward-backward duality is the diagnostic's, not the flow map's.
+        direction = self._time_direction()
+        kind = "repelling" if direction == "forward" else "attracting"
         lines = lines.assign(
             lon=lines["lon"].assign_attrs(long_name=f"longitude along the {kind} LCS"),
             lat=lines["lat"].assign_attrs(long_name=f"latitude along the {kind} LCS"),
