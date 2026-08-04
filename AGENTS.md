@@ -21,19 +21,29 @@ below are derivations of this model.
 
 Rules that fall out of it:
 
-- **Explain the non-obvious choice; do not re-teach the field.** The reader has
-  read the papers. Say why *this* window, *this* stencil, *this* termination
-  criterion — not what an FTLE is. Still, define a term properly where it is
-  ambiguous.
-- **Indirection is a tax in examples, an asset in library code.** An example is
-  consumed line by line with minimal scrolling, so prefer explicit and even
-  duplicated code over a helper. Library code is the opposite: factor freely.
-  This is a consequence of who reads what, not a blanket preference for
-  duplication.
+- **Explain the non-obvious choice; do not re-teach the field.** The inquisitive
+  user has read the papers. Say why *this* window, *this* stencil, *this*
+  termination criterion — not what an FTLE is. Still, define a term properly
+  where it is ambiguous.
+- **Indirection is a tax in examples, an asset in library code.** The inquisitive
+  user consumes an example line by line with minimal scrolling, so prefer
+  explicit and even duplicated code over a helper. Library code is read by the
+  developer instead, so factor freely there. This is a consequence of who reads
+  what, not a blanket preference for duplication.
 - **Reader-facing text carries no process narrative and no design rationale.**
   Module docstrings, `docs/api.md`, and examples address the trusting and
   inquisitive users; how we got here belongs in `docs/architecture.md` or a
   plan, and agent-addressed asides belong nowhere.
+- **A scope statement is not design rationale.** What the package *is and is
+  not* — that it contains no Parcels code, that it emits a particle set and
+  ingests advected positions, that you run the advection yourself — stays in the
+  README. The trusting user cannot use the tool without it. The cut runs between
+  the operational fact and its justification: *that* lon/lat pairs are
+  keyword-only, *that* returns carry `units`, *that* `flowmap.ds` is the dataset
+  are reader-facing; *why* the pairs are keyword-only, and that these classes
+  wrap rather than subclass `xr.Dataset`, are `docs/architecture.md`. Of each
+  sentence ask "could they use the package without this?", not "does this sound
+  like design?".
 
 ## Documentation & writing
 
@@ -76,8 +86,9 @@ that.
   source. After re-syncing from an edited `.py` (which regenerates a clean
   `.ipynb`), re-execute before committing.
 - **Notebooks are human-facing, not scripts.** Lay them out as a sequence of
-  small, well-scoped code cells, each doing one step, so a reader can run and
-  follow them top to bottom. Don't dump the whole example into one mega-cell.
+  small, well-scoped code cells, each doing one step, so the inquisitive user can
+  run and follow them top to bottom. Don't dump the whole example into one
+  mega-cell.
 - **Narrate in markdown cells, not comment blocks.** Use `# %% [markdown]` cells
   for prose between steps; don't explain the flow with long `#` comment blocks
   inside code cells. Keep the prose terse. A single one-line `#` heading atop a
@@ -91,12 +102,12 @@ that.
   inline a helper that is called once rather than defining it. Being inefficient
   or re-downloading on every run is acceptable in an example; being longer than
   the idea requires is not. This is the opposite of production code: minimize the
-  reader's effort, not the machine's.
+  inquisitive user's effort, not the machine's.
 - **Explicit over shared, even at the cost of duplication.** Write the same
   recovery kernel out in each notebook rather than importing it from a shared
-  helper module. A reader scrolling one notebook top to bottom should rarely
-  have to open a second file or scroll back and forth. (Library code takes the
-  opposite rule — see [Audience](#audience).)
+  helper module. The inquisitive user, scrolling one notebook top to bottom,
+  should rarely have to open a second file or scroll back and forth. (Library
+  code takes the opposite rule — see [Audience](#audience).)
 - **Prefer vanilla plots.** This governs the plot you *first write*: reach for
   `.plot()` / `.plot.pcolormesh()` and accept its defaults, which label axes,
   titles, and colorbars from the object's name, coords, and attrs — that is what
@@ -105,6 +116,11 @@ that.
   fine once a default turns out to be wrong, or the point being made needs it, or
   it was asked for. This is an anti-over-styling rule, not a ban on ever passing
   an argument.
+- **A notebook references only notebooks of lower rank.** Point at the notebook
+  the current one builds on, never at one of the same rank, so the reading order
+  stays a line and no pair of examples explains itself by the other. The ranks:
+  `example_grid_pset` is standalone; `cabo_verde_ftle` < `cabo_verde_lcs` <
+  `cabo_verde_lcs_evolution`.
 - **No claimed result you haven't seen.** Never write a summary/conclusion cell
   (or "this shows X" prose) without actually running the notebook and reading the
   real output first. State what the run produced, not what you expect it to.
@@ -166,9 +182,19 @@ verified against the pinned v4 alpha:
   different quantities never come back under the same `name`. Go CF where it is
   cheap — `units`, `long_name` — and no further: no bounds, no intervals, no
   cell methods.
+- **A repeated attribute set is a module constant.** When the same
+  `name`/`long_name`/`units` block is attached to more than one object — the
+  coordinates, a lon/lat pair — hoist it to a module constant so the copies
+  cannot drift apart; a one-off on a single returned field stays inline at the
+  return.
+- **Never mutate an xarray object in place.** Rebuild it functionally with
+  `assign_attrs` / `assign_coords` / `assign` rather than writing
+  `x.attrs.update(...)` or `x.attrs["units"] = ...`: pandas has removed nearly
+  all of its in-place operations and xarray may well follow.
 - **Units are SI.** Return 1/s, metres, seconds; deviate only for a field with a
   strong convention of its own (Sverdrups and the like). Conversion for display
-  is the reader's call, made visible in the example, not baked into the package.
+  is the trusting user's call, made visible in the example for the inquisitive
+  one, never baked into the package.
 - **Let xarray do the work.** Rely on broadcasting (e.g. extra `t0`/`T` axes) and
   NaN propagation (e.g. lost particles) rather than writing special-case
   machinery for what xarray already handles. Don't plan around problems xarray
@@ -182,13 +208,23 @@ verified against the pinned v4 alpha:
 - **Keep external dependencies at the boundary.** This package contains no
   Parcels code. A `Seed` is **time-free** and *emits* a particle set via
   `Seed.to_parcels_pset()` (a 2-tuple `(lon, lat)`); ingest is
-  `Seed.pset_to_flowmap(lon, lat, *, t0, t1) -> FlowMap`, which takes **both**
+  `Seed.pset_to_flowmap(*, lon, lat, t0, t1) -> FlowMap`, which takes **both**
   `t0` and `t1` and derives the signed window $T = t_1 - t_0$ (so direction is
   `sign(T)`). A `FlowMap` collapses back to a time-free seed via
   `FlowMap.to_seed()`. The package neither imports nor drives Parcels.
 - **Avoid over-engineering.** Favor a small, concrete API — a few well-named
   methods — over layered adapters and indirection. Add structure when a concrete
   need appears, not before.
+- **Tuning parameters are scale-free.** Express a knob so its default means the
+  same thing at another resolution, window, or flow regime: a dimensionless ratio
+  where one exists, a physical quantity otherwise. `min_anisotropy` floors
+  $\lambda_2/\lambda_1$ and so retunes with neither grid nor window. Physical is
+  not sufficient — a floor in 1/day is scale-free in no useful sense, since a
+  rate that suits a fast flow is meaningless in a slow one.
+- **Same-typed adjacent arguments are keyword-only.** A public entry point that
+  takes a lon/lat pair (or any other run of interchangeable-looking arguments)
+  takes it by keyword, so the trusting user cannot silently transpose them: a
+  swap must be a `TypeError`, not a plausible answer off the coast of nowhere.
 
 ## Process & change discipline
 
@@ -210,7 +246,10 @@ verified against the pinned v4 alpha:
   no external user base and no compatibility contract. Change signatures, data
   layouts, dim names, and file formats freely when the design improves. Do not
   add deprecation shims, compatibility aliases, migration code, or "legacy"
-  branches — delete the old form outright and update all call sites.
+  branches — delete the old form outright and update all call sites. This governs
+  the compatibility contract, not what gets written where: the same person reads
+  as a trusting user on Monday and a developer on Friday, so the three-reader
+  model above still decides what belongs in which file.
 
 ## Releases
 

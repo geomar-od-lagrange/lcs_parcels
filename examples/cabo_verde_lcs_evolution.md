@@ -30,7 +30,7 @@ where perturbations decay: an attracting LCS attracts forward in time, a
 repelling LCS attracts backward. So the attracting curve is carried by the
 forward maps and the repelling curve by the backward maps.
 
-It reads the bundled current subset, so it runs offline. Run with
+Run with
 `pixi run -e examples jupytext --sync --execute examples/cabo_verde_lcs_evolution.py`.
 
 ```python
@@ -41,12 +41,14 @@ from parcels import FieldSet, Particle, ParticleSet, StatusCode
 from parcels.convert import copernicusmarine_to_sgrid
 from parcels.kernels import AdvectionRK4
 
-from lcs_parcels import NeighborSeed, ftle_ridge_seeds, shrink_lines
+from lcs_parcels import NeighborSeed
 ```
 
 ## Currents
 
-The bundled CMEMS hourly surface velocity, wrapped as a spherical `FieldSet`.
+The same CMEMS hourly surface velocity as `cabo_verde_ftle`, read from a local
+file you save yourself (`examples/data/` is not in the repo) and wrapped as a
+spherical `FieldSet`.
 
 ```python
 currents = xr.open_dataset("data/cabo_verde_currents_hourly.nc")
@@ -58,8 +60,9 @@ z_surface = float(currents["depth"].values[0])
 ## Seed and horizons
 
 A rectilinear `NeighborSeed` over the release box, anchored at the middle of the
-bundled window. We evolve out to two horizons, $\tfrac{T}{2}$ and $T$, in each
-direction; the longest is where we diagnose the LCS.
+window the local current file covers. We evolve out to two horizons,
+$\tfrac{T}{2}$ and $T$, in each direction; the longest is where we diagnose the
+LCS.
 
 ```python
 t0 = np.datetime64("2025-08-06")
@@ -69,7 +72,7 @@ seed_lon, seed_lat = (-27.0, -21.0), (13.5, 18.5)
 
 lon_axis = np.arange(seed_lon[0], seed_lon[1] + 1e-9, resolution_deg)
 lat_axis = np.arange(seed_lat[0], seed_lat[1] + 1e-9, resolution_deg)
-seed = NeighborSeed.from_axes(lon_axis, lat_axis)
+seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
 ```
 
 ```python
@@ -105,7 +108,7 @@ def advect(signed_T):
         runtime=abs(signed_T),
         verbose_progress=False,
     )
-    return seed.pset_to_flowmap(pset.x, pset.y, t0=t0, t1=t0 + signed_T)
+    return seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t0 + signed_T)
 
 
 forward_maps = [advect(+lead) for lead in leads]
@@ -116,18 +119,19 @@ forward, backward = forward_maps[-1], backward_maps[-1]
 
 ## Extract the LCS at the longest window
 
-The ridges are sharpest at $T$, so we diagnose there: repelling LCS from the
-forward flow, attracting from the backward one (Haller–Sapsis duality), each
-seeded at the local maxima of its own FTLE.
-
+The ridges are sharpest at the longest available time horizon $T$, so we
+diagnose there: repelling LCS from the forward flow, attracting from the
+backward one (forward–backward duality, Haller & Sapsis 2011,
+[doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)), each
+seeded at the local maxima of its own FTLE. `FlowMap.hyperbolic_lcs` runs that
+chain — FTLE, ridge seeds, shrink lines — in one call and reads repelling or
+attracting off the sign of its own window; *hyperbolic* because elliptic LCS
+are a different family. It returns the curves as `lon`/`lat` on
+`(line, point)`, alongside the FTLE field they were seeded from.
 
 ```python
-def ftle_per_day(flowmap):
-    return (flowmap.ftle() * 86400.0).rename("FTLE")
-
-
-repelling = shrink_lines(forward, *ftle_ridge_seeds(ftle_per_day(forward)))
-attracting = shrink_lines(backward, *ftle_ridge_seeds(ftle_per_day(backward)))
+repelling = forward.hyperbolic_lcs()
+attracting = backward.hyperbolic_lcs()
 print(
     f"{repelling.sizes['line']} repelling, {attracting.sizes['line']} attracting lines"
 )
@@ -148,7 +152,7 @@ def evolve(curve, maps):
     frames = [curve[["lon", "lat"]]]
     lead_days = [0.0]
     for m in maps:
-        frames.append(m.image(curve["lon"], curve["lat"]))
+        frames.append(m.image(lon0=curve["lon"], lat0=curve["lat"]))
         lead_days.append(float(m.ds["T"] / np.timedelta64(1, "D")))
     return xr.concat(frames, dim="lead").assign_coords(lead=("lead", lead_days))
 

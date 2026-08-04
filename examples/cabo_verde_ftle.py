@@ -97,13 +97,15 @@ def set_lost_to_nan(particles, fieldset):
 # A rectilinear `NeighborSeed` over the seed box (one particle per grid point,
 # gradient differenced against grid neighbours) emits a flat particle set; we run
 # RK4 forward for $T$ and ingest the finals back into a `FlowMap`.
-# `FlowMap.ftle()` returns $1/\mathrm{s}$; we report $1/\mathrm{day}$.
+# `FlowMap.ftle()` returns SI $1/\mathrm{s}$; on a 10-day window those numbers
+# are around $10^{-6}$, so below we rescale to $1/\mathrm{day}$ for the map and
+# relabel the field to say so.
 
 # %%
 # Create the Seed
 lon_axis = np.arange(seed_lon[0], seed_lon[1] + 1e-9, resolution_deg)
 lat_axis = np.arange(seed_lat[0], seed_lat[1] + 1e-9, resolution_deg)
-seed = NeighborSeed.from_axes(lon_axis, lat_axis)
+seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
 
 # %%
 # Advect in Parcels
@@ -119,11 +121,26 @@ pset.execute(
 
 # %%
 # Construct flowmap / calc FTLE
-flowmap = seed.pset_to_flowmap(pset.x, pset.y, t0=t0, t1=t1)
-ftle = (flowmap.ftle() * 86400.0).rename("FTLE")
+flowmap = seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t1)
+ftle = flowmap.ftle()
+ftle
+
+# %%
+# Rescale from 1/s to 1/day for the map
+ftle_per_day = (
+    (ftle * 86400.0)
+    .rename("ftle_per_day")
+    .assign_attrs(
+        long_name="finite-time Lyapunov exponent",
+        units="1/day",
+    )
+)
 
 # %% [markdown]
 # ## Map
+#
+# The grid points are the 2-D coords `lon_grid`/`lat_grid` on `(i, j)`, so the
+# plot is told which coords are the axes; the labels come from the metadata.
 
 # %%
-ftle.plot.pcolormesh(x="lon_0", y="lat_0")
+ftle_per_day.plot.pcolormesh(x="lon_grid", y="lat_grid")

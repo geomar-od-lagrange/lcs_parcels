@@ -34,7 +34,8 @@ Settled in review discussion; not to be relitigated while executing.
 - **Ridge-finding stays explicit.** `ftle_ridge_seeds` keeps taking the FTLE
   field, not the `FlowMap`: no hidden recomputation, and a caller can pass a
   smoothed or masked field. User convenience is bought once, in
-  `flowmap.lcs(...)`, which computes FTLE a single time and passes it down.
+  `flowmap.hyperbolic_lcs(...)`, which computes FTLE a single time and passes it
+  down.
 - **No data is committed to the repo.** Distinguish "runs against the CMEMS
   online store on every execution" from "needs a one-time download".
 - **Ruff lands early**; the rest of the infrastructure work is deferred.
@@ -57,6 +58,19 @@ Filed and out of scope here.
 - #15 --- Q3, instantaneous OECS from the rate-of-strain tensor, and the
   "tensor lines of an arbitrary symmetric 2-tensor" refactor it forces.
 - #8 (elliptic LCS / vortex detection) and #9 (3D) --- explicitly out of scope.
+
+Filed out of the PR B review, after this plan was written:
+
+- #18 --- the metres frame is one equirectangular projection with a single
+  standard parallel, used for reference *and* advected positions, so
+  $\cos\phi_{\mathrm{ref}}$ does not cancel out of $\nabla F$. Exact and cheap to
+  fix, so it need not wait for #13.
+- #19 --- whether final products should report plain `lon`/`lat` rather than
+  `lon_grid`/`lat_grid`. **Decide at the top of PR C** (see below).
+- #20 --- arbitrary grid-point structure on the auxiliary stencil.
+- #21, #22 --- the two tuning-parameter deferrals out of step 6.
+- #23 --- split `docs/architecture.md` and drop the mermaid diagrams.
+  **Folded into step 9** (see below).
 
 Filing #14 and #15 emptied `plans/lcs-time-evolution.md` of undelivered
 content --- Q1 had already shipped --- so it moved to `plans/done/`.
@@ -101,6 +115,9 @@ step 4 resolves it by construction rather than by amending the rule.
 so the later diffs stay clean and reviewable. Closes #10.
 
 ### PR B --- API and internals
+
+**Landed** in #17. Steps 3--8 below are the record of intent, not outstanding
+work; where the shipped result diverged from the plan the step says so.
 
 **3. Keyword-only arguments across the public surface.** Every public entry
 point that takes an adjacent lon/lat pair takes it positionally, which is the
@@ -153,17 +170,19 @@ For the neighbour stencil `lon_grid` equals `lon_0`. The redundancy is
 deliberate --- the same call already made for the auxiliary schema: store the
 value, do not make consumers reconstruct it from a convention.
 
-Replace the `_grid_lonlat` module helper with abstract properties on `FlowMap`,
-overridden per subclass, **named exactly as the coordinates they return** ---
-`lon_grid`, `lat_grid`, so `flowmap.lon_grid` is `ds["lon_grid"]` with no
-translation layer --- plus `advected`, the advected positions collapsed over
-`displacement` for the auxiliary case and passed through for the neighbour one.
-A base-class property that branches internally would be the same violation
+Replace the `_grid_lonlat` module helper with properties on `Seed`/`FlowMap`
+**named exactly as the coordinates they return** --- `lon_grid`, `lat_grid`, so
+`flowmap.lon_grid` is `ds["lon_grid"]` with no translation layer --- plus
+`grid_image`, the advected positions collapsed over `displacement` for the
+auxiliary case and passed through for the neighbour one. What must not survive is
+a base-class property that branches internally: that would be the same violation
 wearing a better name; the point is that the type carries the information.
+Once the coordinate is canonical, `lon_grid`/`lat_grid` no longer branch on
+anything, so they are concrete one-liners on the two base classes; only
+`grid_image`, which genuinely differs per stencil, is abstract and overridden.
 
-(`advected` is the least settled name here. It returns a two-variable Dataset,
-not a coordinate, so it does not follow the rule above. Worth a second look
-during implementation.)
+(`grid_image` is the least settled name here. It returns a two-variable Dataset,
+not a coordinate, so it does not follow the rule above.)
 This removes `if "displacement" in advected.dims:` at `grids.py:452`, which is
 verbatim the pattern `AGENTS.md` forbids by name, and the
 `"lon_c" in obj.coords` sniff at `grids.py:101-102`.
@@ -180,15 +199,27 @@ fix that. Label the `eig` coord. This is the precondition for vanilla plots in
 step 10, and for dropping the hand-written `* 86400.0` that appears in three
 examples.
 
-**6. Parameters in physical units.** The reviewer flagged `window=7` as
+**6. Scale-free tuning parameters.** The reviewer flagged `window=7` as
 implicitly sensitive to grid resolution; the same defect runs wider.
 
-- `window` becomes a distance.
-- `n_steps` becomes a length in metres --- it is currently a line *length*
-  (1500 km) expressed as a step count.
-- `lambda_max_min` becomes an FTLE floor in 1/day evaluated against the flow
-  map's own `|T|`; as a raw Cauchy-Green eigenvalue it silently tightens or
-  loosens as the window changes.
+- `window` becomes a distance, `window_m`.
+- `n_steps` becomes a length in metres, `line_length_m` --- it is currently a
+  line *length* (1500 km) expressed as a step count --- with the step size
+  itself as `step_m`.
+- `lambda_max_min` goes. This plan proposed replacing it with an FTLE floor in
+  1/day evaluated against the flow map's own `|T|`, on the argument that a raw
+  Cauchy-Green eigenvalue floor silently retunes as the window changes. Review
+  established that a raw *rate* floor retunes worse, only along a different
+  axis: it is steady across windows and wildly unsteady across flow regimes.
+  Measured as a fraction of the flow's own FTLE signal, a fixed 0.005/day floor
+  is 0.1% for a fast laboratory flow and 45.5% for a slow large-scale one; the
+  ratio form is 2.3% and 1.8% for the same two. So the parameter shipped instead
+  as the dimensionless `min_anisotropy`, a floor on $\lambda_2 / \lambda_1$,
+  which retunes with neither the window nor the regime --- and which is the
+  actual well-definedness criterion for $\xi_1$, an eigenvector that only exists
+  as a direction while the two eigenvalues are separated. Its default, 1.15,
+  reproduces the old behaviour essentially exactly at the 7-day example window.
+
 `quantile` stays as it is for now. It is as grid-dependent as `window` was, but
 turning it into an absolute FTLE floor changes ridge selection from
 relative-to-this-field to absolute --- a science decision, not a units one.
@@ -196,6 +227,12 @@ Revisit it in a dedicated pass on tuning parameters.
 
 Signature changes, so this lands before the tests and examples are written
 against them.
+
+Deferred out of this step, and filed so it survives this plan being archived:
+`window_m` is the ridge-detection scale, and the seed grid has to resolve it, so
+it implies a minimum seed spacing of about `window_m / 2` --- half the window,
+not the window. The docs now say so; nothing computes, enforces, or reports it
+(#21). `quantile` is #22.
 
 **7. `tensorlines` internals: lift, rename, explain, test.** `xi1`, `step`, and
 `half` become top-level tested functions or get inlined; same for the nested
@@ -217,8 +254,9 @@ the seeds. Proposed, to be settled at implementation time:
 | `bad` | `terminated` |
 | `lam`, `vec` | `eigenvalues`, `eigenvectors` |
 
-The same applies inside `grids.py`: `central_diff` and `arm_diff` are fine, but
-their locals are not.
+The same applies inside `grids.py`: `central_diff` and `arm_diff` lift to
+module-level `_central_diff(field, dim)` and `_arm_diff(field, positive,
+negative)` with their own unit tests, and their locals get spelled out.
 
 Document and check, per the "explain *and* check" comment:
 
@@ -235,11 +273,24 @@ Document and check, per the "explain *and* check" comment:
 There are currently no unit tests for any of this --- `tests/test_tensorlines.py`
 covers only end-to-end straight-line behaviour.
 
-**8. Reprs and `flowmap.lcs(...)`.** Terse summary reprs on `Seed` and
-`FlowMap`. `lcs()` computes FTLE once and passes it to ridge-finding, so the
-convenience lives in one place and the ridge logic is not duplicated.
+**8. Reprs and `flowmap.hyperbolic_lcs(...)`.** Terse summary reprs on `Seed`
+and `FlowMap`. The one-call convenience shipped as `hyperbolic_lcs()`, not
+`lcs()` --- the package will grow other LCS families (#8, #15), and the name has
+to say which one this is. It computes FTLE once and passes it to ridge-finding,
+so the convenience lives in one place and the ridge logic is not duplicated. The
+repr carries the signed `T` and no direction word: repelling versus attracting
+is a property of the diagnostic, not of the flow map, so printing both was
+redundant.
 
 ### PR C --- prose, examples, and CI
+
+**0. Settle #19 first.** Whether final products report plain `lon`/`lat` rather
+than `lon_grid`/`lat_grid` is an API question, not a prose one, so it does not
+belong inside step 10 --- but it has to be answered *before* it, by this plan's
+own sequencing rule: every API change lands before the examples are rewritten,
+or they get rewritten twice. The notebooks currently carry
+`x="lon_grid", y="lat_grid"` in their plot calls, which is exactly the wording
+#19 questions.
 
 **9. Prose hygiene.** Strip process narrative and design rationale from
 reader-facing text:
@@ -250,10 +301,23 @@ reader-facing text:
 - `docs/notation.md`'s history of our own repo, and its "the choice is left to
   the implementation session" passage for a choice long since shipped;
 - the agent-addressed HTML comments opening `docs/api.md` and
-  `docs/architecture.md`;
-- the moved-plan links from `src/` and `tests/`.
+  `docs/architecture.md` (**already gone**);
+- the moved-plan links from `src/` and `tests/` --- `grids.py` and
+  `tests/test_roundtrip.py` both still point at `plans/seed-flowmap-design.md`,
+  now under `plans/done/`, so both links are already dangling. `AGENTS.md`
+  asserts `src/` and `tests/` do not link to plans at all; that is currently
+  false, and this step is what makes it true.
 
-Design rationale relocates to `docs/architecture.md` rather than being deleted.
+Design rationale relocates rather than being deleted --- but **into the
+post-split structure, not into today's `docs/architecture.md`**. #23 is folded
+into this step: that file is now 423 lines carrying structure, design decisions,
+a quantitative argument for the shrink-line guard, a measured error analysis of
+the metres frame, and two walkthroughs, for two different readers. Relocating
+`grids.py`'s convention sections into it as it stands means shovelling into a
+file we have already agreed is the wrong shape, then splitting it. Split first
+(architecture keeps structure/decisions/reprs; a new numerics document takes the
+guard, the metres frame and the tuning-parameter units), drop both mermaid
+diagrams, then relocate into the result.
 
 **10. Examples rewrite.** Explicit and inline throughout: `set_lost_to_nan`
 written out in each notebook rather than shared, `advect` and `ftle_per_day`
@@ -265,11 +329,15 @@ Progressbar on. Vanilla plots, now possible given step 5. Drop the pixi
 execution instructions --- that is our dev environment, not the reader's
 concern.
 
-**11. Data story and CI gating.** Two examples currently claim to run "offline
-(bundled currents)", but `examples/data/` is gitignored, nothing in the repo
-tracks or generates `cabo_verde_currents_hourly.nc`, and both examples open it.
-A fresh clone fails on both, they can never be CI-gated, and their committed
-outputs are unreproducible by anyone else. Resolve under the online-each-run
-versus download-once distinction, committing no data. Then extend CI to gate
-every example that can be gated --- today it runs one of four, so
-"a broken example is treated like a failing test" is unenforced for three.
+**11. Data story and CI gating.** The false claims are gone: PR B corrected the
+"offline (bundled currents)" wording in the notebook intros as well as the
+Currents cells, and `examples/README.md` now states the prerequisite plainly.
+The underlying problem is untouched. `examples/data/` is gitignored, nothing in
+the repo tracks or generates `cabo_verde_currents_hourly.nc`, and three of the
+four notebooks need it --- so a fresh clone still fails on three, they can never
+be CI-gated, and their committed outputs are unreproducible by anyone else.
+Resolve under the online-each-run versus download-once distinction, committing no
+data. Then extend CI to gate every example that can be gated --- today
+`check-example` runs one of four, so "a broken example is treated like a failing
+test" is unenforced for three. That gating is one slice of #12; the rest of that
+issue (packaging, docs site, dependabot, badges, coverage) stays out of this PR.

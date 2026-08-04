@@ -45,12 +45,16 @@ lat_axis = np.linspace(15.0, 20.0, 5)
 # %% [markdown]
 # ## Seed a NeighborSeed
 #
-# `from_axes` broadcasts the 1-D axes into curvilinear reference positions
-# `lon_0(i, j)` / `lat_0(i, j)`. No time is recorded -- a seed carries no `t0`,
-# no `T`, and no data variables.
+# `from_axes` broadcasts the 1-D axes into the diagnostic grid points
+# `lon_grid(i, j)` / `lat_grid(i, j)` and the reference release positions
+# `lon_0(i, j)` / `lat_0(i, j)` -- for this stencil the two coincide, one
+# particle per grid point. No time is recorded: a seed carries no `t0`, no `T`,
+# and no data variables. Printing the seed gives a one-line summary; `.ds` is the
+# dataset itself.
 
 # %%
-seed = NeighborSeed.from_axes(lon_axis, lat_axis)
+seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+print(seed)
 seed.ds
 
 # %% [markdown]
@@ -73,7 +77,8 @@ print("first three lon:", lon[:3])
 # same `t0`), so the flow map is the identity.
 
 # %%
-fm = seed.pset_to_flowmap(lon, lat, t0=t0, t1=t1)
+fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=t0, t1=t1)
+print(fm)
 fm.ds
 
 # %% [markdown]
@@ -108,26 +113,27 @@ print("recovered seed has T:", "T" in recovered.ds.coords)
 # The auxiliary stencil places four arms (`displacement = [east, north, west,
 # south]`) around each grid point. The arms are the *explicit* reference
 # positions `lon_0`/`lat_0` on `(i, j, displacement)` -- so the dataset is
-# self-sufficient -- while the grid-point centres (where the FTLE is reported)
-# are kept separately as `lon_c`/`lat_c` on `(i, j)`.
+# self-sufficient -- while the grid points (where the FTLE is reported) are kept
+# separately as `lon_grid`/`lat_grid` on `(i, j)`, the same coordinate names the
+# neighbour stencil uses.
 
 # %%
-aux_seed = AuxiliarySeed.from_axes(lon_axis, lat_axis)
+aux_seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
 aux_lon, aux_lat = aux_seed.to_parcels_pset()
 print(f"{len(aux_lon)} particles = {lon_axis.size} x {lat_axis.size} x 4 arms")
 print("reference arms lon_0:", aux_seed.ds["lon_0"].dims)
-print("diagnostic centres lon_c:", aux_seed.ds["lon_c"].dims)
+print("grid points lon_grid:", aux_seed.ds["lon_grid"].dims)
 
 # %% [markdown]
 # Ingesting threads the same `t0` and `t1`. The advected `lon` lands on
-# `(i, j, displacement)` alongside the reference arms, while the centres stay on
-# `(i, j)`.
+# `(i, j, displacement)` alongside the reference arms, while the grid points stay
+# on `(i, j)`.
 
 # %%
-aux_fm = aux_seed.pset_to_flowmap(aux_lon, aux_lat, t0=t0, t1=t1)
+aux_fm = aux_seed.pset_to_flowmap(lon=aux_lon, lat=aux_lat, t0=t0, t1=t1)
 print("reference arms  lon_0:", aux_fm.ds["lon_0"].dims)
 print("advected arms   lon  :", aux_fm.ds["lon"].dims)
-print("diagnostic centres lon_c:", aux_fm.ds["lon_c"].dims)
+print("grid points lon_grid :", aux_fm.ds["lon_grid"].dims)
 
 # %% [markdown]
 # `to_seed` rebuilds the auxiliary seed from the carried arms (no need for the

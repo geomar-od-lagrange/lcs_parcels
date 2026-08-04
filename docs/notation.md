@@ -13,23 +13,55 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 |---|---|---|---|
 | $v(x, t)$ | velocity field, with position $x = (x^1, x^2)$ in 2D | 2 | (input, external) |
 | $x_0$ | initial (reference) particle *release* position; for the `Neighbor*` classes the grid point itself, for the `Auxiliary*` classes the explicit stencil arms; carried by both the seed and the flow map | 3 | `lon_0`, `lat_0` (`(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes) |
-| — | grid-point centres where diagnostics are reported (`Auxiliary*` classes only) | — | `lon_c(i, j)`, `lat_c(i, j)` |
-| $F_{t_0}^{t_1}(x_0) = x(t_1; t_0, x_0)$ | flow **map**: initial position $\to$ position at time $t_1$; stored as the advected positions on a `FlowMap` (its only data vars) | 3 | `lon(i, j)`, `lat(i, j)` |
+| $x_{\mathrm{grid}}$ | diagnostic grid point, where every diagnostic is reported; carried explicitly by both stencils and by both families | — | `lon_grid(i, j)`, `lat_grid(i, j)` |
+| $F_{t_0}^{t_1}(x_0) = x(t_1; t_0, x_0)$ | flow **map**: initial position $\to$ position at time $t_1$; stored as the advected positions on a `FlowMap` (its only data vars) | 3 | `lon`, `lat`, sharing the dims of `lon_0`/`lat_0`: `(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes |
+| $F_{t_0}^{t_1}(x_{\mathrm{grid}})$ | flow map image of the diagnostic grid points: the advected positions reduced onto `(i, j)` | 3 | `grid_image` |
 | $\nabla F_{t_0}^{t_1}(x_0)$ | deformation gradient (the **gradient** of the flow map; $2\times 2$ in 2D) | 4, 9 | `deformation_gradient`, `gradF` |
 | $C(x_0) = \left(\nabla F_{t_0}^{t_1}\right)^\top \nabla F_{t_0}^{t_1}$ | right Cauchy–Green strain tensor ($2\times 2$, symmetric positive-definite) | 6 | `cauchy_green`, `C` |
 | $C\,\xi_i = \lambda_i\,\xi_i,\ \ 0 < \lambda_1 \le \lambda_2,\ \ \xi_1 \perp \xi_2$ | eigen-decomposition of $C$ | 7 | `cg_eigen` |
 | $\lambda_1, \lambda_2$ | eigenvalues of $C$ (ordered $0 < \lambda_1 \le \lambda_2$); $\lambda_{\max} = \lambda_2$ | 7 | `lambda` (coord `eig`) |
 | $\xi_1, \xi_2$ | orthonormal eigenvectors of $C$ | 7 | `xi` (coords `comp`, `eig`) |
-| $\Lambda_{t_0}^{t_1}(x_0) = \dfrac{1}{t_1 - t_0}\,\log\sqrt{\lambda_{\max}}$ | finite-time Lyapunov exponent (FTLE); uses the **largest** eigenvalue | §4.1 | `ftle` |
+| $\Lambda_{t_0}^{t_1}(x_0) = \dfrac{1}{\lvert t_1 - t_0\rvert}\,\log\sqrt{\lambda_{\max}}$ | finite-time Lyapunov exponent (FTLE); uses the **largest** eigenvalue, and $\lvert T\rvert$ so that a backward map ($T < 0$) gives a positive exponent | §4.1 | `ftle` |
 | $t_0$ | release time; supplied at ingest (`pset_to_flowmap`) and stored as a scalar coord on the `FlowMap` | 3 | `t0` (flow map coord) |
 | $t_1$ | integration end time; supplied at ingest, consumed to derive $T$, not stored (recoverable as $t_0 + T$) | 3 | `t1` (input) |
 | $T = t_1 - t_0$ | integration window, **signed**; derived at ingest from $t_0$ and the end time $t_1$, stored as a scalar coord on the `FlowMap`; its sign sets the integration direction | 3 | `T` (flow map coord) |
-| $dx = R\cos\phi_{\mathrm{ref}}\,d\lambda,\ \ dy = R\,d\phi$ | local-tangent meters convention, anchored at one grid reference latitude $\phi_{\mathrm{ref}}$ ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ meters) | — | (internal metric) |
-| $\dot r = \xi_1(r)$ | shrink line: tensor line tangent to $\xi_1$; a repelling LCS (forward flow) or, by duality, attracting LCS (backward flow) | Table 1 ($n = 2$) | `shrink_lines`, `ftle_ridge_seeds` |
+| $dx = R\cos\phi_{\mathrm{ref}}\,d\lambda,\ \ dy = R\,d\phi$ | equirectangular metres frame with the single standard parallel $\phi_{\mathrm{ref}}$ ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ metres) | — | (internal metric) |
+| $\dot r = \xi_1(r)$ | shrink line: tensor line tangent to $\xi_1$; a repelling LCS (forward flow) or, by forward–backward duality, attracting LCS (backward flow) | Table 1 ($n = 2$) | `shrink_lines`, `ftle_ridge_seeds` |
+| $\lambda_2 / \lambda_1 \ge a_{\min}$ | anisotropy floor: the ratio of the Cauchy–Green eigenvalues below which $\xi_1$ is not a well-defined direction (dimensionless) | — | `min_anisotropy` |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 | — |
 | $\eta^\pm(x_0)$ | shear vector field; stretch/shear lines (**deferred**) | 10, 11, Table 1 | — |
 
 ## Notes on the subtle points
+
+### Three coordinate pairs
+
+Everything positional in the package is one of exactly three lon/lat pairs, all
+in degrees. They are defined here and nowhere else.
+
+- **`lon_grid` / `lat_grid`**, dims `(i, j)` — the **diagnostic grid points**
+  $x_{\mathrm{grid}}$: the locations at which $\nabla F$, $C$, its eigenpairs
+  and the FTLE are reported, and the coordinate a diagnostic is plotted or
+  selected against. Carried explicitly by both stencils and by both families
+  (`Seed` and `FlowMap`), and reachable as the properties `obj.lon_grid` /
+  `obj.lat_grid`.
+- **`lon_0` / `lat_0`** — the **reference release positions** $x_0$: where
+  actual particles are put into the water. `(i, j)` for the `Neighbor*` classes,
+  `(i, j, displacement)` for the `Auxiliary*` classes, one per stencil arm.
+- **`lon` / `lat`** — the **advected positions** $F_{t_0}^{t_1}(x_0)$, data
+  variables on a `FlowMap`, sharing the dims of `lon_0`/`lat_0` so that
+  $\nabla F = \partial(\mathrm{lon}, \mathrm{lat}) / \partial(\mathrm{lon}_0,
+  \mathrm{lat}_0)$ is well-defined.
+
+For the `Neighbor*` classes the release point *is* the grid point, so `lon_grid`
+equals `lon_0` and `lat_grid` equals `lat_0`. The value is nevertheless stored
+under both names rather than aliased: a consumer reads `lon_grid` without
+knowing which stencil produced the dataset, and the dataset stays
+self-sufficient — the same call already made for the explicit auxiliary arms.
+
+The diagnostics carry `lon_grid`/`lat_grid` only. `lon_0`/`lat_0` are dropped
+from them, because on the `Auxiliary*` classes the differenced position is one
+arm, and attaching it to an `(i, j)` result would label a quantity by a point
+about $s$ metres away from the point it describes.
 
 ### Flow map vs. deformation gradient
 
@@ -46,8 +78,8 @@ These are two distinct objects and the code keeps the names apart:
 - $\nabla F_{t_0}^{t_1}(x_0)$ (Eq. 4) is the **gradient** of that map — a
   $2\times 2$ matrix at each $x_0$. Code name: `deformation_gradient` / `gradF`.
 
-Earlier sketches labeled the $2\times 2$ object simply "F"; that is really
-$\nabla F$. We reserve `F` for the map and `gradF` for its gradient.
+`F` is reserved for the map, `gradF` for its gradient; the $2\times 2$ object is
+never called "F".
 
 ### Computing the deformation gradient (Eq. 9)
 
@@ -66,16 +98,16 @@ first-class:
 - **Auxiliary grid** (`AuxiliaryFlowMap`): each grid point carries a fixed four-arm
   stencil on a single `displacement` dim
   (`displacement = ['east', 'north', 'west', 'south']`), placed at $\pm s$ meters
-  about the centre (`aux_separation_m`), per Haller Eq. 9. The arms are stored
+  about the diagnostic grid point (`aux_separation_m`), per Haller Eq. 9. The arms are stored
   *explicitly* as the reference release positions
   `lon_0(i, j, displacement)` / `lat_0(i, j, displacement)` (so the dataset is
   self-sufficient — no metric convention is needed to recover where particles
   started), and $\nabla F$ is the plain $\partial(\text{lon}, \text{lat}) /
   \partial(\text{lon}_0, \text{lat}_0)$ differenced over `displacement`. The
-  grid-point centres `lon_c(i, j)` / `lat_c(i, j)` (where diagnostics are
-  reported) are kept separately. No center arm (it would duplicate the grid
-  position) and no diagonal corners. This decouples the gradient step from the
-  diagnostic resolution.
+  diagnostic grid points `lon_grid(i, j)` / `lat_grid(i, j)` are the arm centres
+  and are kept separately. No center arm (it would duplicate the grid position)
+  and no diagonal corners. This decouples the gradient step from the diagnostic
+  resolution.
 
 Cells with a missing stencil point (e.g. a lost particle arriving as NaN) yield
 a NaN $\nabla F$, and that NaN propagates through $C$, the eigen-analysis, and
@@ -91,48 +123,66 @@ $\xi_1 \perp \xi_2$ (Eq. 7). The eigen step is a vectorized call to
 
 ### FTLE uses the largest eigenvalue (§4.1)
 
-$$\Lambda_{t_0}^{t_1}(x_0) = \frac{1}{t_1 - t_0}\,\log\sqrt{\lambda_{\max}}
+$$\Lambda_{t_0}^{t_1}(x_0) = \frac{1}{|t_1 - t_0|}\,\log\sqrt{\lambda_{\max}}
 = \frac{1}{|T|}\,\log\sqrt{\lambda_2}.$$
 
 Note it is the **largest** eigenvalue $\lambda_{\max} = \lambda_2$ (maximum
 stretching) that enters the FTLE, not the smallest. The integration time enters
-as $|T|$; the sign of $T = t_1 - t_0$ encodes forward vs. backward integration,
-and this diagnostic uses only $|T|$.
+as $|T|$, not as $T$: the sign of $T = t_1 - t_0$ encodes forward vs. backward
+integration, and since this package supports backward maps as a matter of course
+(they are how attracting LCS are produced), writing $1/(t_1 - t_0)$ would flip
+the sign of every backward FTLE. This diagnostic uses only $|T|$, so forward and
+backward maps of the same window give exponents of the same sign.
+
+$\Lambda$ is returned in SI, `1/s`. Displaying it per day is a conversion the
+reader makes in the plotting code, not one the package bakes in.
 
 ### Integration time $T$
 
 $T = t_1 - t_0$ (Eq. 3), **signed**. The `Seed` is time-free: it owns no $t_0$.
-Both ends of the window enter at ingest — `pset_to_flowmap(lon, lat, *, t0, t1)`
+Both ends of the window enter at ingest — `pset_to_flowmap(*, lon, lat, t0, t1)`
 takes the release time $t_0$ and the end time $t_1$, derives $T = t_1 - t_0$,
 and stores $t_0$ and $T$ as scalar coords on the `FlowMap` ($t_1$ is recoverable
 as $t_0 + T$). This package never chooses the direction —
-$\operatorname{sign}(T)$ follows from $t_1$ relative to $t_0$. A zero window
+$\mathrm{sign}(T)$ follows from $t_1$ relative to $t_0$. A zero window
 ($t_1 = t_0$) is rejected with `ValueError`, since the FTLE's $1/|T|$ would
 divide by zero. A release series (sweep $t_0$ or $t_1$) is an external loop over
 scalar-`(t0, T)` flow maps, assembled with `xr.concat` / `combine_by_coords`
 into the $(i, j, t_0, T)$ cube. See
 [`plans/timing-design.md`](../plans/timing-design.md).
 
-### Local-tangent meters convention
+### Equirectangular metres frame
 
-Haller's math is Cartesian, but the grid is lon/lat. Positions are converted to a
-**single** local tangent frame in meters before differencing, anchored at the
-grid centroid — the one reference point
+Haller's math is Cartesian, but the grid is lon/lat. Positions are converted to
+metres by an **equirectangular** projection with a **single** standard parallel
+before differencing. The projection is anchored at the grid centroid — the one
+reference point
 $\lambda_{\mathrm{ref}} = \overline{\lambda_0}$, $\phi_{\mathrm{ref}} = \overline{\phi_0}$
-(the means of `lon_0`/`lat_0`):
+(the means of `lon_0`/`lat_0`), with $\phi_{\mathrm{ref}}$ the standard parallel:
 
 $$X = R\cos\phi_{\mathrm{ref}}\,(\lambda - \lambda_{\mathrm{ref}})\,\tfrac{\pi}{180},
 \qquad Y = R\,(\phi - \phi_{\mathrm{ref}})\,\tfrac{\pi}{180},$$
 
-with $R$ the Earth radius, $\phi$ latitude, $\lambda$ longitude. The cosine
-factor uses that **one** grid reference latitude $\phi_{\mathrm{ref}}$ for every
-point, not a per-point $\cos\phi$: a single shared frame is what makes the
-off-diagonal $\nabla F$ terms exact — a per-point cosine would corrupt them by a
-cosine ratio. In the tiny-separation regime this flat-tangent approximation is
-adequate; it is a convention, not a correctness blocker. Both `NeighborFlowMap`
-and `AuxiliaryFlowMap` share the identical metric code (and `AuxiliarySeed`
-reuses it to lay out its arms), so positions are read back in the same frame the
-seed was emitted in.
+with $R$ the Earth radius, $\phi$ latitude, $\lambda$ longitude. This is a map
+projection of the whole domain, **not** a tangent plane: the cosine factor is
+that one $\cos\phi_{\mathrm{ref}}$ everywhere, not a per-point $\cos\phi$, and
+the *same* frame carries both the reference positions and the advected ones, so
+$\nabla F$ is a ratio of separations measured in one consistent set of
+coordinates. Both `NeighborFlowMap` and `AuxiliaryFlowMap` share the identical
+metric code (and `AuxiliarySeed` reuses it to lay out its arms), so positions
+are read back in the same frame the seed was emitted in.
+
+Because the zonal scale factor is fixed at $\phi_{\mathrm{ref}}$, $\nabla F$
+picks up a bias that grows with how far the release and arrival latitudes stray
+from the standard parallel: what drives the error is the *meridional excursion*
+of the particles relative to $\phi_{\mathrm{ref}}$, not the width of the domain
+as such. The exact algebraic form of the bias — $F_{yy}$ exact, $F_{xx}$ off by
+$c_1/c_0$, the off-diagonals off by $c_1/c_{\mathrm{ref}}$ and
+$c_{\mathrm{ref}}/c_0$ — is in
+[`architecture.md`](architecture.md#why-the-metres-frame-is-equirectangular),
+together with an illustration of the scale of the error on one analytic test
+flow map. The convention is sound for regional domains of modest latitude range
+and away from the dateline, and not for basin-scale ones.
 
 ### Geometric LCS layer (tensor lines)
 
@@ -141,8 +191,34 @@ $\xi_1$, solving $\dot r = \xi_1(r)$ (Haller Table 1, $n = 2$) — in
 [`src/lcs_parcels/tensorlines.py`](../src/lcs_parcels/tensorlines.py)
 (`shrink_lines`, with `ftle_ridge_seeds` for start points). Repelling LCS are the
 shrink lines of the forward flow map; attracting LCS those of the backward flow
-map (forward–backward duality, Haller & Sapsis 2011). The following remain
-deferred:
+map (forward–backward duality, Haller & Sapsis 2011,
+[doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)).
+`FlowMap.hyperbolic_lcs()` runs the FTLE, the ridge seeds and the tensor lines
+in one call.
+
+The layer's tuning parameters are stated in the units of the thing itself, so
+that a call means the same thing at any grid resolution and over any window: the
+ridge-seed neighbourhood `window_m`, the tensor-line arc step `step_m` and the
+length cap `line_length_m` are metres, and the well-definedness guard
+`min_anisotropy` is the dimensionless eigenvalue ratio $a_{\min}$, a line
+terminating where
+
+$$\frac{\lambda_2}{\lambda_1} < a_{\min}.$$
+
+`line_length_m` is a cap on the traced arc, not the achieved length: a line that
+terminates early is shorter, and the returned block is NaN-filled past
+termination so every row has equal length. `window_m` is the *side* of the
+ridge-seed neighbourhood, which reaches `window_m / 2` to either side of its own
+grid point, so two ridge seeds can be about `window_m / 2` apart, not
+`window_m`.
+
+$a_{\min}$ carries no $T$, no grid scale and no stretching rate: it is the
+relative gap between the eigenvalues of $C$, which is what sets how sensitive
+$\xi_1$ is to a perturbation of $C$ — and therefore whether $\xi_1$ is a
+direction at all or numerical noise. Default $a_{\min} = 1.15$. It is a
+well-definedness guard, never an LCS selector; `quantile` selects.
+
+The following remain deferred:
 
 - $E_\lambda(x_0)$ — generalized Green–Lagrange strain tensor (Eq. 8).
 - $\eta^\pm(x_0)$ — shear vector field; stretch and shear (elliptic) lines
@@ -155,13 +231,14 @@ dimensions, not as scalar variables (`F11, F12, …`):
 
 | Object | Code name | Dims | Component coords |
 |---|---|---|---|
+| diagnostic grid points $x_{\mathrm{grid}}$ (coords; seed + flow map, both stencils) | `lon_grid`, `lat_grid` | `(i, j)` | — |
 | reference release positions $x_0$ (coords; seed + flow map) | `lon_0`, `lat_0` | `(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes | — |
 | advected flow map $F_{t_0}^{t_1}(x_0)$ (data vars; flow map only) | `lon`, `lat` | same dims as `lon_0`/`lat_0` | — |
-| grid-point centres (`Auxiliary*` classes only, coords) | `lon_c`, `lat_c` | `(i, j)` | — |
+| flow map image of the grid points (flow map only) | `grid_image` (`lon`, `lat`) | `(i, j)` | — |
 | release time $t_0$ / signed window $T$ (scalar coords; flow map only) | `t0`, `T` | scalar | — |
 | auxiliary-grid stencil axis | — | `(displacement,)` | `displacement = ['east','north','west','south']` |
-| deformation gradient $\nabla F$ | `gradF` | `(i, j, row, col)` | `row, col = ['x', 'y']` |
-| Cauchy–Green $C$ | `C` | `(i, j, row, col)` | `row, col = ['x', 'y']` |
+| deformation gradient $\nabla F$ | `gradF` | `i, j, row, col` (set, order not contractual) | `row, col = ['x', 'y']` |
+| Cauchy–Green $C$ | `C` | `i, j, row, col` (set, order not contractual) | `row, col = ['x', 'y']` |
 | eigenvalues $\lambda_i$ | `lambda` | `(i, j, eig)` | — |
 | eigenvectors $\xi_i$ | `xi` | `(i, j, comp, eig)` | `comp = ['x', 'y']` |
 | FTLE $\Lambda$ | `ftle` | `(i, j)` | — |
@@ -169,33 +246,34 @@ dimensions, not as scalar variables (`F11, F12, …`):
 
 Logical grid dims are `i, j`. The `comp` coordinate labels vector/tensor
 components `['x', 'y']`; `row`/`col` (dimension coordinates valued `['x', 'y']`)
-index the two axes of a $2\times 2$ tensor; `eig` indexes the two eigenpairs. For
+index the two axes of a $2\times 2$ tensor; `eig` indexes the two eigenpairs.
+The dims listed above are a *set*, not a memory layout: the package is
+label-based throughout, so the axis order a given call happens to return is not
+part of the contract and must never be relied on. Select with `.sel` / `.isel`
+and named dims; call `.transpose(...)` yourself if you need a specific layout
+(as `shrink_lines` does before handing the tensor to SciPy). For
 the `Auxiliary*` classes the reference release positions
 `lon_0(i, j, displacement)` / `lat_0(i, j, displacement)` *are* the explicit
 stencil arms and (on a flow map) the advected arms `lon(i, j, displacement)` /
-`lat(i, j, displacement)` share those dims; the diagnostic centres
-`lon_c(i, j)` / `lat_c(i, j)` are kept separately. The `displacement` dim is
-differenced away by `deformation_gradient`, so $\nabla F$ and everything
-downstream are back on `(i, j)`. A single `FlowMap` carries scalar `t0`/`T`;
-assembling a release series promotes them to extra $t_0$ / $T$ axes that
-broadcast on top of these.
+`lat(i, j, displacement)` share those dims; the diagnostic grid points
+`lon_grid(i, j)` / `lat_grid(i, j)` are kept separately. The `displacement` dim
+is differenced away by `deformation_gradient`, so $\nabla F$ and everything
+downstream are back on `(i, j)`, labelled by `lon_grid`/`lat_grid`. A single
+`FlowMap` carries scalar `t0`/`T`; assembling a release series promotes them to
+extra $t_0$ / $T$ axes that broadcast on top of these.
 
-Storing tensors with component dims keeps the eigen step compact. Note that
-xarray has no native eigendecomposition: it does not wrap `np.linalg`, so
-`np.linalg.eigh(C)` would drop the dims/coords and return bare arrays, and it
-requires the matrix axes to be last. Two label-preserving options:
+Storing tensors with component dims keeps the eigen step compact. xarray has no
+native eigendecomposition — it does not wrap `np.linalg`, so `np.linalg.eigh(C)`
+would drop the dims and coords and requires the matrix axes to be last — so
+`cg_eigen` declares the core dims and re-wraps the result:
+`xr.apply_ufunc(np.linalg.eigh, C, input_core_dims=[['row', 'col']], ...)`.
 
-- `xr.apply_ufunc(np.linalg.eigh, C, input_core_dims=[['row', 'col']], ...)` —
-  declares the core dims and re-wraps the result.
-- a closed-form $2\times 2$ symmetric solver in pure xarray arithmetic
-  (eigenvalues from trace/determinant via the quadratic formula, then
-  eigenvectors). This needs no `apply_ufunc` and stays fully label-native and
-  dask-lazy.
-
-The choice is left to the implementation session.
-
-## Reference
+## References
 
 Haller, G. (2015). *Lagrangian Coherent Structures.* Annual Review of Fluid
 Mechanics, 47, 137–162.
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
+
+Haller, G. & Sapsis, T. (2011). *Lagrangian coherent structures and the smallest
+finite-time Lyapunov exponent.* Chaos, 21, 023115.
+[doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597).

@@ -4,7 +4,7 @@ For a constant linear flow map ``F(x) = M @ x`` in the local meters frame,
 ``gradF`` equals ``M`` at every grid point, so the whole chain has closed-form
 answers. The ``conftest.advected_flowmap`` helper seeds a time-free grid, emits
 its particle set, advects through ``M`` about the seed centroid, and ingests via
-``seed.pset_to_flowmap(..., t0, t1)`` (the signed window ``T = t1 - t0`` lands on
+``seed.pset_to_flowmap`` (the signed window ``T = t1 - t0`` lands on
 the ``FlowMap``).
 
 A non-symmetric ``M = [[2.0, 0.5], [0.0, 3.0]]`` is used for the general tests so
@@ -16,7 +16,7 @@ import xarray as xr
 from conftest import advected_flowmap, advected_flowmap_f
 
 from lcs_parcels import AuxiliarySeed, NeighborSeed
-from lcs_parcels.grids import _lonlat_to_meters
+from lcs_parcels.grids import _arm_diff, _central_diff, _lonlat_to_meters
 
 # Release time and integration end time; the signed window T = T1 - T0 spans one
 # day (|T| = 86400 s).
@@ -34,6 +34,46 @@ M_TENSOR = xr.DataArray(
 
 # Integration window in seconds (one day) used by the analytic FTLE.
 T_SEC = abs((T1 - T0) / np.timedelta64(1, "s"))
+
+
+# --- stencil differences ----------------------------------------------------
+
+
+def test_central_diff_spans_two_cells_and_nans_the_edges():
+    """``_central_diff`` is ``(index + 1) - (index - 1)``, NaN at both ends."""
+    field = xr.DataArray(
+        np.arange(5.0)[:, None] * np.ones(3), dims=("i", "j"), name="field"
+    )
+
+    diff = _central_diff(field, "i")
+
+    assert set(diff.dims) == {"i", "j"}
+    assert np.isnan(diff.isel(i=0)).all()
+    assert np.isnan(diff.isel(i=-1)).all()
+    # Unit spacing along i, so the two-cell span is 2 everywhere inside.
+    assert np.allclose(diff.isel(i=slice(1, -1)), 2.0)
+    # Constant along j, so the j difference vanishes where it is defined.
+    assert np.allclose(_central_diff(field, "j").isel(j=1), 0.0)
+
+
+def test_arm_diff_subtracts_opposing_arms_onto_the_grid():
+    """``_arm_diff`` differences two ``displacement`` labels back onto ``(i, j)``."""
+    field = xr.DataArray(
+        np.array([[[1.0, 10.0, -1.0, -10.0]]]),
+        dims=("i", "j", "displacement"),
+        coords={"displacement": ["east", "north", "west", "south"]},
+        name="field",
+    )
+
+    span_x = _arm_diff(field, "east", "west")
+    span_y = _arm_diff(field, "north", "south")
+
+    assert set(span_x.dims) == {"i", "j"}
+    assert "displacement" not in span_x.coords
+    assert np.allclose(span_x, 2.0)
+    assert np.allclose(span_y, 20.0)
+    # Antisymmetric in its two arms.
+    assert np.allclose(_arm_diff(field, "west", "east"), -2.0)
 
 
 # --- deformation gradient --------------------------------------------------
@@ -55,6 +95,13 @@ def test_deformation_gradient_dims_and_coords(lon_axis, lat_axis):
     assert list(gradF["row"].values) == ["x", "y"]
     assert list(gradF["col"].values) == ["x", "y"]
     assert "comp" not in gradF.coords
+
+    # The diagnostic is reported at the grid point, so it carries lon_grid/
+    # lat_grid -- not the per-arm release positions it was differenced from.
+    assert set(gradF["lon_grid"].dims) == {"i", "j"}
+    assert set(gradF["lat_grid"].dims) == {"i", "j"}
+    assert "lon_0" not in gradF.coords
+    assert "lat_0" not in gradF.coords
 
 
 def test_deformation_gradient_equals_M_neighbor(lon_axis, lat_axis):
@@ -98,7 +145,7 @@ def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
 
     The map is quadratic in the meters frame,
     ``f(dx, dy) = (dx + a*dx**2, dy + b*dy**2)``, whose exact Jacobian is
-    ``diag(1 + 2*a*X, 1 + 2*b*Y)`` with ``(X, Y)`` each grid centre's meters
+    ``diag(1 + 2*a*X, 1 + 2*b*Y)`` with ``(X, Y)`` each grid point's meters
     position from the centroid. Central differencing is exact for a quadratic, so
     gradF must match the analytic per-point Jacobian to ~1e-6 -- exercising
     per-point differencing, not the constant-``M`` case.
@@ -111,10 +158,11 @@ def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
     g = advected_flowmap_f(AuxiliarySeed, lon_axis, lat_axis, f, T0, T1)
     gradF = g.deformation_gradient()
 
-    lon_c, lat_c = g.ds["lon_c"], g.ds["lat_c"]
+    lon_grid, lat_grid = g.ds["lon_grid"], g.ds["lat_grid"]
     lon0 = float(g.ds["lon_0"].mean())
     lat0 = float(g.ds["lat_0"].mean())
-    X, Y = _lonlat_to_meters(lon_c, lat_c, lon0, lat0)  # centre meters, dims (i, j)
+    # grid-point positions in meters, dims (i, j)
+    X, Y = _lonlat_to_meters(lon_grid, lat_grid, lon0, lat0)
     fxx = 1 + 2 * a * X
     fyy = 1 + 2 * b * Y
     zero = xr.zeros_like(X)

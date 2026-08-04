@@ -26,7 +26,8 @@
 # to $\xi_1$, i.e. orthogonal to the strong-stretch direction $\xi_2$ that the
 # FTLE ridge marks. It solves the ODE $\dot r = \xi_1(r)$.
 #
-# Attracting LCS come from the forward–backward duality (Haller & Sapsis 2011):
+# Attracting LCS come from the forward–backward duality (Haller & Sapsis 2011,
+# [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)):
 # an **attracting** LCS is just a repelling LCS of the *backward* flow. So we run
 # the flow both ways from the same initial grid and, in each, integrate the
 # $\xi_1$ shrink lines:
@@ -34,9 +35,9 @@
 # - **repelling** LCS = shrink lines of the **forward** $C$;
 # - **attracting** LCS = shrink lines of the **backward** $C$.
 #
-# We anchor the analysis at the middle of the bundled window ($t_0$ =
-# 2025-08-06, $T = \pm 5$ d) so both runs stay inside the data. It reads the
-# bundled current subset, so it runs offline — no CMEMS credentials. Run with
+# We anchor the analysis at the middle of the window the local current file
+# covers ($t_0$ = 2025-08-06, $T = \pm 5$ d) so both runs stay inside the data.
+# Run with
 # `pixi run -e examples jupytext --sync --execute examples/cabo_verde_lcs.py`.
 
 # %%
@@ -52,9 +53,10 @@ from lcs_parcels import NeighborSeed, ftle_ridge_seeds, shrink_lines
 # %% [markdown]
 # ## Currents
 #
-# The same CMEMS hourly surface velocity as `cabo_verde_ftle`, saved to a file
-# so the notebook is self-contained. `copernicusmarine_to_sgrid` +
-# `from_sgrid_conventions` wrap it as a spherical `FieldSet`.
+# The same CMEMS hourly surface velocity as `cabo_verde_ftle`, read from a local
+# file you save yourself -- `examples/data/` is not in the repo.
+# `copernicusmarine_to_sgrid` + `from_sgrid_conventions` wrap it as a spherical
+# `FieldSet`.
 
 # %%
 currents = xr.open_dataset("data/cabo_verde_currents_hourly.nc")
@@ -78,7 +80,7 @@ seed_lon, seed_lat = (-27.0, -21.0), (13.5, 18.5)
 
 lon_axis = np.arange(seed_lon[0], seed_lon[1] + 1e-9, resolution_deg)
 lat_axis = np.arange(seed_lat[0], seed_lat[1] + 1e-9, resolution_deg)
-seed = NeighborSeed.from_axes(lon_axis, lat_axis)
+seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
 
 
 # %%
@@ -105,7 +107,7 @@ def advect(signed_T):
         runtime=abs(signed_T),
         verbose_progress=False,
     )
-    return seed.pset_to_flowmap(pset.x, pset.y, t0=t0, t1=t0 + signed_T)
+    return seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t0 + signed_T)
 
 
 forward = advect(+T)
@@ -119,14 +121,9 @@ backward = advect(-T)
 # backdrop and marks where repelling LCS live; the backward FTLE does the same
 # for attracting LCS. We start each family from the local maxima of its own FTLE.
 
-
 # %%
-def ftle_per_day(flowmap):
-    return (flowmap.ftle() * 86400.0).rename("FTLE")
-
-
-ftle_forward = ftle_per_day(forward)
-ftle_backward = ftle_per_day(backward)
+ftle_forward = forward.ftle()
+ftle_backward = backward.ftle()
 
 # %% [markdown]
 # ## Extract the LCS
@@ -135,24 +132,46 @@ ftle_backward = ftle_per_day(backward)
 # points at the FTLE ridge tops, and `shrink_lines` integrates the $\xi_1$ tensor
 # lines through them. Repelling vs attracting is just *which* flow map you pass:
 # the forward one gives repelling LCS, the backward one gives attracting LCS
-# (Haller–Sapsis duality).
+# (forward–backward duality). `FlowMap.hyperbolic_lcs()` runs the whole chain —
+# FTLE, seeds, lines — in one call, *hyperbolic* because elliptic LCS are a
+# different family; we keep the steps apart here so the seed points stay visible.
 #
 # Good seeding depends on the velocity field: how densely ridges are sampled and
-# how strong a ridge must be to count. The knobs below suit the smooth, coarse
-# CMEMS $1/12^\circ$ field — a sharper or finer field may want a tighter
-# neighbourhood `window`, a different magnitude floor `quantile`, or a smaller
-# `step_m`.
+# how strong a ridge must be to count. Below, a seed is the top of a ridge that
+# dominates a 30 km neighbourhood and sits in the top decile of the whole FTLE
+# field, and each curve is up to 1500 km long, stepped in 3 km arcs. The lengths
+# are physical, so they mean the same thing on a finer grid — but a sharper field
+# may still want a tighter `window_m` or a smaller `step_m`. The neighbourhood
+# reaches half its side either way, so two seeds can sit about 15 km apart.
 
 # %%
-# Seeding: ridge tops as `window`-by-`window` local maxima above a `quantile`
-# magnitude floor. Integration: arc-length `step_m` over `n_steps` per direction.
-window, quantile = 7, 0.90
-step_m, n_steps = 3_000.0, 250
+# Seeding: ridge tops as local maxima over a box of side `window_m` (reaching
+# `window_m / 2` either side of its own point), above a `quantile` magnitude
+# floor. Integration: at most `line_length_m` of curve in `step_m` steps, half
+# either side of the seed.
+window_m, quantile = 30_000.0, 0.90
+step_m, line_length_m = 3_000.0, 1_500_000.0
 
-repelling_seeds = ftle_ridge_seeds(ftle_forward, window=window, quantile=quantile)
-attracting_seeds = ftle_ridge_seeds(ftle_backward, window=window, quantile=quantile)
-repelling = shrink_lines(forward, *repelling_seeds, step_m=step_m, n_steps=n_steps)
-attracting = shrink_lines(backward, *attracting_seeds, step_m=step_m, n_steps=n_steps)
+repelling_seed_lon, repelling_seed_lat = ftle_ridge_seeds(
+    ftle_forward, window_m=window_m, quantile=quantile
+)
+attracting_seed_lon, attracting_seed_lat = ftle_ridge_seeds(
+    ftle_backward, window_m=window_m, quantile=quantile
+)
+repelling = shrink_lines(
+    forward,
+    seed_lon=repelling_seed_lon,
+    seed_lat=repelling_seed_lat,
+    step_m=step_m,
+    line_length_m=line_length_m,
+)
+attracting = shrink_lines(
+    backward,
+    seed_lon=attracting_seed_lon,
+    seed_lat=attracting_seed_lat,
+    step_m=step_m,
+    line_length_m=line_length_m,
+)
 print(
     f"{repelling.sizes['line']} repelling, {attracting.sizes['line']} attracting lines"
 )
@@ -170,7 +189,7 @@ panels = [
         axes[0],
         ftle_forward,
         repelling,
-        repelling_seeds,
+        (repelling_seed_lon, repelling_seed_lat),
         "tab:red",
         "repelling (forward)",
     ),
@@ -178,13 +197,14 @@ panels = [
         axes[1],
         ftle_backward,
         attracting,
-        attracting_seeds,
+        (attracting_seed_lon, attracting_seed_lat),
         "tab:blue",
         "attracting (backward)",
     ),
 ]
 for ax, ftle, lines, seeds, color, name in panels:
-    ftle.plot.pcolormesh(x="lon_0", y="lat_0", ax=ax, cmap="Greys", add_colorbar=True)
+    # Greyscale so the coloured curves read against it.
+    ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
     for lon_line, lat_line in zip(lines["lon"], lines["lat"], strict=True):
         ax.plot(lon_line, lat_line, color=color, lw=0.8)
     seed_lon_pts, seed_lat_pts = seeds
