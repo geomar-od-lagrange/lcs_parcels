@@ -25,7 +25,8 @@ $\xi_1 \perp \xi_2$. A **repelling** LCS is a *shrink line* — a curve tangent
 to $\xi_1$, i.e. orthogonal to the strong-stretch direction $\xi_2$ that the
 FTLE ridge marks. It solves the ODE $\dot r = \xi_1(r)$.
 
-Attracting LCS come from the forward–backward duality (Haller & Sapsis 2011):
+Attracting LCS come from the forward–backward duality (Haller & Sapsis 2011,
+[doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)):
 an **attracting** LCS is just a repelling LCS of the *backward* flow. So we run
 the flow both ways from the same initial grid and, in each, integrate the
 $\xi_1$ shrink lines:

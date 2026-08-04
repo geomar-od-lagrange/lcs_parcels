@@ -117,7 +117,8 @@ forward, backward = forward_maps[-1], backward_maps[-1]
 ## Extract the LCS at the longest window
 
 The ridges are sharpest at $T$, so we diagnose there: repelling LCS from the
-forward flow, attracting from the backward one (Haller–Sapsis duality), each
+forward flow, attracting from the backward one (Haller–Sapsis duality,
+[doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)), each
 seeded at the local maxima of its own FTLE. `FlowMap.lcs` runs that chain —
 FTLE, ridge seeds, shrink lines — in one call and reads repelling or attracting
 off the sign of its own window; `cabo_verde_lcs` walks the same three steps by
