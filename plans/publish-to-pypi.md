@@ -110,10 +110,26 @@ upper cap: a pin in a library's metadata propagates into every downstream
 resolution and stops `lcs_parcels` being co-installable. `pixi.lock` pins the
 development environment; `[project]` declares what the library can live with.
 
-The floors will be low, because the third-party surface is small and old:
+Set the floors generously. The third-party surface is small and old —
 `np.linalg.eigh`, `np.column_stack`, `xr.apply_ufunc`, `xr.dot`, `xr.concat`,
-`scipy.interpolate.RegularGridInterpolator`. Python 3.11 sets a higher floor than
-anything we call does.
+`scipy.interpolate.RegularGridInterpolator` — so the code would run against much
+older releases than these, and there is no reason to promise that it does.
+
+Floor each dependency at the version where that project dropped Python 3.10, so
+the line is not an arbitrary number:
+
+| | floor | released |
+|---|---|---|
+| numpy | `>=2.3` | 2025-06 |
+| scipy | `>=1.16` | 2025-06 |
+| xarray | `>=2025.7` | 2025-07 |
+
+This is bounded above by `requires-python = ">=3.11"`. numpy 2.5 and scipy 1.18
+both require Python 3.12, and the default pixi environment currently holds
+exactly those, so the development stack is 3.12-only while the declared Python
+floor is 3.11. numpy 2.4.6 and scipy 1.17.1 are the newest releases the 3.11 job
+can resolve. Accept that the 3.11 job tests a different dependency stack from the
+one we develop against — that is the floor being exercised.
 
 Test the floor rather than assert it: a CI job resolving `--resolution
 lowest-direct` and running the suite, so a floor that is wrong fails.
