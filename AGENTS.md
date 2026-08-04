@@ -49,6 +49,12 @@ Rules that fall out of it:
 
 ## Documentation & writing
 
+- **Short factual statements, never an aphoristic tone.** Write what a thing is
+  and what it does. Do not reach for the resonant closing clause, the balanced
+  pair of opposites, or the sentence that lands rather than informs. Simple
+  test: if it sounds like it could be from *The Road Not Taken*, it is wrong.
+  This applies to prose everywhere — docstrings, docs, examples, commit
+  messages — and is the rule most often broken in a first draft.
 - **Math in Markdown uses LaTeX, not unicode.** Write `$\nabla F$`, `$\xi_i$`,
   `$\lambda_{\max}$`, `$(\nabla F)^\top \nabla F$` with `$...$` (inline) and
   `$$...$$` (display). Do not use unicode math glyphs (`∇ ξ λ ² ᵀ → ±`) in prose

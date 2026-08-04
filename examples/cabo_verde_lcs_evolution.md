@@ -112,6 +112,10 @@ off: the five-day run passes through the one-day state anyway, so restarting
 from $t_0$ for every horizon would integrate 15 days per direction instead of
 5.
 
+Each leg is given an absolute `endtime`. With `runtime` the particles keep
+their positions across calls but every leg re-enters at $t_0$, so the second
+day would be advected with the first day's currents.
+
 ```python
 forward_maps, backward_maps = [], []
 for direction, maps in ((1, forward_maps), (-1, backward_maps)):
@@ -124,14 +128,12 @@ for direction, maps in ((1, forward_maps), (-1, backward_maps)):
         z=np.full(len(lon0), z_surface),
         t=t0,
     )
-    reached = np.timedelta64(0, "s")
     for horizon in horizons:
         pset.execute(
             [AdvectionRK4, set_lost_to_nan],
             dt=direction * np.timedelta64(1, "h"),
-            runtime=horizon - reached,
+            endtime=t0 + direction * horizon,
         )
-        reached = horizon
         maps.append(
             seed.pset_to_flowmap(
                 lon=np.asarray(pset.x).copy(),
