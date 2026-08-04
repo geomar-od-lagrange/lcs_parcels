@@ -104,6 +104,20 @@ Update the release section of `AGENTS.md`. Existing tags `v2026.07.17.1` and
 **sdist.** Add `[tool.hatch.build.targets.sdist]` excluding `.claude`,
 `CLAUDE.md`, `AGENTS.md`, `plans`, `pixi.lock`, `.github`.
 
+**Dependency bounds.** `dependencies = ["numpy", "xarray", "scipy"]` is currently
+unbounded in both directions. Give each a floor. Do not pin, and do not add an
+upper cap: a pin in a library's metadata propagates into every downstream
+resolution and stops `lcs_parcels` being co-installable. `pixi.lock` pins the
+development environment; `[project]` declares what the library can live with.
+
+The floors will be low, because the third-party surface is small and old:
+`np.linalg.eigh`, `np.column_stack`, `xr.apply_ufunc`, `xr.dot`, `xr.concat`,
+`scipy.interpolate.RegularGridInterpolator`. Python 3.11 sets a higher floor than
+anything we call does.
+
+Test the floor rather than assert it: a CI job resolving `--resolution
+lowest-direct` and running the suite, so a floor that is wrong fails.
+
 **Python matrix.** Add pixi features `py311`, `py312`, `py313`, each pinning its
 interpreter, and the matching `test-py311`/`test-py312`/`test-py313`
 environments. `default` and `examples` stay on 3.13, which is the newest Parcels
@@ -114,7 +128,8 @@ gives the 3.13 pin as universal.
 
 CI: keep the OS matrix at 3.13, add ubuntu jobs for 3.11 and 3.12.
 
-**Coverage.** Add `pytest-cov`, a `test-cov` pixi task running
+**Coverage.** Add `.coverage` and `htmlcov/` to `.gitignore`; neither is there
+today. Add `pytest-cov`, a `test-cov` pixi task running
 `--cov=lcs_parcels --cov-branch`, and a CI step. Set `exclude_also =
 ["raise NotImplementedError"]` in the coverage config, which takes the three
 abstract-method bodies out and makes 100% the honest number, then gate on
@@ -123,8 +138,8 @@ abstract-method bodies out and makes 100% the honest number, then gate on
 **Dependabot.** `github-actions` only. Verified: pixi is not a supported
 ecosystem, and Dependabot's pip ecosystem does not read `[tool.pixi.*]`, so it
 cannot see the Parcels git dependency and cannot float the pinned SHA. The
-`[project]` runtime dependencies are unpinned, so there is nothing else for it to
-bump.
+`[project]` dependencies carry floors and no caps, so there is nothing else for
+it to bump either.
 
 **README.** Add `pip install git+https://github.com/geomar-od-lagrange/lcs_parcels.git`,
 so users are not forced through pixi before PyPI exists. Add a CI badge.
