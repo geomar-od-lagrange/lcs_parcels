@@ -58,55 +58,114 @@ Everything that changes numbers or signatures lands before the first release.
 Closes #18, #13. Both change how positions are laid out and measured; #18 asks
 for them to be designed together.
 
-- Apply the diagonal rescaling from #18:
-  $\nabla F = \mathrm{diag}(c_1, 1) \cdot \partial(\lambda_1,\phi_1)/\partial(\lambda_0,\phi_0) \cdot \mathrm{diag}(1/c_0, 1)$,
-  in both `NeighborFlowMap.deformation_gradient` and
-  `AuxiliaryFlowMap.deformation_gradient`.
-- Add a longitude-difference helper wrapping to $(-180, 180]$ and a circular-mean
-  helper. Use them at every site listed in #13: `FlowMap.image`, the auxiliary
-  centre, `_reference_lonlat`, `_to_meters`/`_lonlat_to_meters`, both
-  `deformation_gradient` implementations, and `tensorlines.py:123` and `:148-150`.
+**Decision — metric frame: per-point local east/north.** Drop the shared
+standard parallel entirely. Difference each point in its own local frame, using
+its own $\cos\phi$. Removes the frame concept from $\nabla F$ and from
+tensor-line stepping alike, so there is no longer a "regional domains only"
+caveat to explain. Same size of edit as the alternative.
+
+This is the diagonal rescaling of #18,
+$\nabla F = \mathrm{diag}(c_1, 1) \cdot \partial(\lambda_1,\phi_1)/\partial(\lambda_0,\phi_0) \cdot \mathrm{diag}(1/c_0, 1)$,
+taken to its limit: with each separation read in its own local frame there is no
+residual frame to correct. The measured 3.0% median error over 20 degrees and
+15% over 60 degrees go to zero rather than shrinking.
+
+**Decision — branch cut: wrap-aware helpers only.** No normalisation on ingest.
+Accept whatever longitude convention the user hands us, and do every difference
+and every mean through a wrapping helper. Nothing is silently rewritten, and a
+user who plots our output gets back the convention they came in with.
+
+Work:
+
+- Replace `_lonlat_to_meters` / `_reference_lonlat` / `_to_meters` with a
+  local-frame separation helper: the east/north components in metres between two
+  lon/lat pairs, longitude difference wrapped to $[-180, 180]$ and the east
+  component scaled by the cosine of the pair's mid-latitude. Both
+  `deformation_gradient` implementations difference through it.
+- Lay the `AuxiliarySeed` arms with each grid point's own $\cos\phi$, so the arm
+  span is exactly $2s$ everywhere instead of only at the grid centroid.
+- Circular mean for the auxiliary centroid (`AuxiliaryFlowMap.grid_image`),
+  anchored on the first arm so the result keeps the input's branch.
+- Forward stepping in `tensorlines.py`: invert the measurement — northward
+  $R\,d\phi$, eastward $R\cos\phi_{\mathrm{mid}}\,d\lambda$ about the same
+  mid-latitude — instead of dividing by one reference cosine.
+- Re-anchor the advected longitudes on their grid point's branch inside
+  `FlowMap.image`, so an advection that returns positions wrapped to
+  $[-180, 180)$ does not tear under the interpolation.
+- Reject an auxiliary separation that spans 90 degrees of longitude or more,
+  which otherwise aliases through the wrap into an arm on the far side of the
+  pole. The guard trips closer to a pole than $2s/\pi$: 640 m for the default
+  1 km arms, 32 km for 50 km arms.
 - Tests: the rigid meridional translation from #18, which must stop reporting
   zero FTLE; a seed straddling the antimeridian; a high-latitude seed. None
-  exist today.
+  exist today. The shared axis fixtures run every operator, grid and tensor-line
+  test in all three regions, so the sensitive cases are not one file's problem.
+
+Two things measured during the work, both of which changed the design:
+
+- The direct great-circle step is the wrong forward map here. A great-circle arc
+  leaves a heading-invariant direction field at
+  $(\delta/R)^2\tan\phi/2$ per step, which accumulates *linearly* in the step
+  count: a due-east field at 70 N drifts 3.4 km off its parallel over an 800 km
+  line at a 20 km step, and halving the step only halves it. Inverting
+  `_separation_m` instead leaves it exactly, and makes the forward and inverse
+  operations exact inverses.
+- The mid-latitude cosine is a midpoint rule, so its accuracy is set by the
+  separation of the *pair* and its latitude, not by the size of the domain. For a
+  zonal pair the relative error against the great-circle distance is
+  $(\Delta\lambda\sin\phi)^2/24$, crossing $10^{-6}$ at $31.2\ \mathrm{km}/\tan\phi$
+  — 54 km at 30 N, 18 km at 60 N, 5.5 km at 80 N, and never at the equator, where
+  a parallel is itself a great circle. The default 1 km auxiliary arms sit far
+  inside that; a neighbour stencil differences over *two* grid cells and on a
+  coarse grid does not, but pays its own finite-difference truncation first. The
+  docs state the number rather than claiming the frame is exact.
+
+  A first draft of this plan put that crossing at "36 km at the equator, 11 km at
+  60 N, 3 km at 80 N". Those numbers were never measured and the equator entry is
+  impossible, since the error term vanishes there. Adversarial review caught it
+  after it had propagated into the source docstring.
 - Rewrite the *Scope: regional domains only* section of `README.md` and the
   metric-frame part of `docs/numerics.md` to the state after the fix.
 
-No third-party geodesy is involved, now or in the proposal. The metres frame is
-`EARTH_RADIUS_M` and a cosine in `grids.py`; the fix keeps it that way.
+No third-party geodesy is involved. The frame is `EARTH_RADIUS_M` and a cosine in
+`grids.py`; the fix keeps it that way.
 
 Haversine does not apply here. It solves the inverse problem — great-circle
 distance between two given points — and $\nabla F$ needs a local linear map
 between tangent spaces, so it needs signed east and north *components*, not a
-scalar separation. The correction in #18 is exactly the local version of what we
-already compute.
+scalar separation. The forward direct problem is what the tensor-line stepping
+wants, and that is written out above.
 
-Worth weighing in this PR, though, since it costs the same edit: instead of
-correcting the single standard parallel with each point's own $\cos\phi$, drop
-the shared frame and difference in per-point local east/north. That removes the
-domain-size error rather than shrinking it, and the measured 3.0% median over 20
-degrees and 15% over 60 degrees go to zero. The tensor-line stepping in
-`tensorlines.py` is the one place that wants the *forward* problem — advance a
-lon/lat by a metre step along an eigenvector — which is a few lines of spherical
-trigonometry and again no dependency.
-
-**Open, needs a decision:** whether longitudes are normalised on ingest or the
-dataset carries a branch-cut convention. #13 lists both.
+What stays a regional restriction is the rectilinear-grid assumption, not the
+metric: `FlowMap.image` and `shrink_lines` interpolate along the `lon_grid` axis,
+so a domain crossing the antimeridian must be seeded on a monotonic longitude
+axis (170, 175, 180, 185) rather than a wrapped one (170, 175, 180, -175). That
+is the axis, not the arithmetic, and it is what the README says after this PR.
 
 ## PR 2 — ridge-selection knobs
 
 Closes #21, #22. Both touch the `ftle_ridge_seeds` signature, so the signature
 changes once.
 
+**Decision — `window_m`: keep it, report and warn.** `window_m` stays the
+neighbourhood side. Report the implied minimum seed spacing (about `window_m /
+2`) and the cell counts used in the returned metadata, and warn when `window_m`
+spans fewer than a few grid cells. Nothing silently changes meaning. #21's option
+3 — redefining `window_m` as the minimum seed separation — is rejected on that
+ground: it would leave existing calls running with a knob that means something
+else.
+
+**Decision — ridge selection: `quantile` default, absolute available.** Add an
+absolute FTLE floor alongside `quantile`, with `quantile` staying the default.
+Nothing changes for existing calls, and the absolute option is there when a run
+needs comparability across windows or regions.
+
+Work:
+
 - #21: report the implied minimum seed spacing (about `window_m / 2`; measured
   nearest-neighbour ratios 1.67–1.89) and the cell counts used, in the returned
   metadata. Warn when `window_m` spans fewer than a few grid cells.
 - #22: add an absolute FTLE floor alongside `quantile`.
-
-**Open, needs a decision:** #21 option 3 — redefining `window_m` as the minimum
-seed separation — is the honest fix and changes the meaning of the default. This
-plan proposes options 1 and 2 instead. #22 is a science decision: proposal is
-that both selectors are available and `quantile` stays the default.
 
 ## PR 3 — prose pass
 
@@ -118,6 +177,13 @@ Order by likely density: `docs/architecture.md`, `docs/numerics.md`,
 example notebooks, `README.md`, `examples/README.md`, `AGENTS.md`. Enforce LaTeX
 over unicode math and a DOI per citation while reading every line. Re-execute any
 notebook whose cells change.
+
+Gauge the English against NASA **KSC-DF-107, Revision F** (the Kennedy Space
+Center documentation style guide), not against the house rules alone. The
+`AGENTS.md` prose rules say what not to do; KSC-DF-107 is a positive standard for
+technical writing at sentence level, and this repository's audience — three
+readers, each wanting a different thing from the same sentence — is the case it
+is written for.
 
 ## PR 4 — packaging, CI matrix, coverage gate, Dependabot, badges
 
@@ -259,6 +325,9 @@ Independent of PR 5 and PR 6; can run in parallel.
   RTD project connected to the repository.
 - Add the docs link and badge to `README.md` once the site builds.
 
-**Open, needs a decision:** MkDocs Material against Sphinx with MyST. Sphinx
-would give generated API pages from the docstrings; `docs/api.md` is hand-written
-today and PR 3 will have just gone over it.
+**Decision — MkDocs Material.** `docs/` is Markdown, so it builds as-is; Sphinx
+with MyST would carry a `conf.py` and an extension for the same pages. The one
+thing Sphinx would add is generated API pages from the docstrings, and
+`docs/api.md` is hand-written and PR 3 will have just gone over it, so that is
+not a gap being filled. Revisit if hand-maintaining `docs/api.md` starts to
+drift from the docstrings.

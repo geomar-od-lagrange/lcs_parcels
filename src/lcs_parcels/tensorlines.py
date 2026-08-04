@@ -15,7 +15,10 @@ gridded xarray outputs of a :class:`~lcs_parcels.FlowMap`, and
 
 Rectilinear grids only: like :class:`~lcs_parcels.NeighborFlowMap`, the tensor is
 interpolated on axis-aligned ``lon_grid``/``lat_grid`` axes (``lon_grid`` varying
-along ``i``, ``lat_grid`` along ``j``).
+along ``i``, ``lat_grid`` along ``j``). The ``lon_grid`` axis must also be
+monotonic, so a domain crossing the antimeridian is seeded on ``170, 175, 180,
+185`` rather than ``170, 175, 180, -175``. Only the axis is constrained; a traced
+line may cross the antimeridian.
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels.grids import _DEG, EARTH_RADIUS_M, _lonlat_to_meters
+from lcs_parcels.grids import _DEG, EARTH_RADIUS_M, _separation_m
 
 
 def _odd_cells(window_m: float, spacing_m: float) -> int:
@@ -42,18 +45,27 @@ def _odd_cells(window_m: float, spacing_m: float) -> int:
 def _window_cells(ftle: xr.DataArray, window_m: float) -> tuple[int, int]:
     """The ``(i, j)`` cell counts spanning ``window_m`` on the field's own grid.
 
-    Spacing comes from the ``lon_grid``/``lat_grid`` coordinates projected into
-    the single-reference-latitude metres frame the package works in
-    (:func:`~lcs_parcels.grids._lonlat_to_meters`, one ``cos(phi_ref)``), taken
-    as the median cell size along each dimension.
+    Spacing is the median local east/north separation of adjacent grid points
+    (:func:`~lcs_parcels.grids._separation_m`), one median per dimension, so a
+    grid whose cells shrink poleward gets the size that most of it has.
     """
     lon_grid, lat_grid = ftle["lon_grid"], ftle["lat_grid"]
-    x, y = _lonlat_to_meters(
-        lon_grid, lat_grid, float(lon_grid.mean()), float(lat_grid.mean())
+    dx, _ = _separation_m(
+        lon_a=lon_grid.shift(i=1),
+        lat_a=lat_grid.shift(i=1),
+        lon_b=lon_grid,
+        lat_b=lat_grid,
     )
-    dx = float(np.abs(x.diff("i")).median())
-    dy = float(np.abs(y.diff("j")).median())
-    return _odd_cells(window_m, dx), _odd_cells(window_m, dy)
+    _, dy = _separation_m(
+        lon_a=lon_grid.shift(j=1),
+        lat_a=lat_grid.shift(j=1),
+        lon_b=lon_grid,
+        lat_b=lat_grid,
+    )
+    return (
+        _odd_cells(window_m, float(np.abs(dx).median())),
+        _odd_cells(window_m, float(np.abs(dy).median())),
+    )
 
 
 def ftle_ridge_seeds(
@@ -139,7 +151,7 @@ def _shrink_line_tangent(
     Returns
     -------
     np.ndarray
-        Shape ``(n, 2)`` unit vectors in the metres frame; ``NaN`` rows wherever
+        Shape ``(n, 2)`` unit ``(east, north)`` vectors; ``NaN`` rows wherever
         the tangent is not well defined.
     """
     cauchy_green = tensor_interp(np.column_stack([lon, lat]))
@@ -178,37 +190,48 @@ def _step_lonlat_by_meters(
     direction: np.ndarray,
     *,
     step_m: float,
-    lat_ref: float,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Advance ``(lon, lat)`` by ``step_m`` metres along ``direction``.
 
-    ``direction`` is a vector in the single-standard-parallel metres frame the
-    Cauchy-Green tensor lives in (:func:`~lcs_parcels.grids._to_meters`), so the
-    conversion back to degrees uses the one ``lat_ref``, not a per-point
-    ``cos(lat)``. A unit ``direction`` moves exactly ``step_m``; a shorter one
-    (the half-step of the midpoint scheme) moves proportionally less.
+    ``direction`` is a local east/north vector at ``(lon, lat)``, the frame ``C``
+    is built in. This is the exact inverse of the measurement that built it
+    (:func:`~lcs_parcels.grids._separation_m`): the northward component is
+    ``R d(phi)``, the eastward one ``R cos(phi_mid) d(lambda)`` about the same
+    mid-latitude. A unit ``direction`` moves ``step_m``; a shorter one (the
+    half-step of the midpoint scheme) moves proportionally less.
+
+    Inverting the measurement rather than solving the direct great-circle problem
+    is what keeps the traced curve on the direction field. A great-circle arc
+    leaves a heading-invariant field at a rate ``(step / R)**2 tan(phi) / 2`` per
+    step, which accumulates *linearly* in the step count: a due-east field at
+    70 N drifts 3.4 km off its parallel over an 800 km line at a 20 km step, and
+    halving the step only halves that. The step below leaves it exactly.
+
+    The increment is added to the incoming longitude, so a track crossing the
+    antimeridian stays on the branch its seed came in on. Latitude is not folded
+    at the pole: a line stepped past 90 degrees runs off the chart rather than
+    over the top.
 
     Parameters
     ----------
     lon, lat : np.ndarray
         Positions (degrees), shape ``(n,)``.
     direction : np.ndarray
-        Shape ``(n, 2)``, metres-frame ``(x, y)`` components.
+        Shape ``(n, 2)``, local ``(east, north)`` components.
     step_m : float
         Arc length in metres for a unit ``direction``.
-    lat_ref : float
-        The reference latitude (degrees) of the metres frame.
 
     Returns
     -------
     tuple[np.ndarray, np.ndarray]
         The stepped ``(lon, lat)`` in degrees.
     """
-    m_per_deg_lat = EARTH_RADIUS_M * _DEG
-    m_per_deg_lon = m_per_deg_lat * np.cos(lat_ref * _DEG)
+    m_per_deg = EARTH_RADIUS_M * _DEG
+    dlat = direction[:, 1] * step_m / m_per_deg
+    lat_mid = lat + 0.5 * dlat
     return (
-        lon + direction[:, 0] / m_per_deg_lon * step_m,
-        lat + direction[:, 1] / m_per_deg_lat * step_m,
+        lon + direction[:, 0] * step_m / (m_per_deg * np.cos(lat_mid * _DEG)),
+        lat + dlat,
     )
 
 
@@ -220,7 +243,6 @@ def _trace_half_line(
     tensor_interp: RegularGridInterpolator,
     min_anisotropy: float,
     step_m: float,
-    lat_ref: float,
     n_steps: int,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """March every seed ``n_steps`` steps in one of the two ``xi_1`` directions.
@@ -236,7 +258,7 @@ def _trace_half_line(
     sign : int
         ``+1`` or ``-1``, selecting which of the two opposite ``xi_1`` branches
         this half follows away from the seeds.
-    tensor_interp, min_anisotropy, step_m, lat_ref
+    tensor_interp, min_anisotropy, step_m
         As for :func:`_shrink_line_tangent` and :func:`_step_lonlat_by_meters`.
     n_steps : int
         Number of steps taken; the returned track has ``n_steps + 1`` entries,
@@ -278,7 +300,7 @@ def _trace_half_line(
             min_anisotropy=min_anisotropy,
         )
         mid_lon, mid_lat = _step_lonlat_by_meters(
-            lon, lat, 0.5 * direction, step_m=step_m, lat_ref=lat_ref
+            lon, lat, 0.5 * direction, step_m=step_m
         )
         # The well-definedness guard is evaluated at the RK2 midpoint too, so a
         # step whose two endpoints are both fine still terminates the line if the
@@ -290,9 +312,7 @@ def _trace_half_line(
             tensor_interp=tensor_interp,
             min_anisotropy=min_anisotropy,
         )
-        lon, lat = _step_lonlat_by_meters(
-            lon, lat, mid_direction, step_m=step_m, lat_ref=lat_ref
-        )
+        lon, lat = _step_lonlat_by_meters(lon, lat, mid_direction, step_m=step_m)
         heading = mid_direction
         # Every line runs the full n_steps and is NaN-filled past termination,
         # rather than breaking out: the whole seed population marches together in
@@ -366,11 +386,6 @@ def shrink_lines(
     n_steps = max(1, round(line_length_m / (2.0 * step_m)))
     lon_axis = flowmap.lon_grid.isel(j=0).values
     lat_axis = flowmap.lat_grid.isel(i=0).values
-    # xi_1 is a direction in the single-reference-latitude metres frame C lives in
-    # (grids._to_meters), so the arc-length step converts back to degrees with that
-    # one reference latitude, not a per-point cos(lat).
-    lat_ref = float(flowmap.ds["lat_0"].mean())
-    # (grids._to_meters anchors the frame at the same mean, so the two agree.)
     # CG_grid (not "C-grid": no Arakawa staggering here) is the Cauchy-Green
     # tensor on the analysis grid, interpolated point-by-point during the trace.
     CG_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
@@ -385,7 +400,6 @@ def shrink_lines(
         "tensor_interp": tensor_interp,
         "min_anisotropy": min_anisotropy,
         "step_m": step_m,
-        "lat_ref": lat_ref,
         "n_steps": n_steps,
     }
     # Trace both ways from each seed and stitch into one curve through it: the

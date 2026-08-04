@@ -10,17 +10,37 @@ finite-time Lyapunov exponent (FTLE), following Haller (2015),
 advection run: it *emits* a particle set to release, and *ingests* the advected
 positions to diagnose. You run Parcels (or anything else) in between.
 
-## Scope: regional domains only
+## Scope: rectilinear grids, away from the poles
 
-Distances are taken in an equirectangular metres frame with a *single* standard
-parallel, at the mean latitude of the seed — this is not a tangent plane — and
-longitude arithmetic is not dateline-aware. So the package is valid for regional
-domains of modest latitude range that do not cross the dateline. The metric
-alone costs a median FTLE error of 0.65% over a 5-degree domain, 3.0% over 20
-degrees, and 15% over 60 degrees. Tracked in
-[issue #18](https://github.com/geomar-od-lagrange/lcs_parcels/issues/18) (the
-metric) and [issue #13](https://github.com/geomar-od-lagrange/lcs_parcels/issues/13)
-(the dateline).
+Separations are measured in metres, and the accuracy of a separation is set by
+how far apart the two points are and at what latitude, not by the size or
+placement of the domain. Measured against the great-circle distance, a zonal
+pair is off by
+$10^{-6}$ at a separation of 54 km at 30 N, 18 km at 60 N and 5.5 km at 80 N,
+and never at the equator. The default 1 km auxiliary arms sit far inside that. A
+neighbour stencil differences over two grid cells, so read the series at twice
+the grid spacing; on a coarse grid the finite-difference truncation of that same
+span is the larger error. The full series is in
+[`docs/numerics.md`](docs/numerics.md).
+
+Longitude differences and means wrap, so a domain crossing the antimeridian is
+fine. Longitudes are never normalised on ingest: whatever convention you hand in
+is the one you get back, and advected positions may arrive on any branch.
+
+`NeighborSeed`, `FlowMap.image` and the tensor-line functions need a rectilinear
+grid — `lon_grid` varying along `i`, `lat_grid` along `j` — with a monotonic
+`lon_grid` axis, so a domain crossing the antimeridian is seeded on `170, 175,
+180, 185` rather than `170, 175, 180, -175`. On a wrapped axis `shrink_lines`
+and `hyperbolic_lcs` raise, and `image` answers as if the axis were sorted.
+Traced tensor lines are not bound by that and cross freely.
+`AuxiliaryFlowMap.deformation_gradient` differences a stencil laid around each
+grid point, so it also takes a curvilinear grid.
+
+The poles are excluded. `AuxiliarySeed.from_axes` raises `ValueError` when
+`aux_separation_m` would span 90 degrees of longitude or more, which happens
+closer to a pole than about 0.64 times the arm separation itself: 640 m for the
+default 1 km arms, 32 km for 50 km arms. And a tensor line stepped past 90
+degrees of latitude runs off the chart rather than over the top.
 
 ## Install
 
