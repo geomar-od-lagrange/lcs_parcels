@@ -21,12 +21,12 @@
 # through CMEMS surface currents, ingest the final positions, map the forward
 # FTLE. One stencil (`NeighborSeed`); nothing tuned for speed.
 #
-# Needs the `examples` pixi environment and CMEMS credentials: run with
-# `pixi run -e examples jupyter ...`.
+# The currents come from the local file `data/cabo_verde_currents_hourly.nc`;
+# run `get_data.ipynb` once to produce it.
 
 # %%
-import copernicusmarine as cm
 import numpy as np
+import xarray as xr
 from parcels import FieldSet, Particle, ParticleSet, StatusCode
 from parcels.convert import copernicusmarine_to_sgrid
 from parcels.kernels import AdvectionRK4
@@ -35,6 +35,14 @@ from lcs_parcels import NeighborSeed
 
 # %% [markdown]
 # ## Parameters
+#
+# Ten days is roughly one eddy turnover time at these latitudes -- the FTLE map
+# below comes out around 0.1/day over most of the box, an e-folding time of about
+# ten days. That is long enough for the stretching to separate neighbouring
+# particles by more than one seed-grid cell (1/25°, about 4.4 km), short enough
+# that the seed grid still resolves where they went. The seed spacing is finer
+# than the 1/12° currents, so the differencing stencil is not what limits the
+# FTLE.
 
 # %%
 t0 = np.datetime64("2025-08-01")
@@ -43,25 +51,15 @@ t1 = t0 + T
 
 resolution_deg = 1 / 25  # seed-grid spacing
 seed_lon, seed_lat = (-27.0, -21.0), (13.5, 18.5)  # release box
-data_lon, data_lat = (-30.5, -17.5), (10.0, 22.0)  # current field = seed box + margin
 
 # %% [markdown]
-# ## Currents: CMEMS hourly surface velocity
+# ## Currents
+#
+# The local file that `get_data` writes.
 
 # %%
-ds = cm.open_dataset(
-    dataset_id="cmems_mod_glo_phy_anfc_0.083deg_PT1H-m",
-    variables=["uo", "vo"],
-    minimum_longitude=data_lon[0],
-    maximum_longitude=data_lon[1],
-    minimum_latitude=data_lat[0],
-    maximum_latitude=data_lat[1],
-    minimum_depth=0.0,
-    maximum_depth=1.0,
-    start_datetime=str((t0 - np.timedelta64(1, "D")).astype("datetime64[D]")),
-    end_datetime=str((t1 + np.timedelta64(1, "D")).astype("datetime64[D]")),
-).load()
-ds
+currents = xr.open_dataset("data/cabo_verde_currents_hourly.nc").load()
+currents
 
 # %% [markdown]
 # ## Parcels v4 field set
@@ -70,9 +68,9 @@ ds
 # `from_sgrid_conventions` wraps it as a spherical `FieldSet`.
 
 # %%
-sgrid = copernicusmarine_to_sgrid(fields={"U": ds["uo"], "V": ds["vo"]})
+sgrid = copernicusmarine_to_sgrid(fields={"U": currents["uo"], "V": currents["vo"]})
 fieldset = FieldSet.from_sgrid_conventions(sgrid, mesh="spherical")
-z_surface = float(ds["depth"].values[0])
+z_surface = float(currents["depth"].values[0])
 
 
 # %% [markdown]
@@ -80,7 +78,8 @@ z_surface = float(ds["depth"].values[0])
 #
 # Particles that leave the domain or hit land are turned into `NaN` in place
 # (Parcels would otherwise abort the run), so losses propagate as `NaN` through
-# the FTLE.
+# the FTLE. `StatusCode.EndofLoop` rather than `StatusCode.Delete`: deleting
+# shrinks the particle array and breaks the alignment with the seed order.
 
 
 # %%
@@ -92,55 +91,66 @@ def set_lost_to_nan(particles, fieldset):
 
 
 # %% [markdown]
-# ## Seed, advect, FTLE
+# ## Seed
 #
-# A rectilinear `NeighborSeed` over the seed box (one particle per grid point,
-# gradient differenced against grid neighbours) emits a flat particle set; we run
-# RK4 forward for $T$ and ingest the finals back into a `FlowMap`.
-# `FlowMap.ftle()` returns SI $1/\mathrm{s}$; on a 10-day window those numbers
-# are around $10^{-6}$, so below we rescale to $1/\mathrm{day}$ for the map and
-# relabel the field to say so.
+# `NeighborSeed` releases one particle per diagnostic grid point and differences
+# the flow-map gradient against the grid neighbours, so the stencil costs nothing
+# beyond the grid itself. The seed is time-free: it carries the release positions
+# `lon_0`/`lat_0` and the diagnostic grid `lon_grid`/`lat_grid`, and no time.
 
 # %%
-# Create the Seed
 lon_axis = np.arange(seed_lon[0], seed_lon[1] + 1e-9, resolution_deg)
 lat_axis = np.arange(seed_lat[0], seed_lat[1] + 1e-9, resolution_deg)
 seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+seed.ds
+
+# %% [markdown]
+# ## Advect
+#
+# `to_parcels_pset()` flattens the release positions to `(lon, lat)`; Parcels
+# calls those `x`/`y`.
 
 # %%
-# Advect in Parcels
 lon, lat = seed.to_parcels_pset()
 z = np.full(len(lon), z_surface)
 pset = ParticleSet(fieldset, pclass=Particle, x=lon, y=lat, z=z, t=t0)
+
+# %%
 pset.execute(
     [AdvectionRK4, set_lost_to_nan],
     dt=np.timedelta64(1, "h"),
     runtime=T,
-    verbose_progress=False,
 )
 
+# %% [markdown]
+# ## Flow map
+#
+# The final positions go back in the seeding order. `pset_to_flowmap` takes both `t0` and
+# `t1` and records the signed window `T = t1 - t0`.
+
 # %%
-# Construct flowmap / calc FTLE
 flowmap = seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t1)
+flowmap.ds
+
+# %% [markdown]
+# ## FTLE
+
+# %%
 ftle = flowmap.ftle()
 ftle
-
-# %%
-# Rescale from 1/s to 1/day for the map
-ftle_per_day = (
-    (ftle * 86400.0)
-    .rename("ftle_per_day")
-    .assign_attrs(
-        long_name="finite-time Lyapunov exponent",
-        units="1/day",
-    )
-)
 
 # %% [markdown]
 # ## Map
 #
-# The grid points are the 2-D coords `lon_grid`/`lat_grid` on `(i, j)`, so the
-# plot is told which coords are the axes; the labels come from the metadata.
+# `ftle()` returns SI $1/\mathrm{s}$, which over a 10-day window is a field of
+# numbers around $10^{-6}$; rescaling to $1/\mathrm{day}$ makes the map
+# readable. The scaling carries the name and `long_name` over, so only `units`
+# has to be corrected. The grid points are 2-D coords on the logical dims
+# `(i, j)`, so the plot is told which coords are the axes; the labels come from
+# the metadata.
+
+# %%
+ftle_per_day = (ftle * 86400.0).assign_attrs(units="1/day")
 
 # %%
 ftle_per_day.plot.pcolormesh(x="lon_grid", y="lat_grid")

@@ -10,9 +10,8 @@ backward :class:`~lcs_parcels.FlowMap` gives them.
 
 Two functions compose the workflow: :func:`ftle_ridge_seeds` picks start points,
 :func:`shrink_lines` integrates the tensor lines through them. Both take the
-gridded xarray outputs of a :class:`~lcs_parcels.FlowMap`; the tight ODE loop
-drops to NumPy/SciPy (a :class:`scipy.interpolate.RegularGridInterpolator` on the
-tensor field).
+gridded xarray outputs of a :class:`~lcs_parcels.FlowMap`, and
+:meth:`~lcs_parcels.FlowMap.hyperbolic_lcs` runs the pair in one call.
 
 Rectilinear grids only: like :class:`~lcs_parcels.NeighborFlowMap`, the tensor is
 interpolated on axis-aligned ``lon_grid``/``lat_grid`` axes (``lon_grid`` varying
@@ -63,8 +62,9 @@ def ftle_ridge_seeds(
     """Seed points at strong local maxima of an FTLE field.
 
     A grid point is a seed when its FTLE is the maximum over a neighbourhood
-    spanning ``window_m`` in each direction (a windowed local maximum on the raw
-    value) *and* is at or above the ``quantile`` of the field -- an absolute
+    ``window_m`` wide in total, centred on it (a windowed local maximum on the
+    raw value), so two seeds cannot be closer than about ``window_m / 2``,
+    *and* is at or above the ``quantile`` of the field -- an absolute
     magnitude floor, not a local-contrast test. NaN cells (e.g. the
     :class:`~lcs_parcels.NeighborFlowMap` edge) never qualify.
 

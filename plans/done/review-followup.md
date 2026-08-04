@@ -310,14 +310,22 @@ reader-facing text:
 
 Design rationale relocates rather than being deleted --- but **into the
 post-split structure, not into today's `docs/architecture.md`**. #23 is folded
-into this step: that file is now 423 lines carrying structure, design decisions,
-a quantitative argument for the shrink-line guard, a measured error analysis of
-the metres frame, and two walkthroughs, for two different readers. Relocating
-`grids.py`'s convention sections into it as it stands means shovelling into a
-file we have already agreed is the wrong shape, then splitting it. Split first
-(architecture keeps structure/decisions/reprs; a new numerics document takes the
-guard, the metres frame and the tuning-parameter units), drop both mermaid
-diagrams, then relocate into the result.
+into this step: that file carried structure, design decisions, a quantitative
+argument for the shrink-line guard, a measured error analysis of the metres
+frame, and two walkthroughs, for two different readers. Relocating `grids.py`'s
+convention sections into it as it stands means shovelling into a file we have
+already agreed is the wrong shape, then splitting it. So: split first, drop both
+mermaid diagrams, then relocate into the result.
+
+The split is **done**. `docs/architecture.md` keeps structure (the two families,
+the two stencils), the design decisions, both walkthroughs — the typical session
+and the shrink-line extraction, since both are about which object hands what to
+which — and the reprs; `docs/numerics.md` takes the metres frame with its error
+analysis, the tuning-parameter units, and the degeneracy guard. Both mermaid
+diagrams are gone, replaced by prose. `grids.py`'s coordinate and stencil
+conventions relocate into `architecture.md` ("Structure" and "Why
+`lon_grid`/`lat_grid` is one canonical pair"); its metric-frame conventions into
+`numerics.md` ("The equirectangular metres frame").
 
 **10. Examples rewrite.** Explicit and inline throughout: `set_lost_to_nan`
 written out in each notebook rather than shared, `advect` and `ftle_per_day`

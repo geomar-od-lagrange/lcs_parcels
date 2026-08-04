@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lcs_parcels"
-version = "2026.07.17.1"
+version = "2026.08.04.1"
 description = "Lagrangian coherent structures with Parcels."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -16,6 +16,13 @@ packages = ["src/lcs_parcels"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# One line per test, so a run in progress shows which test it is on and a failure
+# names it in place; `-ra` spells out every skip and failure at the end.
+addopts = "-v -ra"
+markers = [
+  "minimal: needs neither CMEMS credentials nor downloaded data",
+  "needs_creds: needs CMEMS credentials, and downloads data if it is absent",
+]
 
 [tool.ruff]
 # Notebooks and prose are generated or vendored: the `.ipynb`/`.md` of an
@@ -48,10 +55,8 @@ platforms = ["linux-64", "osx-arm64", "win-64"]
 lcs_parcels = { path = ".", editable = true }
 
 [tool.pixi.tasks]
-test = "pytest"
-# Re-run the example against the current API; a stale example fails here.
-check-example = "jupytext --to notebook --execute examples/example_grid_pset.py --output .ci-example-check.ipynb"
 lint = "ruff check . && ruff format --check ."
+test = { cmd = 'pytest -m "not needs_creds"', description = "Unit suite plus the examples that need no credentials" }
 
 [tool.pixi.dependencies]
 pytest = ">=9.0.3,<10"
@@ -94,6 +99,10 @@ matplotlib-base = "*"
 [tool.pixi.feature.examples.pypi-dependencies]
 # Pinned to Parcels v4 `main` (HEAD as of 2026-07-10). Bump the rev to advance.
 parcels = { git = "https://github.com/OceanParcels/Parcels.git", rev = "5a0df965fe70f37add860230cbcd3b2fc03ffd2e" }
+
+[tool.pixi.feature.examples.tasks]
+get-data = { cmd = "python examples/get_data.py", description = "Download the CMEMS subset to examples/data/ (needs CMEMS credentials)" }
+test-examples = { cmd = "pytest tests/test_examples.py", description = "Every example, including the one needing no credentials" }
 
 [tool.pixi.environments]
 # Both envs pin Python 3.13 (the newest Parcels v4 supports); the `examples` env

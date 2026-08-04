@@ -15,14 +15,20 @@
 # ---
 
 # %% [markdown]
-# # Seed <-> flow-map round-trip
+# # Seed, flow map, and the two stencils
 #
-# Seed a grid, emit it as a flat particle set, then ingest advected positions
-# back -- the package's Parcels boundary, exercised here *without* Parcels. A
-# time-free `Seed` emits the particle set; ingest consumes the advected positions
-# and the window $T = t_1 - t_0$ to produce a `FlowMap`. We feed the emitted
-# positions straight back, so the flow map $F_{t_0}^{t_1}$ is the identity and we
-# can check that emit/ingest are lossless inverses.
+# This notebook is about the structures and the API, not about advection.
+#
+# A `Seed` holds a time-free grid of release positions. `Seed.to_parcels_pset()`
+# emits them as flat `lon`, `lat` lists. `Seed.pset_to_flowmap(...)` ingests the
+# advected positions and returns a `FlowMap`, which computes the deformation
+# gradient, the Cauchy-Green tensor and the FTLE. No Parcels is imported below;
+# the advection is replaced by particles that do not move.
+#
+# There are two stencils, and each is a pair of classes. `NeighborSeed` releases
+# one particle per grid point and differences against the neighbouring grid
+# points. `AuxiliarySeed` releases four arms around each grid point and
+# differences across the arms.
 
 # %%
 import numpy as np
@@ -30,27 +36,25 @@ import numpy as np
 from lcs_parcels import AuxiliarySeed, NeighborSeed
 
 # %% [markdown]
-# ## One release window
+# ## Grid and window
 #
-# The seed is time-free; the window enters only at ingest. We define a single
-# `t0` and thread the *same* variable into both the (mocked) release and the
-# `pset_to_flowmap` ingest -- the "`t0` must agree at both ends" contract.
+# The axes fix *where*; nothing fixes *when* until ingest. `t1 > t0` makes the
+# window $T = t_1 - t_0$ positive, so the FTLE below is the forward one.
 
 # %%
-t0 = np.datetime64("2020-01-01")
-t1 = np.datetime64("2020-01-08")  # +7 day window; sign(T) > 0 -> repelling LCS
 lon_axis = np.linspace(-25.0, -20.0, 6)
 lat_axis = np.linspace(15.0, 20.0, 5)
 
+t0 = np.datetime64("2020-01-01")
+t1 = np.datetime64("2020-01-11")
+
 # %% [markdown]
-# ## Seed a NeighborSeed
+# ## The neighbour stencil
 #
-# `from_axes` broadcasts the 1-D axes into the diagnostic grid points
-# `lon_grid(i, j)` / `lat_grid(i, j)` and the reference release positions
-# `lon_0(i, j)` / `lat_0(i, j)` -- for this stencil the two coincide, one
-# particle per grid point. No time is recorded: a seed carries no `t0`, no `T`,
-# and no data variables. Printing the seed gives a one-line summary; `.ds` is the
-# dataset itself.
+# One particle per grid point: the release positions `lon_0`/`lat_0` *are* the
+# diagnostic grid points `lon_grid`/`lat_grid`, stored twice rather than left to
+# be reconstructed. The outermost ring of grid points has no neighbour to
+# difference against on one side, so the FTLE is undefined there.
 
 # %%
 seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
@@ -58,91 +62,87 @@ print(seed)
 seed.ds
 
 # %% [markdown]
-# ## Emit a particle set
+# ## The auxiliary stencil
 #
-# `to_parcels_pset` flattens the reference positions to plain `(lon, lat)` lists,
-# one entry per grid point -- ready to hand to a Parcels `ParticleSet`.
+# Four arms -- `east, north, west, south` -- at `aux_separation_m` around each
+# grid point, so `lon_0`/`lat_0` gain a `displacement` dim and there are four
+# particles per grid point. The finite-difference step is the arm separation
+# rather than the grid spacing, and it is defined at every grid point including
+# the boundary.
 
 # %%
-lon, lat = seed.to_parcels_pset()
-print(f"{len(lon)} particles ({lon_axis.size} x {lat_axis.size})")
-print("first three lon:", lon[:3])
+aux_seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis, aux_separation_m=1_000.0)
+print(aux_seed)
+aux_seed.ds
 
 # %% [markdown]
-# ## Ingest advected positions
+# ## Emit the particle sets
 #
-# `pset_to_flowmap` reattaches the flat positions, records `t0`, and derives the
-# signed window $T = t_1 - t_0$, returning a `FlowMap`. With Parcels these would
-# be the advected outputs; here they are the emitted positions (released at the
-# same `t0`), so the flow map is the identity.
+# `to_parcels_pset()` flattens the release positions to two plain lists, one
+# entry per particle: 30 grid points for the neighbour stencil, 4 arms each for
+# the auxiliary one. This is everything Parcels needs, and the order is what
+# ingest reattaches by.
 
 # %%
-fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=t0, t1=t1)
-print(fm)
-fm.ds
+lon_0, lat_0 = seed.to_parcels_pset()
+aux_lon_0, aux_lat_0 = aux_seed.to_parcels_pset()
+print("neighbour particles:", len(lon_0))
+print("auxiliary particles:", len(aux_lon_0))
 
 # %% [markdown]
-# Round-trip checks: the `(i, j)` grid is recovered, `t0`/`T` are the scalar
-# release time and signed window, and the advected `lon`/`lat` match the
-# reference `lon_0`/`lat_0` (identity input).
-
-# %%
-print("dims:", dict(fm.ds.sizes))
-print("t0:", fm.ds["t0"].values)
-print("T:", fm.ds["T"].values)
-print("lon matches reference:", np.allclose(fm.ds["lon"], seed.ds["lon_0"]))
-print("lat matches reference:", np.allclose(fm.ds["lat"], seed.ds["lat_0"]))
-
-# %% [markdown]
-# ## Collapse back to a seed
+# ## Advect, without Parcels
 #
-# `FlowMap.to_seed` drops the advected positions and the `t0`/`T` coords,
-# recovering a time-free seed. Re-emitting reproduces the same particle set
-# (losslessness), and the recovered seed carries neither `t0` nor `T`.
+# The particles sit still: $u = v = 0$ for ten days. The flow map is the
+# identity, $\nabla F = I$, so the FTLE is zero wherever it is defined. A
+# non-zero window keeps $1/T$ finite.
 
 # %%
-recovered = fm.to_seed()
-re_lon, re_lat = recovered.to_parcels_pset()
-print("re-emitted pset matches:", np.allclose(re_lon, lon) and np.allclose(re_lat, lat))
-print("recovered seed has t0:", "t0" in recovered.ds.coords)
-print("recovered seed has T:", "T" in recovered.ds.coords)
+lon_1, lat_1 = lon_0, lat_0
+aux_lon_1, aux_lat_1 = aux_lon_0, aux_lat_0
 
 # %% [markdown]
-# ## AuxiliarySeed: four arms per point
+# ## Ingest the advected positions
 #
-# The auxiliary stencil places four arms (`displacement = [east, north, west,
-# south]`) around each grid point. The arms are the *explicit* reference
-# positions `lon_0`/`lat_0` on `(i, j, displacement)` -- so the dataset is
-# self-sufficient -- while the grid points (where the FTLE is reported) are kept
-# separately as `lon_grid`/`lat_grid` on `(i, j)`, the same coordinate names the
-# neighbour stencil uses.
+# `pset_to_flowmap` puts the flat positions back on the grid as `lon`/`lat`
+# beside the release positions `lon_0`/`lat_0`, and records `t0` and the signed
+# window `T` it derives from `t0` and `t1`. Both stencils ingest through the same
+# call; the datasets differ only where their release positions did.
 
 # %%
-aux_seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
-aux_lon, aux_lat = aux_seed.to_parcels_pset()
-print(f"{len(aux_lon)} particles = {lon_axis.size} x {lat_axis.size} x 4 arms")
-print("reference arms lon_0:", aux_seed.ds["lon_0"].dims)
-print("grid points lon_grid:", aux_seed.ds["lon_grid"].dims)
+flowmap = seed.pset_to_flowmap(lon=lon_1, lat=lat_1, t0=t0, t1=t1)
+print(flowmap)
+flowmap.ds
+
+# %%
+aux_flowmap = aux_seed.pset_to_flowmap(lon=aux_lon_1, lat=aux_lat_1, t0=t0, t1=t1)
+print(aux_flowmap)
+aux_flowmap.ds
 
 # %% [markdown]
-# Ingesting threads the same `t0` and `t1`. The advected `lon` lands on
-# `(i, j, displacement)` alongside the reference arms, while the grid points stay
-# on `(i, j)`.
+# `grid_image` is the one place the two datasets are reconciled: the advected
+# position *of the grid point*, on `(i, j)`. The neighbour flow map passes its
+# single advected position through; the auxiliary one takes the centroid of its
+# four advected arms.
 
 # %%
-aux_fm = aux_seed.pset_to_flowmap(lon=aux_lon, lat=aux_lat, t0=t0, t1=t1)
-print("reference arms  lon_0:", aux_fm.ds["lon_0"].dims)
-print("advected arms   lon  :", aux_fm.ds["lon"].dims)
-print("grid points lon_grid :", aux_fm.ds["lon_grid"].dims)
+aux_flowmap.grid_image
 
 # %% [markdown]
-# `to_seed` rebuilds the auxiliary seed from the carried arms (no need for the
-# original axes or `aux_separation_m`); re-emitting reproduces the same arm
-# particle set.
+# ## FTLE from both stencils
+#
+# `ftle()` returns 1/s on the diagnostic grid. Both stencils give zero; they
+# differ in where the value exists at all.
 
 # %%
-re_aux_lon, re_aux_lat = aux_fm.to_seed().to_parcels_pset()
-print(
-    "re-emitted arms match:",
-    np.allclose(re_aux_lon, aux_lon) and np.allclose(re_aux_lat, aux_lat),
-)
+ftle = flowmap.ftle()
+ftle
+
+# %%
+aux_ftle = aux_flowmap.ftle()
+aux_ftle
+
+# %%
+print("neighbour: max |ftle| =", float(abs(ftle).max()))
+print("auxiliary: max |ftle| =", float(abs(aux_ftle).max()))
+print("neighbour NaN points:", int(ftle.isnull().sum()))
+print("auxiliary NaN points:", int(aux_ftle.isnull().sum()))

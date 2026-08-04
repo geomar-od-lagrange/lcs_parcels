@@ -16,8 +16,8 @@ from lcs_parcels import AuxiliarySeed, NeighborFlowMap, NeighborSeed
 from lcs_parcels.grids import _lonlat_to_meters
 
 # Release/end times supplied only at ingest (the seed itself is time-free).
-T0 = np.datetime64("2020-01-01")
-T1 = np.datetime64("2020-01-02")
+RELEASE_TIME = np.datetime64("2020-01-01")
+END_TIME = np.datetime64("2020-01-02")
 
 # Generic (sheared) linear flow map, for the diagnostics driven below.
 M = np.array([[2.0, 0.5], [0.0, 3.0]])
@@ -178,7 +178,7 @@ def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
 def test_neighbor_flowmap_shape(lon_axis, lat_axis):
     seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
-    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1)
+    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
     ds = fm.ds
 
     # The flow map adds the advected positions as its only data vars, on (i, j).
@@ -194,14 +194,14 @@ def test_neighbor_flowmap_shape(lon_axis, lat_axis):
     # Scalar t0 (release time) and signed window T = t1 - t0 land as coords.
     assert ds["t0"].ndim == 0
     assert ds["T"].ndim == 0
-    assert ds["t0"] == T0
-    assert ds["T"] == (T1 - T0)
+    assert ds["t0"] == RELEASE_TIME
+    assert ds["T"] == (END_TIME - RELEASE_TIME)
 
 
 def test_auxiliary_flowmap_shape(lon_axis, lat_axis):
     seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
-    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1)
+    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
     ds = fm.ds
 
     # Advected arm positions carry the displacement dim on top of (i, j).
@@ -218,8 +218,8 @@ def test_auxiliary_flowmap_shape(lon_axis, lat_axis):
     # Scalar t0 / signed T as coords.
     assert ds["t0"].ndim == 0
     assert ds["T"].ndim == 0
-    assert ds["t0"] == T0
-    assert ds["T"] == (T1 - T0)
+    assert ds["t0"] == RELEASE_TIME
+    assert ds["T"] == (END_TIME - RELEASE_TIME)
 
 
 def test_grid_image_is_on_the_diagnostic_grid(lon_axis, lat_axis):
@@ -228,7 +228,7 @@ def test_grid_image_is_on_the_diagnostic_grid(lon_axis, lat_axis):
     for seed_cls in (NeighborSeed, AuxiliarySeed):
         seed = seed_cls.from_axes(lon=lon_axis, lat=lat_axis)
         lon, lat = seed.to_parcels_pset()
-        fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1)
+        fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
 
         image = fm.grid_image
         assert set(image.data_vars) == {"lon", "lat"}
@@ -252,7 +252,7 @@ def test_diagnostics_leave_the_flowmap_dataset_untouched(seed_cls, lon_axis, lat
     by updating an ``attrs`` dict in place would fail this the moment the object
     it updated turned out to be a view of the input rather than a fresh array.
     """
-    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, T0, T1)
+    fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     before = fm.ds.copy(deep=True)
 
     fm.deformation_gradient()
@@ -292,8 +292,10 @@ def test_flowmap_repr_adds_the_release_time_and_signed_window(lon_axis, lat_axis
     seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
 
-    forward = repr(seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1))
-    backward = repr(seed.pset_to_flowmap(lon=lon, lat=lat, t0=T1, t1=T0))
+    forward = repr(seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME))
+    backward = repr(
+        seed.pset_to_flowmap(lon=lon, lat=lat, t0=END_TIME, t1=RELEASE_TIME)
+    )
 
     assert "\n" not in forward
     assert "NeighborFlowMap" in forward
@@ -312,7 +314,7 @@ def test_repr_survives_an_all_nan_grid(lon_axis, lat_axis):
     seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, _ = seed.to_parcels_pset()
     lost = [np.nan] * len(lon)
-    fm = seed.pset_to_flowmap(lon=lost, lat=lost, t0=T0, t1=T1)
+    fm = seed.pset_to_flowmap(lon=lost, lat=lost, t0=RELEASE_TIME, t1=END_TIME)
 
     assert "NeighborFlowMap" in repr(fm)
     assert "lon -2.00..1.00" in repr(fm)  # the grid itself is intact
@@ -338,8 +340,8 @@ def test_lonlat_pairs_are_keyword_only(lon_axis, lat_axis):
     seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
     with pytest.raises(TypeError):
-        seed.pset_to_flowmap(lon, lat, t0=T0, t1=T1)
+        seed.pset_to_flowmap(lon, lat, t0=RELEASE_TIME, t1=END_TIME)
 
-    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1)
+    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
     with pytest.raises(TypeError):
         fm.image(fm.ds["lon_0"], fm.ds["lat_0"])

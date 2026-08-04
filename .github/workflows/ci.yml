@@ -39,8 +39,39 @@ jobs:
         with:
           locked: true
 
+      # `-m "not needs_creds"`, so this covers the unit suite plus the one
+      # example that needs neither Parcels nor data.
       - name: Run tests
         run: pixi run test
 
-      - name: Check the example runs against the current API
-        run: pixi run check-example
+  examples:
+    name: examples (CMEMS)
+    runs-on: ubuntu-latest
+    # Forks get no secrets on `pull_request`, so the credentialled examples
+    # cannot run there. Gate the whole job rather than teaching the tests to
+    # cope: they assume their prerequisites are present and fail loudly.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.10.0
+        with:
+          locked: true
+          environments: examples
+
+      # The subset is ~52 MB and the request lives in `get_data.py`, so key the
+      # cache on that file: it is restored verbatim until the request changes.
+      - name: Restore the CMEMS subset
+        uses: actions/cache@v4
+        with:
+          path: examples/data
+          key: cmems-subset-${{ hashFiles('examples/get_data.py') }}
+
+      # Unbuffered output makes each example report as it finishes rather than
+      # the step going quiet until the end.
+      - name: Run every example as a test
+        env:
+          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+          COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
+          PYTHONUNBUFFERED: "1"
+        run: pixi run -e examples test-examples --durations=0

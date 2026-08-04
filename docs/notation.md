@@ -179,7 +179,7 @@ of the particles relative to $\phi_{\mathrm{ref}}$, not the width of the domain
 as such. The exact algebraic form of the bias — $F_{yy}$ exact, $F_{xx}$ off by
 $c_1/c_0$, the off-diagonals off by $c_1/c_{\mathrm{ref}}$ and
 $c_{\mathrm{ref}}/c_0$ — is in
-[`architecture.md`](architecture.md#why-the-metres-frame-is-equirectangular),
+[`numerics.md`](numerics.md#the-equirectangular-metres-frame),
 together with an illustration of the scale of the error on one analytic test
 flow map. The convention is sound for regional domains of modest latitude range
 and away from the dateline, and not for basin-scale ones.

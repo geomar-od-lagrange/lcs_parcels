@@ -28,8 +28,9 @@ The project is managed with [pixi](https://pixi.sh):
 
 ```console
 $ pixi install
-$ pixi run test          # run the test suite
-$ pixi run check-example # execute the example against the current API
+$ pixi run test                    # the test suite, including the Parcels-free example
+$ pixi run -e examples get-data    # download the CMEMS subset the examples read, once
+$ pixi run -e examples test-examples  # execute every example against the current API
 ```
 
 ## Quickstart
