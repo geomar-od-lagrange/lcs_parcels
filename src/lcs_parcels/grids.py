@@ -521,10 +521,14 @@ class FlowMap(abc.ABC):
             coordinates valued ``['x', 'y']`` (dimensionless).
         """
         gradF = self.deformation_gradient()
-        # C_{a,b} = sum_k gradF_{k,a} gradF_{k,b}: contract over the shared output
-        # index `row` by label, then relabel the two surviving `col` axes back to
-        # (row, col). Pure label-based arithmetic; no positional indexing.
-        C = xr.dot(gradF, gradF.rename(col="col_b"), dim="row")
+        # C_{a,b} = sum_k gradF_{k,a} gradF_{k,b}: broadcast against a relabelled
+        # copy and sum over the shared output index `row`, then relabel the two
+        # surviving `col` axes back to (row, col). Pure label-based arithmetic; no
+        # positional indexing. `skipna=False` so a lost particle stays NaN through
+        # the contraction rather than summing as zero. `xr.dot` expresses the same
+        # thing but drops the attrs of every dimension coordinate it carries
+        # through before xarray 2025.11, which strips `long_name` off `i` and `j`.
+        C = (gradF * gradF.rename(col="col_b")).sum("row", skipna=False)
         C = C.rename(col="row", col_b="col").rename("cauchy_green")
         C = C.assign_coords(
             row=xr.DataArray(["x", "y"], dims="row", attrs=ROW_ATTRS),

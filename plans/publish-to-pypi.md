@@ -123,28 +123,35 @@ upper cap: a pin in a library's metadata propagates into every downstream
 resolution and stops `lcs_parcels` being co-installable. `pixi.lock` pins the
 development environment; `[project]` declares what the library can live with.
 
-Floors come from SPEC 0, except where a measurement puts one higher:
+All three floors come from SPEC 0. None sits above it:
 
-| | floor | why |
+| | floor | oldest release inside the 2-year window |
 |---|---|---|
-| numpy | `>=2.2` | SPEC 0. 2.1 drops 2026-08; nothing in the suite needs it |
-| scipy | `>=1.15` | SPEC 0. 1.14 dropped 2026-06; nothing in the suite needs it |
-| xarray | `>=2025.11` | measured, above the SPEC 0 line |
+| numpy | `>=2.2` | 2.1 was 2024-08-18 and drops out this month |
+| scipy | `>=1.15` | 1.14.1 was 2024-08-21 and drops out this month |
+| xarray | `>=2024.9` | 2024.9.0 was 2024-09-11; 2024.7.0 is five days outside |
 
-The numpy and scipy floors are policy rather than capability. The whole
-third-party surface is `np.linalg.eigh`, `np.column_stack`, `xr.apply_ufunc`,
-`xr.dot`, `xr.concat` and `scipy.interpolate.RegularGridInterpolator`; the suite
-passes on numpy 1.26 and scipy 1.11. There is no reason to promise support that
-far back.
+These are policy rather than capability. The whole third-party surface is
+`np.linalg.eigh`, `np.column_stack`, `xr.apply_ufunc`, `xr.concat` and
+`scipy.interpolate.RegularGridInterpolator`; the suite passes on numpy 1.26 and
+scipy 1.11. There is no reason to promise support that far back.
 
-The xarray floor is measured. Bisected on 3.11 and 3.12, xarray 2023.12, 2024.7,
-2025.1, 2025.3, 2025.9 and 2025.10 all fail the same three tests
-(`test_diagnostics_are_labelled` for both seeds, plus
-`test_hyperbolic_lcs_output_is_labelled`); 2025.11 and later pass all 102. Older
-xarray drops `attrs` from index coordinates, so `i` comes back with no
-`long_name`. That breaks the rule that output metadata *is* the axis label, so it
-is a real floor and not a test artifact. SPEC 0's two-year window would allow
-xarray 2024.8, and this sits above it.
+The xarray floor was measured at 2025.11 before it was fixed. Everything from
+2023.12 to 2025.10 failed the same three tests — `test_diagnostics_are_labelled`
+for both seeds and `test_hyperbolic_lcs_output_is_labelled` — because those
+versions of `xr.dot` drop the attrs of every dimension coordinate they carry
+through, so `i` came back with no `long_name` and output metadata stopped being
+the axis label. `xr.dot` was the only affected call; `apply_ufunc`, `concat`,
+`broadcast`, `where`, `isel` and arithmetic all preserve attrs on every version
+tested.
+
+Replacing the one call with `(gradF * gradF.rename(col="col_b")).sum("row",
+skipna=False)` removes the version sensitivity. The suite passes fully at xarray
+2024.7, 2024.9, 2025.1 and 2025.10. `skipna=False` is load-bearing and not
+cosmetic: `xr.dot` does not skip NaN but `.sum()` does by default, so the first
+version of this change summed a lost particle as zero and broke
+`test_nan_propagates_through_chain` on every xarray including the current one.
+The fix is in this PR, since it is what lets the floor follow the policy.
 
 Test the floor rather than assert it: a CI job resolving `--resolution
 lowest-direct` and running the suite, so a floor that is wrong fails.
