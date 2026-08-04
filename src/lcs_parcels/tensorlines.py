@@ -15,8 +15,8 @@ drops to NumPy/SciPy (a :class:`scipy.interpolate.RegularGridInterpolator` on th
 tensor field), the one place we leave the label-based xarray API.
 
 Rectilinear grids only: like :class:`~lcs_parcels.NeighborFlowMap`, the tensor is
-interpolated on axis-aligned ``lon_0``/``lat_0`` axes (``lon_0`` varying along
-``i``, ``lat_0`` along ``j``).
+interpolated on axis-aligned ``lon_grid``/``lat_grid`` axes (``lon_grid`` varying
+along ``i``, ``lat_grid`` along ``j``).
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels.grids import _DEG, EARTH_RADIUS_M, _grid_lonlat
+from lcs_parcels.grids import _DEG, EARTH_RADIUS_M
 
 
 def ftle_ridge_seeds(
@@ -43,8 +43,8 @@ def ftle_ridge_seeds(
     Parameters
     ----------
     ftle : xr.DataArray
-        FTLE field with dims ``(i, j)`` and ``lon_0``/``lat_0`` (or
-        ``lon_c``/``lat_c``) coordinates, e.g. from :meth:`FlowMap.ftle`.
+        FTLE field with dims ``(i, j)`` and ``lon_grid``/``lat_grid``
+        coordinates, e.g. from :meth:`FlowMap.ftle`.
     window : int, optional
         Side of the square neighbourhood for the local-maximum test (default 7).
     quantile : float, optional
@@ -57,9 +57,10 @@ def ftle_ridge_seeds(
     """
     peak = ftle.rolling(i=window, j=window, center=True, min_periods=1).max()
     is_seed = (ftle >= peak) & (ftle >= ftle.quantile(quantile))
-    lon, lat = _grid_lonlat(ftle)
+    lon = ftle["lon_grid"].transpose("i", "j").values
+    lat = ftle["lat_grid"].transpose("i", "j").values
     mask = is_seed.transpose("i", "j").values
-    return lon.transpose("i", "j").values[mask], lat.transpose("i", "j").values[mask]
+    return lon[mask], lat[mask]
 
 
 def shrink_lines(
@@ -93,7 +94,7 @@ def shrink_lines(
     ----------
     flowmap : FlowMap
         Advected flow map on a rectilinear grid; supplies ``cauchy_green()`` and
-        the ``lon_0``/``lat_0`` axes.
+        the ``lon_grid``/``lat_grid`` axes.
     seed_lon, seed_lat : array_like
         Seed positions (degrees), e.g. from :func:`ftle_ridge_seeds`.
     lambda_max_min : float, optional
@@ -111,9 +112,8 @@ def shrink_lines(
         ``lon``/``lat`` (degrees) on dims ``(line, point)``, one ``line`` per
         seed, ordered along the curve. Terminated points are ``NaN``.
     """
-    lon_da, lat_da = _grid_lonlat(flowmap.ds)
-    lon_axis = lon_da.isel(j=0).values
-    lat_axis = lat_da.isel(i=0).values
+    lon_axis = flowmap.lon_grid.isel(j=0).values
+    lat_axis = flowmap.lat_grid.isel(i=0).values
     # xi_1 is a direction in the single-reference-latitude metres frame C lives in
     # (grids._to_meters), so the arc-length step converts back to degrees with that
     # one reference latitude, not a per-point cos(lat).

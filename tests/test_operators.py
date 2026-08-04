@@ -56,6 +56,13 @@ def test_deformation_gradient_dims_and_coords(lon_axis, lat_axis):
     assert list(gradF["col"].values) == ["x", "y"]
     assert "comp" not in gradF.coords
 
+    # The diagnostic is reported at the grid point, so it carries lon_grid/
+    # lat_grid -- not the per-arm release positions it was differenced from.
+    assert set(gradF["lon_grid"].dims) == {"i", "j"}
+    assert set(gradF["lat_grid"].dims) == {"i", "j"}
+    assert "lon_0" not in gradF.coords
+    assert "lat_0" not in gradF.coords
+
 
 def test_deformation_gradient_equals_M_neighbor(lon_axis, lat_axis):
     """NeighborSeed: gradF == M at every *interior* grid point.
@@ -98,7 +105,7 @@ def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
 
     The map is quadratic in the meters frame,
     ``f(dx, dy) = (dx + a*dx**2, dy + b*dy**2)``, whose exact Jacobian is
-    ``diag(1 + 2*a*X, 1 + 2*b*Y)`` with ``(X, Y)`` each grid centre's meters
+    ``diag(1 + 2*a*X, 1 + 2*b*Y)`` with ``(X, Y)`` each grid point's meters
     position from the centroid. Central differencing is exact for a quadratic, so
     gradF must match the analytic per-point Jacobian to ~1e-6 -- exercising
     per-point differencing, not the constant-``M`` case.
@@ -111,10 +118,11 @@ def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
     g = advected_flowmap_f(AuxiliarySeed, lon_axis, lat_axis, f, T0, T1)
     gradF = g.deformation_gradient()
 
-    lon_c, lat_c = g.ds["lon_c"], g.ds["lat_c"]
+    lon_grid, lat_grid = g.ds["lon_grid"], g.ds["lat_grid"]
     lon0 = float(g.ds["lon_0"].mean())
     lat0 = float(g.ds["lat_0"].mean())
-    X, Y = _lonlat_to_meters(lon_c, lat_c, lon0, lat0)  # centre meters, dims (i, j)
+    # grid-point positions in meters, dims (i, j)
+    X, Y = _lonlat_to_meters(lon_grid, lat_grid, lon0, lat0)
     fxx = 1 + 2 * a * X
     fyy = 1 + 2 * b * Y
     zero = xr.zeros_like(X)

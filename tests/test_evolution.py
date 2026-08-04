@@ -81,29 +81,29 @@ def test_image_off_grid_and_nan_inputs_are_nan(lon_axis, lat_axis):
 
 def test_image_on_auxiliary_flowmap(lon_axis, lat_axis):
     """image works on the auxiliary (i, j, displacement) layout that shrink_lines
-    supports: it maps the grid centre through the flow map (arm centroid)."""
+    supports: it maps the grid point through the flow map (arm centroid)."""
     fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     node = {"i": 1, "j": 2}
-    lon_c = fm.ds["lon_c"].isel(**node)
-    lat_c = fm.ds["lat_c"].isel(**node)
-    out = fm.image(lon0=lon_c, lat0=lat_c)
+    lon_grid = fm.ds["lon_grid"].isel(**node)
+    lat_grid = fm.ds["lat_grid"].isel(**node)
+    out = fm.image(lon0=lon_grid, lat0=lat_grid)
 
-    # For a linear map the arm centroid is exactly the centre's advected position.
+    # For a linear map the arm centroid is exactly the grid point's advected position.
     origin = (float(fm.ds["lon_0"].mean()), float(fm.ds["lat_0"].mean()))
     exp_lon, exp_lat = apply_linear_map_to_pset(
-        [float(lon_c)], [float(lat_c)], M, origin
+        [float(lon_grid)], [float(lat_grid)], M, origin
     )
     assert np.isclose(out["lon"], exp_lon[0])
     assert np.isclose(out["lat"], exp_lat[0])
 
 
 def test_image_auxiliary_lost_arm_maps_to_nan(lon_axis, lat_axis):
-    """A grid centre with a lost (NaN) arm images to NaN, not the centroid of the
+    """A grid point with a lost (NaN) arm images to NaN, not the centroid of the
     surviving arms -- matching the deformation-gradient path."""
     fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     bad = (fm.ds["i"] == 1) & (fm.ds["j"] == 2) & (fm.ds["displacement"] == "west")
     fm.ds["lon"] = fm.ds["lon"].where(~bad)
 
-    out = fm.image(lon0=fm.ds["lon_c"], lat0=fm.ds["lat_c"])
-    assert bool(out["lon"].isel(i=1, j=2).isnull())  # the crippled centre
+    out = fm.image(lon0=fm.ds["lon_grid"], lat0=fm.ds["lat_grid"])
+    assert bool(out["lon"].isel(i=1, j=2).isnull())  # the crippled grid point
     assert bool(out["lon"].isel(i=2, j=2).notnull())  # an intact neighbour

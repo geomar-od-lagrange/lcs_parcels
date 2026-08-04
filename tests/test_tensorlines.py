@@ -37,8 +37,8 @@ def test_ftle_ridge_seeds_picks_the_peak(lon_axis, lat_axis):
         bump,
         dims=("i", "j"),
         coords={
-            "lon_0": (("i", "j"), lon2d.values),
-            "lat_0": (("i", "j"), lat2d.values),
+            "lon_grid": (("i", "j"), lon2d.values),
+            "lat_grid": (("i", "j"), lat2d.values),
         },
     )
 
@@ -60,8 +60,8 @@ def test_ftle_ridge_seeds_skips_nan(lon_axis, lat_axis):
         field,
         dims=("i", "j"),
         coords={
-            "lon_0": (("i", "j"), lon2d.values),
-            "lat_0": (("i", "j"), lat2d.values),
+            "lon_grid": (("i", "j"), lon2d.values),
+            "lat_grid": (("i", "j"), lat2d.values),
         },
     )
 
@@ -77,8 +77,8 @@ def test_ftle_ridge_seeds_skips_nan(lon_axis, lat_axis):
 def _centre_seed(flowmap):
     """A single seed at the grid centre, as ``shrink_lines`` keyword arguments."""
     return {
-        "seed_lon": [float(flowmap.ds["lon_c"].mean())],
-        "seed_lat": [float(flowmap.ds["lat_c"].mean())],
+        "seed_lon": [float(flowmap.ds["lon_grid"].mean())],
+        "seed_lat": [float(flowmap.ds["lat_grid"].mean())],
     }
 
 
@@ -103,8 +103,8 @@ def test_shrink_lines_output_structure(lon_axis, lat_axis):
     fm = advected_flowmap(
         AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
     )
-    seed_lon = [float(fm.ds["lon_c"].mean()), float(fm.ds["lon_c"].mean()) + 0.1]
-    seed_lat = [float(fm.ds["lat_c"].mean()), float(fm.ds["lat_c"].mean())]
+    seed_lon = [float(fm.ds["lon_grid"].mean()), float(fm.ds["lon_grid"].mean()) + 0.1]
+    seed_lat = [float(fm.ds["lat_grid"].mean()), float(fm.ds["lat_grid"].mean())]
 
     lines = shrink_lines(fm, seed_lon=seed_lon, seed_lat=seed_lat, n_steps=6)
 
