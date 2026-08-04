@@ -64,6 +64,20 @@ def test_image_preserves_indexer_dims(lon_axis, lat_axis):
     assert set(lattice["lon"].dims) == {"line", "point"}
 
 
+def test_image_returns_the_reference_points_as_x0(lon_axis, lat_axis):
+    """The requested reference positions come back as lon_0/lat_0 -- they are x_0,
+    not diagnostic grid points, so they must not reuse the lon_grid/lat_grid name."""
+    fm = _flowmap(lon_axis, lat_axis)
+    curve = fm.ds[["lon_0", "lat_0"]].isel(j=2).rename(i="param")
+    out = fm.image(lon0=curve["lon_0"], lat0=curve["lat_0"])
+
+    assert "lon_grid" not in out.coords
+    assert "lat_grid" not in out.coords
+    assert np.allclose(out["lon_0"], curve["lon_0"])
+    assert np.allclose(out["lat_0"], curve["lat_0"])
+    assert "reference" in out["lon_0"].attrs["long_name"]
+
+
 def test_image_off_grid_and_nan_inputs_are_nan(lon_axis, lat_axis):
     """Off-grid points and NaN inputs map to NaN; valid points stay finite."""
     fm = _flowmap(lon_axis, lat_axis)

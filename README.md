@@ -44,12 +44,12 @@ ftle = flowmap.ftle()  # xr.DataArray of the FTLE (1/s) on the (i, j) grid
 lcs = flowmap.lcs()
 ```
 
-Lon/lat pairs are keyword-only throughout, so a transposed call raises instead of
-quietly diagnosing the wrong ocean. Every returned array carries `long_name` and
-`units`, so `ftle.plot(x="lon_grid", y="lat_grid")` labels itself.
+Lon/lat pairs are keyword-only throughout, so a transposed call raises
+`TypeError`. Every returned array carries `long_name` and `units`, so
+`ftle.plot(x="lon_grid", y="lat_grid")` labels itself.
 
 `print(flowmap)` gives a one-line summary and `flowmap.ds` gives the dataset
-itself — these objects *wrap* an `xr.Dataset` rather than subclass one:
+itself:
 
 ```pycon
 >>> print(flowmap)

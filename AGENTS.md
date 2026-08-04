@@ -194,7 +194,7 @@ verified against the pinned v4 alpha:
 - **Keep external dependencies at the boundary.** This package contains no
   Parcels code. A `Seed` is **time-free** and *emits* a particle set via
   `Seed.to_parcels_pset()` (a 2-tuple `(lon, lat)`); ingest is
-  `Seed.pset_to_flowmap(lon, lat, *, t0, t1) -> FlowMap`, which takes **both**
+  `Seed.pset_to_flowmap(*, lon, lat, t0, t1) -> FlowMap`, which takes **both**
   `t0` and `t1` and derives the signed window $T = t_1 - t_0$ (so direction is
   `sign(T)`). A `FlowMap` collapses back to a time-free seed via
   `FlowMap.to_seed()`. The package neither imports nor drives Parcels.

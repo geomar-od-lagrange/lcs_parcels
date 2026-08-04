@@ -14,9 +14,7 @@ curves — `ftle_ridge_seeds` and `shrink_lines` (see
 `FlowMap.lcs()` runs in one call.
 
 Every adjacent same-typed argument pair on the public surface — every
-lon/lat pair — is **keyword-only**, so a transposed call raises `TypeError`
-instead of returning a plausible-looking field somewhere off the coast of
-nowhere.
+lon/lat pair — is **keyword-only**, so a transposed call raises `TypeError`.
 
 A `Seed` lays out reference positions and emits a particle set for Parcels; the
 advected positions are ingested back into a `FlowMap`, which computes the
@@ -218,9 +216,8 @@ shrink_lines(flowmap, *, seed_lon, seed_lat, ftle_min_per_day=0.005,
              step_m=3_000.0, line_length_m=1_500_000.0) -> xr.Dataset
 ```
 
-The three tuning parameters that used to be grid-relative are physical
-distances and rates, so the same call means the same thing at any resolution and
-over any window:
+The three tuning parameters are physical distances and rates, so the same call
+means the same thing at any resolution and over any window:
 
 - **`ftle_ridge_seeds(ftle)`** — start points at strong local maxima of an FTLE
   field: grid points that are the maximum over a square neighbourhood of side
@@ -300,9 +297,9 @@ FlowMap.image(*, lon0, lat0) -> xr.Dataset
   advected positions $F_{t_0}^{t_1}(x_0)$ as an `xr.Dataset` with `lon`/`lat` on
   the input dims — the same structure a `shrink_lines` curve has, so an evolved
   curve is drop-in plottable and can itself be re-fed. The requested reference
-  positions ride along as `lon_grid`/`lat_grid` coords on the output, labelled
-  as the $x_0$ they are. Points off the grid, in a NaN (land/edge) cell, or NaN
-  themselves map to NaN. Rectilinear grids only, like `shrink_lines`.
+  positions ride along as `lon_0`/`lat_0` coords on the output. Points off the
+  grid, in a NaN (land/edge) cell, or NaN themselves map to NaN. Rectilinear
+  grids only, like `shrink_lines`.
 
 An LCS is evolved in its **coherent** direction, where perturbations decay: an
 attracting LCS forward in time, a repelling one backward. Advecting the grid to a
@@ -355,8 +352,12 @@ The index and label coords (`i`, `j`, `displacement`, `row`, `col`, `comp`,
 string labels, so a unit would be a fiction. `t0` and `T` carry none either —
 they are `datetime64`/`timedelta64`, so the dtype already holds the unit.
 
-## Reference
+## References
 
 Haller, G. (2015). *Lagrangian Coherent Structures.* Annual Review of Fluid
 Mechanics, 47, 137–162.
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
+
+Haller, G. & Sapsis, T. (2011). *Lagrangian coherent structures and the smallest
+finite-time Lyapunov exponent.* Chaos, 21, 023115.
+[doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597).

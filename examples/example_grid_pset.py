@@ -49,10 +49,12 @@ lat_axis = np.linspace(15.0, 20.0, 5)
 # `lon_grid(i, j)` / `lat_grid(i, j)` and the reference release positions
 # `lon_0(i, j)` / `lat_0(i, j)` -- for this stencil the two coincide, one
 # particle per grid point. No time is recorded: a seed carries no `t0`, no `T`,
-# and no data variables.
+# and no data variables. Printing the seed gives a one-line summary; `.ds` is the
+# dataset itself.
 
 # %%
 seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+print(seed)
 seed.ds
 
 # %% [markdown]
@@ -76,6 +78,7 @@ print("first three lon:", lon[:3])
 
 # %%
 fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=t0, t1=t1)
+print(fm)
 fm.ds
 
 # %% [markdown]

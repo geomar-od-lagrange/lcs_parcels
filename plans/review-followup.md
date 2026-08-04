@@ -153,17 +153,19 @@ For the neighbour stencil `lon_grid` equals `lon_0`. The redundancy is
 deliberate --- the same call already made for the auxiliary schema: store the
 value, do not make consumers reconstruct it from a convention.
 
-Replace the `_grid_lonlat` module helper with abstract properties on `FlowMap`,
-overridden per subclass, **named exactly as the coordinates they return** ---
-`lon_grid`, `lat_grid`, so `flowmap.lon_grid` is `ds["lon_grid"]` with no
-translation layer --- plus `advected`, the advected positions collapsed over
-`displacement` for the auxiliary case and passed through for the neighbour one.
-A base-class property that branches internally would be the same violation
+Replace the `_grid_lonlat` module helper with properties on `Seed`/`FlowMap`
+**named exactly as the coordinates they return** --- `lon_grid`, `lat_grid`, so
+`flowmap.lon_grid` is `ds["lon_grid"]` with no translation layer --- plus
+`grid_image`, the advected positions collapsed over `displacement` for the
+auxiliary case and passed through for the neighbour one. What must not survive is
+a base-class property that branches internally: that would be the same violation
 wearing a better name; the point is that the type carries the information.
+Once the coordinate is canonical, `lon_grid`/`lat_grid` no longer branch on
+anything, so they are concrete one-liners on the two base classes; only
+`grid_image`, which genuinely differs per stencil, is abstract and overridden.
 
-(`advected` is the least settled name here. It returns a two-variable Dataset,
-not a coordinate, so it does not follow the rule above. Worth a second look
-during implementation.)
+(`grid_image` is the least settled name here. It returns a two-variable Dataset,
+not a coordinate, so it does not follow the rule above.)
 This removes `if "displacement" in advected.dims:` at `grids.py:452`, which is
 verbatim the pattern `AGENTS.md` forbids by name, and the
 `"lon_c" in obj.coords` sniff at `grids.py:101-102`.
@@ -217,8 +219,9 @@ the seeds. Proposed, to be settled at implementation time:
 | `bad` | `terminated` |
 | `lam`, `vec` | `eigenvalues`, `eigenvectors` |
 
-The same applies inside `grids.py`: `central_diff` and `arm_diff` are fine, but
-their locals are not.
+The same applies inside `grids.py`: `central_diff` and `arm_diff` lift to
+module-level `_central_diff(field, dim)` and `_arm_diff(field, positive,
+negative)` with their own unit tests, and their locals get spelled out.
 
 Document and check, per the "explain *and* check" comment:
 

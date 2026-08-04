@@ -4,9 +4,9 @@ A repelling LCS is a *shrink line* -- a curve tangent to the weak-stretch
 eigenvector ``xi_1`` of the Cauchy-Green tensor ``C`` (equivalently, normal to
 the strong-stretch ``xi_2`` that the FTLE ridge marks). It solves the tensor-line
 ODE ``dr/ds = xi_1(r)``. Attracting LCS need no separate machinery: by the
-forward-backward duality (Haller & Sapsis 2011) they are the shrink lines of the
-*backward* flow, so :func:`shrink_lines` of a backward :class:`~lcs_parcels.FlowMap`
-gives them.
+forward-backward duality (Haller & Sapsis 2011, https://doi.org/10.1063/1.3579597)
+they are the shrink lines of the *backward* flow, so :func:`shrink_lines` of a
+backward :class:`~lcs_parcels.FlowMap` gives them.
 
 Two functions compose the workflow: :func:`ftle_ridge_seeds` picks start points,
 :func:`shrink_lines` integrates the tensor lines through them. Both take the

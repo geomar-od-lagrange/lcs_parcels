@@ -16,7 +16,7 @@ import xarray as xr
 from conftest import advected_flowmap, advected_flowmap_f
 
 from lcs_parcels import AuxiliarySeed, NeighborSeed
-from lcs_parcels.grids import _lonlat_to_meters
+from lcs_parcels.grids import _arm_diff, _central_diff, _lonlat_to_meters
 
 # Release time and integration end time; the signed window T = T1 - T0 spans one
 # day (|T| = 86400 s).
@@ -34,6 +34,46 @@ M_TENSOR = xr.DataArray(
 
 # Integration window in seconds (one day) used by the analytic FTLE.
 T_SEC = abs((T1 - T0) / np.timedelta64(1, "s"))
+
+
+# --- stencil differences ----------------------------------------------------
+
+
+def test_central_diff_spans_two_cells_and_nans_the_edges():
+    """``_central_diff`` is ``(index + 1) - (index - 1)``, NaN at both ends."""
+    field = xr.DataArray(
+        np.arange(5.0)[:, None] * np.ones(3), dims=("i", "j"), name="field"
+    )
+
+    diff = _central_diff(field, "i")
+
+    assert set(diff.dims) == {"i", "j"}
+    assert np.isnan(diff.isel(i=0)).all()
+    assert np.isnan(diff.isel(i=-1)).all()
+    # Unit spacing along i, so the two-cell span is 2 everywhere inside.
+    assert np.allclose(diff.isel(i=slice(1, -1)), 2.0)
+    # Constant along j, so the j difference vanishes where it is defined.
+    assert np.allclose(_central_diff(field, "j").isel(j=1), 0.0)
+
+
+def test_arm_diff_subtracts_opposing_arms_onto_the_grid():
+    """``_arm_diff`` differences two ``displacement`` labels back onto ``(i, j)``."""
+    field = xr.DataArray(
+        np.array([[[1.0, 10.0, -1.0, -10.0]]]),
+        dims=("i", "j", "displacement"),
+        coords={"displacement": ["east", "north", "west", "south"]},
+        name="field",
+    )
+
+    span_x = _arm_diff(field, "east", "west")
+    span_y = _arm_diff(field, "north", "south")
+
+    assert set(span_x.dims) == {"i", "j"}
+    assert "displacement" not in span_x.coords
+    assert np.allclose(span_x, 2.0)
+    assert np.allclose(span_y, 20.0)
+    # Antisymmetric in its two arms.
+    assert np.allclose(_arm_diff(field, "west", "east"), -2.0)
 
 
 # --- deformation gradient --------------------------------------------------

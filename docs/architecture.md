@@ -143,6 +143,12 @@ metres from the grid point the diagnostic describes. Introducing a canonical
 coordinate without removing the competing wrong one would have left the trap in
 place.
 
+`FlowMap.image` interpolates along axes relabelled `lon_grid`/`lat_grid`, so its
+result would naturally come back carrying the caller's arbitrary reference points
+under the grid-point name. It renames them to `lon_0`/`lat_0` before returning:
+they are the $x_0$ that were mapped, not diagnostic grid points, and one name for
+two quantities is the defect the canonical pair exists to remove.
+
 ### Why lon/lat pairs are keyword-only
 
 Every public entry point that takes an adjacent lon/lat pair takes it

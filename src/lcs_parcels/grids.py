@@ -151,6 +151,24 @@ def _to_meters(
     return _lonlat_to_meters(lon, lat, lon_ref, lat_ref)
 
 
+def _central_diff(field: xr.DataArray, dim: str) -> xr.DataArray:
+    """Neighbour difference ``(index + 1) - (index - 1)`` along ``dim``.
+
+    ``.shift`` fills NaN past both ends, so the first and last index along ``dim``
+    are legitimately NaN: they have no neighbour to difference against.
+    """
+    return field.shift({dim: -1}) - field.shift({dim: +1})
+
+
+def _arm_diff(field: xr.DataArray, positive: str, negative: str) -> xr.DataArray:
+    """Difference two opposing auxiliary arms, e.g. ``east`` minus ``west``.
+
+    The scalar ``displacement`` label is dropped on subtraction, so the result is
+    back on ``(i, j)``.
+    """
+    return field.sel(displacement=positive) - field.sel(displacement=negative)
+
+
 def _assemble_tensor(
     *,
     name: str,
@@ -624,7 +642,9 @@ class FlowMap(abc.ABC):
         xr.Dataset
             ``lon``/``lat`` (degrees) on the dims of ``lon0``/``lat0`` -- the
             same structure a :func:`~lcs_parcels.shrink_lines` curve has, so an
-            evolved curve is drop-in plottable and can itself be re-fed.
+            evolved curve is drop-in plottable and can itself be re-fed. The
+            requested reference positions ride along as the ``lon_0``/``lat_0``
+            coords.
         """
         # Relabel the logical (i, j) index axes by their geographic values so the
         # interpolation runs against lon/lat directly.
@@ -643,10 +663,17 @@ class FlowMap(abc.ABC):
         )
         image["lon"].attrs.update(LON_ATTRS)
         image["lat"].attrs.update(LAT_ATTRS)
-        # The interpolation carries the requested reference positions through as
-        # the lon_grid/lat_grid coords, so they are labelled as the x_0 they are.
-        image["lon_grid"].attrs.update(LON_0_ATTRS)
-        image["lat_grid"].attrs.update(LAT_0_ATTRS)
+        # The interpolation carries the requested reference positions through
+        # under the axis names it interpolated along; they are reference
+        # positions x_0, not diagnostic grid points, so they come back as
+        # lon_0/lat_0. Any lon_0/lat_0 the inputs brought along as coords of
+        # their own is dropped first, so the returned pair is always the points
+        # actually interpolated at.
+        image = image.drop_vars(["lon_0", "lat_0"], errors="ignore").rename(
+            lon_grid="lon_0", lat_grid="lat_0"
+        )
+        image["lon_0"].attrs.update(LON_0_ATTRS)
+        image["lat_0"].attrs.update(LAT_0_ATTRS)
         return image
 
     def lcs(
@@ -919,23 +946,18 @@ class NeighborFlowMap(FlowMap):
         """
         x_adv, y_adv, x_ref, y_ref = self._stencil_meters()
 
-        def central_diff(field: xr.DataArray, dim: str) -> xr.DataArray:
-            # Neighbour difference (index + 1) - (index - 1); .shift fills NaN
-            # past both ends, so the domain edges are legitimately NaN.
-            return field.shift({dim: -1}) - field.shift({dim: +1})
-
         # lon_0 varies along i, lat_0 along j, so these are the pure x- and y-
         # reference steps in meters.
-        reference_step_x = central_diff(x_ref, "i")
-        reference_step_y = central_diff(y_ref, "j")
+        reference_step_x = _central_diff(x_ref, "i")
+        reference_step_y = _central_diff(y_ref, "j")
         return _assemble_tensor(
             name="deformation_gradient",
             long_name="deformation gradient grad F of the flow map",
             units="1",
-            fxx=central_diff(x_adv, "i") / reference_step_x,
-            fxy=central_diff(x_adv, "j") / reference_step_y,
-            fyx=central_diff(y_adv, "i") / reference_step_x,
-            fyy=central_diff(y_adv, "j") / reference_step_y,
+            fxx=_central_diff(x_adv, "i") / reference_step_x,
+            fxy=_central_diff(x_adv, "j") / reference_step_y,
+            fyx=_central_diff(y_adv, "i") / reference_step_x,
+            fyy=_central_diff(y_adv, "j") / reference_step_y,
         )
 
 
@@ -972,21 +994,16 @@ class AuxiliaryFlowMap(FlowMap):
         """
         x_adv, y_adv, x_ref, y_ref = self._stencil_meters()
 
-        def arm_diff(field: xr.DataArray, positive: str, negative: str) -> xr.DataArray:
-            # Difference two opposing arms; the scalar `displacement` label is
-            # dropped on subtraction so the result is back on (i, j).
-            return field.sel(displacement=positive) - field.sel(displacement=negative)
-
-        arm_span_x = arm_diff(x_ref, "east", "west")
-        arm_span_y = arm_diff(y_ref, "north", "south")
+        arm_span_x = _arm_diff(x_ref, "east", "west")
+        arm_span_y = _arm_diff(y_ref, "north", "south")
         return _assemble_tensor(
             name="deformation_gradient",
             long_name="deformation gradient grad F of the flow map",
             units="1",
-            fxx=arm_diff(x_adv, "east", "west") / arm_span_x,
-            fxy=arm_diff(x_adv, "north", "south") / arm_span_y,
-            fyx=arm_diff(y_adv, "east", "west") / arm_span_x,
-            fyy=arm_diff(y_adv, "north", "south") / arm_span_y,
+            fxx=_arm_diff(x_adv, "east", "west") / arm_span_x,
+            fxy=_arm_diff(x_adv, "north", "south") / arm_span_y,
+            fyx=_arm_diff(y_adv, "east", "west") / arm_span_x,
+            fyy=_arm_diff(y_adv, "north", "south") / arm_span_y,
         )
 
 

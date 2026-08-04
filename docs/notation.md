@@ -235,8 +235,12 @@ would drop the dims and coords and requires the matrix axes to be last — so
 `cg_eigen` declares the core dims and re-wraps the result:
 `xr.apply_ufunc(np.linalg.eigh, C, input_core_dims=[['row', 'col']], ...)`.
 
-## Reference
+## References
 
 Haller, G. (2015). *Lagrangian Coherent Structures.* Annual Review of Fluid
 Mechanics, 47, 137–162.
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
+
+Haller, G. & Sapsis, T. (2011). *Lagrangian coherent structures and the smallest
+finite-time Lyapunov exponent.* Chaos, 21, 023115.
+[doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597).
