@@ -241,6 +241,12 @@ verified against the pinned v4 alpha:
   $\lambda_2/\lambda_1$ and so retunes with neither grid nor window. Physical is
   not sufficient — a floor in 1/day is scale-free in no useful sense, since a
   rate that suits a fast flow is meaningless in a slow one.
+  The rule governs what a knob *defaults* to. A parameter that is deliberately
+  not scale-free is allowed where an analysis needs exactly that — `ftle_min`
+  sets the ridge floor as an absolute FTLE so several runs can be compared
+  against one threshold — but it is opt-in beside a scale-free default
+  (`quantile`), and the reason it exists is written down for the developer
+  (`docs/architecture.md`, "Why an absolute FTLE floor exists at all").
 - **Same-typed adjacent arguments are keyword-only.** A public entry point that
   takes a lon/lat pair (or any other run of interchangeable-looking arguments)
   takes it by keyword, so the trusting user cannot silently transpose them: a

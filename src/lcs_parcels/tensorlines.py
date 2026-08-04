@@ -23,6 +23,8 @@ line may cross the antimeridian.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
@@ -42,12 +44,32 @@ def _odd_cells(window_m: float, spacing_m: float) -> int:
     return max(1, cells)
 
 
-def _window_cells(ftle: xr.DataArray, window_m: float) -> tuple[int, int]:
-    """The ``(i, j)`` cell counts spanning ``window_m`` on the field's own grid.
+def _window_geometry(ftle: xr.DataArray, window_m: float) -> dict[str, float]:
+    """What ``window_m`` actually becomes on this field's grid.
 
-    Spacing is the median local east/north separation of adjacent grid points
-    (:func:`~lcs_parcels.grids._separation_m`), one median per dimension, so a
-    grid whose cells shrink poleward gets the size that most of it has.
+    The rolling window is a count of *cells*, so the two reported quantities read
+    the grid's cell sizes differently and both medians and minima are needed.
+
+    ``grid_spacing_i_m`` / ``grid_spacing_j_m`` are the **median** local
+    east/north separations of adjacent grid points
+    (:func:`~lcs_parcels.grids._separation_m`). They set the cell counts, where
+    the size most of the grid has is the right one to convert ``window_m`` with.
+
+    ``min_seed_separation_m`` is the closest two seeds can be, and so is built on
+    the **minimum** cell size instead: a window of ``cells`` reaches
+    ``(cells - 1) // 2`` cells to either side of its own grid point, so the
+    nearest point that can also be a windowed maximum is one cell beyond that,
+    and the physical distance that buys is smallest where the cells are smallest.
+    On a grid of near-uniform cells it lands near ``window_m / 2``, which is the
+    number a user choosing ``window_m`` needs; on a grid whose cells converge
+    poleward it is smaller, and taking the median there would overstate it — by a
+    factor of 3 over a 75-degree band, measured.
+
+    The bound is on *strict* local maxima. Selection is ``ftle >= rolling max``,
+    so every cell of a plateau of exactly equal values is a windowed maximum and
+    adjacent cells can both be seeds. A masked, saturated or float-tied field can
+    therefore return seeds closer than this. Nothing distinguishes a point on a
+    flat ridge top, so they are all kept rather than broken arbitrarily.
     """
     lon_grid, lat_grid = ftle["lon_grid"], ftle["lat_grid"]
     dx, _ = _separation_m(
@@ -62,23 +84,43 @@ def _window_cells(ftle: xr.DataArray, window_m: float) -> tuple[int, int]:
         lon_b=lon_grid,
         lat_b=lat_grid,
     )
-    return (
-        _odd_cells(window_m, float(np.abs(dx).median())),
-        _odd_cells(window_m, float(np.abs(dy).median())),
-    )
+    dx, dy = np.abs(dx), np.abs(dy)
+    spacing_i = float(dx.median())
+    spacing_j = float(dy.median())
+    cells_i = _odd_cells(window_m, spacing_i)
+    cells_j = _odd_cells(window_m, spacing_j)
+    return {
+        "window_m": float(window_m),
+        "window_cells_i": cells_i,
+        "window_cells_j": cells_j,
+        "grid_spacing_i_m": spacing_i,
+        "grid_spacing_j_m": spacing_j,
+        "min_seed_separation_m": min(
+            ((cells_i - 1) // 2 + 1) * float(dx.min()),
+            ((cells_j - 1) // 2 + 1) * float(dy.min()),
+        ),
+    }
 
 
 def ftle_ridge_seeds(
-    ftle: xr.DataArray, *, window_m: float = 30_000.0, quantile: float = 0.90
-) -> tuple[np.ndarray, np.ndarray]:
+    ftle: xr.DataArray,
+    *,
+    window_m: float = 30_000.0,
+    quantile: float | None = None,
+    ftle_min: float | None = None,
+) -> xr.Dataset:
     """Seed points at strong local maxima of an FTLE field.
 
     A grid point is a seed when its FTLE is the maximum over a neighbourhood
     ``window_m`` wide in total, centred on it (a windowed local maximum on the
-    raw value), so two seeds cannot be closer than about ``window_m / 2``,
-    *and* is at or above the ``quantile`` of the field -- an absolute
-    magnitude floor, not a local-contrast test. NaN cells (e.g. the
+    raw value) *and* is at or above a magnitude floor. The floor is either a
+    ``quantile`` of this field or an absolute ``ftle_min``; it is a magnitude
+    test, not a local-contrast one. NaN cells (e.g. the
     :class:`~lcs_parcels.NeighborFlowMap` edge) never qualify.
+
+    Warns when ``window_m`` spans fewer than three cells in either dimension: a
+    one-cell window makes every point a windowed maximum, so the local-maximum
+    test stops selecting anything and only the magnitude floor is left.
 
     Parameters
     ----------
@@ -94,23 +136,100 @@ def ftle_ridge_seeds(
 
         A window of side ``window_m`` reaches ``window_m / 2`` to either side of
         its own grid point, so **the closest two seeds can be is about
-        ``window_m / 2``**, not ``window_m``: halve it to get the minimum
-        spacing between the tensor lines this seeds.
+        ``window_m / 2``**, not ``window_m``. The returned
+        ``min_seed_separation_m`` attribute is that distance computed on this
+        grid, off the smallest cell rather than the typical one, and so is a
+        floor rather than a guide; halve ``window_m`` in your head, or read the
+        attribute. It bounds *strict* local maxima: a plateau of exactly equal
+        values makes every one of its cells a windowed maximum, and those can be
+        adjacent.
     quantile : float, optional
-        Global magnitude floor in ``[0, 1]`` (default 0.90 = top decile).
+        Magnitude floor as a quantile of this field, in ``[0, 1]``. Defaults to
+        0.90 (the top decile) when neither selector is given.
+    ftle_min : float, optional
+        Magnitude floor as an absolute value, in the units of ``ftle`` (1/s for
+        :meth:`FlowMap.ftle`). Mutually exclusive with ``quantile``.
+
+        The default selector is deliberately the quantile, which means the same
+        thing on any field. An absolute floor does not: a rate that marks a ridge
+        in a fast flow marks nothing in a slow one. It is here because that is
+        exactly the property a run comparing windows or regions needs -- the same
+        threshold across all of them -- and a quantile cannot give it.
 
     Returns
     -------
-    tuple[np.ndarray, np.ndarray]
-        ``(lon, lat)`` 1-D arrays of the seed positions (degrees).
+    xr.Dataset
+        ``lon``/``lat`` (degrees) on a ``seed`` dim, one entry per seed point.
+        The attributes record what ``window_m`` became on this grid: the cell
+        counts used, the median grid spacing, and ``min_seed_separation_m``.
+
+    Raises
+    ------
+    ValueError
+        If both ``quantile`` and ``ftle_min`` are given.
     """
-    cells_i, cells_j = _window_cells(ftle, window_m)
+    if quantile is not None and ftle_min is not None:
+        raise ValueError(
+            "give either quantile or ftle_min, not both: they are two ways of "
+            "setting the same magnitude floor"
+        )
+    if quantile is None and ftle_min is None:
+        quantile = 0.90
+    threshold = float(ftle.quantile(quantile)) if ftle_min is None else float(ftle_min)
+
+    geometry = _window_geometry(ftle, window_m)
+    cells_i = geometry["window_cells_i"]
+    cells_j = geometry["window_cells_j"]
+    if cells_i < 3 or cells_j < 3:
+        warnings.warn(
+            f"window_m={window_m} spans {cells_i}x{cells_j} cells of this grid "
+            f"({geometry['grid_spacing_i_m']:.0f} x "
+            f"{geometry['grid_spacing_j_m']:.0f} m). A window under three cells "
+            "makes every point a windowed maximum in that dimension, so the "
+            "local-maximum test stops selecting. Widen window_m or seed a finer "
+            "grid.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     peak = ftle.rolling(i=cells_i, j=cells_j, center=True, min_periods=1).max()
-    is_seed = (ftle >= peak) & (ftle >= ftle.quantile(quantile))
-    lon = ftle["lon_grid"].transpose("i", "j").values
-    lat = ftle["lat_grid"].transpose("i", "j").values
+    is_seed = (ftle >= peak) & (ftle >= threshold)
     mask = is_seed.transpose("i", "j").values
-    return lon[mask], lat[mask]
+    lon = ftle["lon_grid"].transpose("i", "j").values[mask]
+    lat = ftle["lat_grid"].transpose("i", "j").values[mask]
+    return xr.Dataset(
+        {
+            "lon": xr.DataArray(
+                lon,
+                dims="seed",
+                attrs={
+                    "long_name": "longitude of the FTLE ridge seed",
+                    "units": "degrees_east",
+                },
+            ),
+            "lat": xr.DataArray(
+                lat,
+                dims="seed",
+                attrs={
+                    "long_name": "latitude of the FTLE ridge seed",
+                    "units": "degrees_north",
+                },
+            ),
+        },
+        coords={
+            "seed": xr.DataArray(
+                np.arange(lon.size),
+                dims="seed",
+                attrs={"long_name": "FTLE ridge seed index"},
+            )
+        },
+        attrs={
+            "long_name": "seed points at strong local maxima of the FTLE field",
+            "selector": "quantile" if ftle_min is None else "ftle_min",
+            "ftle_threshold": threshold,
+            **geometry,
+        },
+    )
 
 
 def _shrink_line_tangent(

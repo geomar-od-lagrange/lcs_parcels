@@ -187,9 +187,13 @@ The rule is about same-typed neighbours, not about keywords for their own sake:
 `shrink_lines(flowmap, ...)` keeps `flowmap` positional, since it is the only
 argument of its type and there is nothing to transpose it with. The cost is that
 the star-unpacking idiom is unavailable —
-`pset_to_flowmap(*seed.to_parcels_pset(), ...)` does not work, and the 2-tuples
-that `to_parcels_pset` and `ftle_ridge_seeds` return are unpacked into named
-locals first, which costs one line per call site.
+`pset_to_flowmap(*seed.to_parcels_pset(), ...)` does not work, and the 2-tuple
+`to_parcels_pset` returns is unpacked into named locals first, which costs one
+line per call site. `ftle_ridge_seeds` pays that cost in the return type
+instead: it hands back an `xr.Dataset` whose two fields are already named, so
+the seeds reach the next call as
+`shrink_lines(fm, seed_lon=seeds["lon"], seed_lat=seeds["lat"])`. There is no
+tuple to unpack and no positional order to get wrong.
 
 ### Why the metadata is attached at construction
 
@@ -256,7 +260,9 @@ free functions that consume a `FlowMap`'s xarray outputs — keeping the one new
 external dependency (`scipy`, for grid interpolation) at the boundary:
 
 - `ftle_ridge_seeds(ftle)` — start points at the FTLE ridge tops (windowed local
-  maxima above a quantile floor);
+  maxima above a magnitude floor), returned as an `xr.Dataset` of `lon`/`lat` on
+  a `seed` dim whose attributes record the floor that was applied and what
+  `window_m` became on this grid;
 - `shrink_lines(flowmap, seed_lon=..., seed_lat=...)` — integrates the $\xi_1$
   tensor lines ($\dot r = \xi_1(r)$, Haller Table 1) through those seeds,
   returning an `xr.Dataset` of polylines on `(line, point)`.
@@ -289,12 +295,20 @@ three functions underneath stay independently callable.
 in one `Dataset`. The first plot anyone makes is the curves over that field, and
 the alternative is re-running an eigendecomposition of the whole grid to recover
 something it had in hand; the `(line, point)` and `(i, j)` dims coexist
-without conflict. Its parameters all default to `None` and only those the caller
-set are forwarded, so `ftle_ridge_seeds` and `shrink_lines` remain the single
-owners of their defaults. There is no direction argument — the flow map already
-carries $\mathrm{sign}(T)$, and the returned dataset announces repelling
-or attracting in its own `long_name` attributes. What those parameters mean and
-why they are stated in the units they are is in
+without conflict. The seeds' own attributes ride along on it as well, minus
+their `long_name`, which describes the seed points rather than the curves: a
+caller who never sees the intermediate `Dataset` can still read
+`lcs.attrs["ftle_threshold"]` and `lcs.attrs["min_seed_separation_m"]` off the
+result.
+
+Its parameters all default to `None` and only those the caller set are
+forwarded, so `ftle_ridge_seeds` and `shrink_lines` remain the single owners of
+their defaults. That holds for the mutually exclusive pair too: passing both
+`quantile` and `ftle_min` here forwards both, and the `ValueError` is raised in
+`ftle_ridge_seeds`, which is where the rule lives. There is no direction
+argument — the flow map already carries $\mathrm{sign}(T)$, and the returned
+dataset announces repelling or attracting in its own `long_name` attributes.
+What those parameters mean and why they are stated in the units they are is in
 [`docs/numerics.md`](numerics.md).
 
 `hyperbolic_lcs()` being a method while the extraction lives in `tensorlines`
@@ -304,6 +318,56 @@ helpers from `grids`. The two names are therefore imported inside
 helpers into a third module — would touch every import in the package to buy
 back two lines, so the deferred import stands until something else needs that
 module to exist.
+
+### Why `window_m` was not redefined as the seed separation
+
+`window_m` is the *side* of the neighbourhood a candidate must be the maximum
+over, so a window reaches `window_m / 2` to either side of its own grid point
+and the closest two seeds can be is about half the number the caller typed. That
+is a reading anyone can get wrong once, and the obvious fix is to redefine the
+knob as the minimum seed separation.
+
+It was rejected because the knob is already in use. Redefining it silently
+doubles the neighbourhood of every existing call — the call still runs, still
+returns seeds, and returns different ones. Breaking changes are the norm here,
+but the ones that are safe to make are the ones that *fail*: a renamed argument
+raises `TypeError`, a changed return type raises at the next line. A redefined
+float raises nothing.
+
+So the meaning stands and the consequence is reported instead.
+`_window_geometry` returns `min_seed_separation_m` alongside the cell counts and
+the median grid spacings, and every one of those keys lands in the returned
+dataset's `attrs`. The value is computed rather than approximated: a window of
+`cells` reaches `(cells - 1) // 2` cells to either side, so the nearest point
+that can also be a windowed maximum is one cell beyond that, and the reported
+figure is the smaller of the two per-dimension distances. It comes out near
+`window_m / 2` on a regular grid, but the reported number is the one this grid
+actually produces.
+
+The `UserWarning` for a `window_m` spanning fewer than three cells in either
+dimension is the same concern. A one-cell window makes every point its own
+maximum, so `ftle >= peak` is satisfied everywhere and the local-maximum test
+stops selecting; what comes back is every point above the magnitude floor. The
+call does not fail, and the output is a plausible-looking seed set, so a warning
+is the only signal available.
+
+### Why an absolute FTLE floor exists at all
+
+Tuning parameters here are meant to be scale-free, and an absolute FTLE floor is
+not: a stretching rate that marks a ridge in a fast flow marks nothing in a slow
+one, and the same number retunes with the region, the window, and the season.
+So `quantile` remains the default and `ftle_min` has to be asked for by name.
+
+It exists because some analyses need exactly the property the quantile lacks. A
+quantile floor is defined by the field it is applied to, so two runs — a
+three-day window against a ten-day one, one region against its neighbour — are
+each thresholded at their own top decile, and the seed counts come out
+comparable by construction whatever the underlying strain did. A run whose
+subject *is* that difference needs one threshold held fixed across all of it,
+which a quantile cannot express. Hence two selectors, mutually exclusive, with a
+`ValueError` rather than a precedence rule when both arrive: there is no reading
+of "quantile 0.9 and 1e-6 1/s" that is more likely to be what the caller meant
+than a mistake.
 
 ## Reprs
 
