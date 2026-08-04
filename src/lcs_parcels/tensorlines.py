@@ -25,19 +25,50 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels.grids import _DEG, EARTH_RADIUS_M
+from lcs_parcels.grids import _DEG, EARTH_RADIUS_M, _lonlat_to_meters
+
+SECONDS_PER_DAY = 86_400.0
+
+
+def _odd_cells(window_m: float, spacing_m: float) -> int:
+    """Cells spanning ``window_m`` at grid spacing ``spacing_m``, odd and at least 1.
+
+    Odd keeps the rolling window centred on its own grid point; rounding down to
+    the nearest odd count keeps it from reaching past ``window_m / 2``.
+    """
+    cells = round(window_m / spacing_m)
+    if cells % 2 == 0:
+        cells -= 1
+    return max(1, cells)
+
+
+def _window_cells(ftle: xr.DataArray, window_m: float) -> tuple[int, int]:
+    """The ``(i, j)`` cell counts spanning ``window_m`` on the field's own grid.
+
+    Spacing comes from the ``lon_grid``/``lat_grid`` coordinates projected into
+    the single-reference-latitude metres frame the package works in
+    (:func:`~lcs_parcels.grids._lonlat_to_meters`, one ``cos(phi_ref)``), taken
+    as the median cell size along each dimension.
+    """
+    lon_grid, lat_grid = ftle["lon_grid"], ftle["lat_grid"]
+    x, y = _lonlat_to_meters(
+        lon_grid, lat_grid, float(lon_grid.mean()), float(lat_grid.mean())
+    )
+    dx = float(np.abs(x.diff("i")).median())
+    dy = float(np.abs(y.diff("j")).median())
+    return _odd_cells(window_m, dx), _odd_cells(window_m, dy)
 
 
 def ftle_ridge_seeds(
-    ftle: xr.DataArray, *, window: int = 7, quantile: float = 0.90
+    ftle: xr.DataArray, *, window_m: float = 30_000.0, quantile: float = 0.90
 ) -> tuple[np.ndarray, np.ndarray]:
     """Seed points at strong local maxima of an FTLE field.
 
-    A grid point is a seed when its FTLE is the maximum over a
-    ``window x window`` neighbourhood (a windowed local maximum on the raw
+    A grid point is a seed when its FTLE is the maximum over a neighbourhood
+    spanning ``window_m`` in each direction (a windowed local maximum on the raw
     value) *and* is at or above the ``quantile`` of the field -- an absolute
     magnitude floor, not a local-contrast test. Well separated (spacing set by
-    ``window``) so the tensor lines through them do not bundle. NaN cells (e.g.
+    ``window_m``) so the tensor lines through them do not bundle. NaN cells (e.g.
     the :class:`~lcs_parcels.NeighborFlowMap` edge) never qualify.
 
     Parameters
@@ -45,8 +76,12 @@ def ftle_ridge_seeds(
     ftle : xr.DataArray
         FTLE field with dims ``(i, j)`` and ``lon_grid``/``lat_grid``
         coordinates, e.g. from :meth:`FlowMap.ftle`.
-    window : int, optional
-        Side of the square neighbourhood for the local-maximum test (default 7).
+    window_m : float, optional
+        Side of the square neighbourhood in metres (default 30 km). Converted to
+        an odd cell count per dimension from the field's own grid spacing, so the
+        separation between seeds is a physical distance and does not change with
+        grid resolution. On a 1/25-degree grid at 20 N (about 4.2 km cells) the
+        default is 7 cells.
     quantile : float, optional
         Global magnitude floor in ``[0, 1]`` (default 0.90 = top decile).
 
@@ -55,7 +90,8 @@ def ftle_ridge_seeds(
     tuple[np.ndarray, np.ndarray]
         ``(lon, lat)`` 1-D arrays of the seed positions (degrees).
     """
-    peak = ftle.rolling(i=window, j=window, center=True, min_periods=1).max()
+    cells_i, cells_j = _window_cells(ftle, window_m)
+    peak = ftle.rolling(i=cells_i, j=cells_j, center=True, min_periods=1).max()
     is_seed = (ftle >= peak) & (ftle >= ftle.quantile(quantile))
     lon = ftle["lon_grid"].transpose("i", "j").values
     lat = ftle["lat_grid"].transpose("i", "j").values
@@ -68,9 +104,9 @@ def shrink_lines(
     *,
     seed_lon,
     seed_lat,
-    lambda_max_min: float = 1.1,
+    ftle_min_per_day: float = 0.005,
     step_m: float = 3_000.0,
-    n_steps: int = 250,
+    line_length_m: float = 1_500_000.0,
 ) -> xr.Dataset:
     """Integrate shrink lines (``xi_1`` tensor lines) through the seed points.
 
@@ -84,11 +120,12 @@ def shrink_lines(
       ``lambda_1 ~ lambda_2`` spots where ``xi_1`` is otherwise sign-ambiguous;
     - orients each step to the running heading (an eigenvector has no intrinsic
       sign);
-    - stops a line where ``lambda_2 < lambda_max_min`` (a low guard against the
-      rare degenerate points), or where it leaves the grid / hits a NaN cell.
+    - stops a line where the local stretching falls below ``ftle_min_per_day``
+      (a low guard against the rare degenerate points), or where it leaves the
+      grid / hits a NaN cell.
 
-    Marches all seeds together with a midpoint (arc-length) step. Lines are a
-    fixed ``2 * n_steps + 1`` points long, NaN-filled past termination.
+    Marches all seeds together with a midpoint (arc-length) step. Every line is
+    the same length, NaN-filled past termination.
 
     Parameters
     ----------
@@ -97,14 +134,20 @@ def shrink_lines(
         the ``lon_grid``/``lat_grid`` axes.
     seed_lon, seed_lat : array_like
         Seed positions (degrees), e.g. from :func:`ftle_ridge_seeds`.
-    lambda_max_min : float, optional
-        Stop a line where the larger eigenvalue ``lambda_2`` falls below this
-        (default 1.1). Over long windows the flow is hyperbolic almost
-        everywhere, so this is a degeneracy guard, not an LCS selector.
+    ftle_min_per_day : float, optional
+        Stop a line where the local FTLE falls below this, in 1/day (default
+        0.005). Expressed as a stretching *rate* so the guard means the same
+        thing whatever ``|T|`` the flow map spans; it converts to the eigenvalue
+        floor ``lambda_min = exp(2 |T|_days Lambda_min)`` used against
+        ``lambda_2``, which over a 7-day window is ``lambda_min = 1.07``. Over
+        long windows the flow is hyperbolic almost everywhere, so this is a
+        degeneracy guard, not an LCS selector.
     step_m : float, optional
         Arc-length step in metres (default 3000).
-    n_steps : int, optional
-        Steps per direction (default 250); full line spans ``2 * n_steps * step_m``.
+    line_length_m : float, optional
+        Full length of each line in metres (default 1500 km), traced half in
+        each direction from the seed; the step count per direction is
+        ``line_length_m / (2 * step_m)``, at least 1.
 
     Returns
     -------
@@ -112,6 +155,11 @@ def shrink_lines(
         ``lon``/``lat`` (degrees) on dims ``(line, point)``, one ``line`` per
         seed, ordered along the curve. Terminated points are ``NaN``.
     """
+    n_steps = max(1, round(line_length_m / (2.0 * step_m)))
+    # FTLE = (1 / |T|) * 0.5 * log(lambda_max), so a floor on the FTLE in 1/day
+    # is a floor exp(2 |T|_days Lambda_min) on lambda_max.
+    t_days = flowmap._integration_seconds() / SECONDS_PER_DAY
+    lambda_max_min = float(np.exp(2.0 * t_days * ftle_min_per_day))
     lon_axis = flowmap.lon_grid.isel(j=0).values
     lat_axis = flowmap.lat_grid.isel(i=0).values
     # xi_1 is a direction in the single-reference-latitude metres frame C lives in

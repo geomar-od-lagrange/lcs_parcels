@@ -16,6 +16,7 @@ from conftest import advected_flowmap
 
 from lcs_parcels import AuxiliarySeed, ftle_ridge_seeds, shrink_lines
 from lcs_parcels.grids import _lonlat_to_meters
+from lcs_parcels.tensorlines import _window_cells
 
 T0 = np.datetime64("2020-01-01")
 T1 = np.datetime64("2020-01-02")
@@ -42,7 +43,7 @@ def test_ftle_ridge_seeds_picks_the_peak(lon_axis, lat_axis):
         },
     )
 
-    lon, lat = ftle_ridge_seeds(ftle, window=3, quantile=0.90)
+    lon, lat = ftle_ridge_seeds(ftle, window_m=330_000.0, quantile=0.90)
 
     assert lon.size == 1
     assert lon[0] == lon_axis[2]
@@ -65,10 +66,53 @@ def test_ftle_ridge_seeds_skips_nan(lon_axis, lat_axis):
         },
     )
 
-    lon, lat = ftle_ridge_seeds(ftle, window=3, quantile=0.5)
+    lon, lat = ftle_ridge_seeds(ftle, window_m=330_000.0, quantile=0.5)
 
     assert lon.tolist() == [lon_axis[1]]
     assert lat.tolist() == [lat_axis[1]]
+
+
+def _two_bump_ftle(n_lon):
+    """Two unequal bumps 1 degree apart on the equator, on a grid of ``n_lon`` points.
+
+    The bumps sit at lon = -0.5 and +0.5 (about 111 km apart) whatever the
+    resolution, so the physical layout is fixed and only the cell size changes.
+    """
+    lon_axis = np.linspace(-3.0, 3.0, n_lon)
+    lat_axis = np.linspace(-1.0, 1.0, (n_lon - 1) // 3 + 1)
+    lon2d, lat2d = xr.broadcast(
+        xr.DataArray(lon_axis, dims="i"), xr.DataArray(lat_axis, dims="j")
+    )
+    bumps = np.exp(-((lon2d + 0.5) ** 2 + lat2d**2) / 0.02) + 0.9 * np.exp(
+        -((lon2d - 0.5) ** 2 + lat2d**2) / 0.02
+    )
+    return bumps.assign_coords(lon_grid=lon2d, lat_grid=lat2d)
+
+
+def test_window_cell_count_tracks_grid_resolution():
+    """The same physical window is a different number of cells on a finer grid."""
+    coarse = _two_bump_ftle(61)  # 0.1 degree cells
+    fine = _two_bump_ftle(121)  # 0.05 degree cells
+
+    cells_coarse = _window_cells(coarse, 60_000.0)
+    cells_fine = _window_cells(fine, 60_000.0)
+
+    assert cells_coarse == (5, 5)
+    assert cells_fine == (11, 11)
+
+
+@pytest.mark.parametrize("n_lon", [61, 121])
+def test_ftle_ridge_seeds_selectivity_is_physical(n_lon):
+    """Resolving or merging the two bumps depends on window_m, not on cell size:
+    a window narrower than their 111 km separation keeps both peaks, a wider one
+    keeps only the stronger -- identically on the coarse and the fine grid."""
+    ftle = _two_bump_ftle(n_lon)
+
+    lon_narrow, _ = ftle_ridge_seeds(ftle, window_m=60_000.0)
+    lon_wide, _ = ftle_ridge_seeds(ftle, window_m=300_000.0)
+
+    assert np.allclose(np.sort(lon_narrow), [-0.5, 0.5])
+    assert np.allclose(lon_wide, [-0.5])  # only the stronger bump survives
 
 
 # --- shrink_lines ----------------------------------------------------------
@@ -87,7 +131,9 @@ def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
     fm = advected_flowmap(
         AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
     )
-    lines = shrink_lines(fm, **_centre_seed(fm), step_m=10_000.0, n_steps=4)
+    lines = shrink_lines(
+        fm, **_centre_seed(fm), step_m=10_000.0, line_length_m=80_000.0
+    )
 
     lon = lines["lon"].isel(line=0).values
     lat = lines["lat"].isel(line=0).values
@@ -99,25 +145,29 @@ def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
 
 
 def test_shrink_lines_output_structure(lon_axis, lat_axis):
-    """Dataset has lon/lat on (line, point); one line per seed, 2*n_steps+1 points."""
+    """Dataset has lon/lat on (line, point); one line per seed, an odd point count."""
     fm = advected_flowmap(
         AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
     )
     seed_lon = [float(fm.ds["lon_grid"].mean()), float(fm.ds["lon_grid"].mean()) + 0.1]
     seed_lat = [float(fm.ds["lat_grid"].mean()), float(fm.ds["lat_grid"].mean())]
 
-    lines = shrink_lines(fm, seed_lon=seed_lon, seed_lat=seed_lat, n_steps=6)
+    lines = shrink_lines(
+        fm, seed_lon=seed_lon, seed_lat=seed_lat, step_m=3_000.0, line_length_m=36_000.0
+    )
 
     assert set(lines.dims) == {"line", "point"}
     assert lines.sizes["line"] == 2
-    assert lines.sizes["point"] == 2 * 6 + 1
+    assert lines.sizes["point"] == 2 * 6 + 1  # 36 km of line in 3 km steps
     assert {"lon", "lat"} == set(lines.data_vars)
 
 
-def test_shrink_lines_stop_below_lambda_guard(lon_axis, lat_axis):
-    """M = I gives lambda_2 = 1 < guard, so the (untraceable) line is all NaN."""
+def test_shrink_lines_stop_below_ftle_guard(lon_axis, lat_axis):
+    """M = I gives zero FTLE, below the guard, so the (untraceable) line is all NaN."""
     fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, np.eye(2), T0, T1)
-    lines = shrink_lines(fm, **_centre_seed(fm), lambda_max_min=1.1, n_steps=5)
+    lines = shrink_lines(
+        fm, **_centre_seed(fm), ftle_min_per_day=0.005, line_length_m=30_000.0
+    )
 
     assert bool(lines["lon"].isnull().all())
 
@@ -131,7 +181,7 @@ def test_shrink_lines_seed_off_grid_is_nan(lon_axis, lat_axis):
         fm,
         seed_lon=[lon_axis[0] - 50.0],
         seed_lat=[lat_axis[0] - 50.0],
-        n_steps=5,
+        line_length_m=30_000.0,
     )
 
     assert bool(lines["lon"].isnull().all())
@@ -155,7 +205,7 @@ def test_shrink_line_uses_reference_latitude_metric():
     fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
 
     lines = shrink_lines(
-        fm, seed_lon=[0.0], seed_lat=[20.0], step_m=20_000.0, n_steps=60
+        fm, seed_lon=[0.0], seed_lat=[20.0], step_m=20_000.0, line_length_m=2_400_000.0
     )
     lon = lines["lon"].isel(line=0).values
     lat = lines["lat"].isel(line=0).values

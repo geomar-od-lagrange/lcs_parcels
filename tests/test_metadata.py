@@ -124,7 +124,11 @@ def test_image_output_is_labelled(lon_axis, lat_axis):
 def test_shrink_lines_output_is_labelled(lon_axis, lat_axis):
     fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, T1)
     lines = shrink_lines(
-        fm, seed_lon=lon_axis[1:3], seed_lat=lat_axis[1:3], n_steps=3, step_m=1_000.0
+        fm,
+        seed_lon=lon_axis[1:3],
+        seed_lat=lat_axis[1:3],
+        step_m=1_000.0,
+        line_length_m=6_000.0,
     )
     assert_labelled(
         lines, expected_units={"lon": "degrees_east", "lat": "degrees_north"}
