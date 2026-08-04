@@ -23,10 +23,12 @@ against a four-arm stencil laid around each grid point.
 Every object wraps an ``xr.Dataset``, available as ``.ds``. Diagnostics are
 reported at the grid points ``lon_grid``/``lat_grid`` (degrees) and every
 returned array carries ``long_name`` and ``units``. Lon/lat pairs are
-keyword-only throughout. Positions are differenced in
-metres, in an equirectangular frame with one standard parallel, so the package
-is valid for regional domains of modest latitude range that do not cross the
-dateline.
+keyword-only throughout. Positions are differenced in metres, each pair in its
+own local east/north frame, so the accuracy of a separation depends on how far
+apart that pair is and not on how large the domain is or where it sits.
+Longitude differences wrap, so the antimeridian is not a special case.
+Longitudes are stored in whatever convention they arrive in; only differences
+and means are wrapped.
 
 Notation follows Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev.
 Fluid Mech. 47:137-162, doi:10.1146/annurev-fluid-010313-141322
@@ -42,10 +44,10 @@ import numpy as np
 import xarray as xr
 
 EARTH_RADIUS_M = 6_371_000.0
-"""Mean Earth radius in meters, used for the equirectangular meters convention."""
+"""Mean Earth radius in meters, the sphere all distances are taken on."""
 
 _DEG = np.pi / 180.0
-"""Degrees-to-radians factor for the equirectangular meters convention."""
+"""Degrees-to-radians factor."""
 
 # --- output metadata -------------------------------------------------------
 #
@@ -95,52 +97,94 @@ EIG_ATTRS = {
 }
 
 
-def _lonlat_to_meters(lon, lat, lon_ref: float, lat_ref: float):
-    """Project lon/lat (degrees) into the equirectangular meters frame.
+def _wrap_lon(dlon):
+    """Wrap a longitude *difference* (degrees) into ``[-180, 180]``.
 
-    An equirectangular projection with the single standard parallel ``lat_ref``:
-    ``X = R cos(phi_ref) (lambda - lambda_ref) deg``, ``Y = R (phi - phi_ref) deg``.
-    One cosine for every point, not a per-point ``cos(phi)``. Works on plain
+    Applied to differences only, never to a stored position: the package keeps
+    longitudes in whatever convention it was handed. Subtracting the nearest
+    multiple of 360 rather than shifting by 180 and taking a modulo leaves a
+    difference already inside the range bit-for-bit unchanged, so wrapping costs
+    no precision on the metre-scale differences the stencils take. Works on plain
     arrays or xarray objects.
     """
-    c = np.cos(lat_ref * _DEG)
-    x = EARTH_RADIUS_M * c * (lon - lon_ref) * _DEG
-    y = EARTH_RADIUS_M * (lat - lat_ref) * _DEG
-    return x, y
+    return dlon - 360.0 * np.round(dlon / 360.0)
 
 
-def _reference_lonlat(lon_0: xr.DataArray, lat_0: xr.DataArray) -> tuple[float, float]:
-    """The single reference point ``(lon_ref, lat_ref)`` = means of ``lon_0``/``lat_0``."""
-    return float(lon_0.mean()), float(lat_0.mean())
+def _separation_m(*, lon_a, lat_a, lon_b, lat_b):
+    """East/north separation of point ``b`` from point ``a``, in meters.
 
+    The pair is differenced in its own local frame: the longitude difference is
+    wrapped and scaled by the cosine of the pair's mid-latitude, the latitude
+    difference by the Earth radius alone. There is no shared projection and no
+    standard parallel, so the frame follows the pair rather than the domain, and
+    the antimeridian is not a special case.
 
-def _to_meters(
-    lon: xr.DataArray, lat: xr.DataArray, lon_0: xr.DataArray, lat_0: xr.DataArray
-):
-    """Project ``lon``/``lat`` into the equirectangular meters frame whose
-    standard parallel is the centroid of ``lon_0``/``lat_0`` (one
-    ``cos(phi_ref)``, not a per-point cosine).
+    The mid-latitude cosine is a midpoint rule, so it is second-order accurate in
+    the *separation of the pair*, not in the size of the domain. For a zonal pair
+    the relative error against the great-circle distance is
+    ``(dlambda sin(phi))**2 / 24``, so it crosses 1e-6 at ``31.2 km / tan(phi)``:
+    54 km at 30 N, 18 km at 60 N, 5.5 km at 80 N, and never at the equator, where
+    a parallel is itself a great circle. The auxiliary stencil sits far inside
+    that at its default 1 km arms. A neighbour stencil differences over two grid
+    cells and can sit outside it, but pays the finite-difference truncation of
+    that same span first.
+
+    Returns
+    -------
+    tuple
+        ``(dx, dy)``, the eastward and northward components in meters.
     """
-    lon_ref, lat_ref = _reference_lonlat(lon_0, lat_0)
-    return _lonlat_to_meters(lon, lat, lon_ref, lat_ref)
+    dlon = _wrap_lon(lon_b - lon_a)
+    lat_mid = 0.5 * (lat_a + lat_b)
+    dx = EARTH_RADIUS_M * np.cos(lat_mid * _DEG) * dlon * _DEG
+    # A position is a pair, so a point NaN in one coordinate is not a point at
+    # all. `0.0 * dlon` carries a lost longitude into the north component, which
+    # otherwise never touches lon and would report a finite separation for it.
+    dy = EARTH_RADIUS_M * ((lat_b - lat_a) + 0.0 * dlon) * _DEG
+    return dx, dy
 
 
-def _central_diff(field: xr.DataArray, dim: str) -> xr.DataArray:
-    """Neighbour difference ``(index + 1) - (index - 1)`` along ``dim``.
+def _circular_mean_lon(lon: xr.DataArray, dim: str) -> xr.DataArray:
+    """Mean longitude over ``dim``, taken on the circle.
+
+    Anchored on the first element along ``dim`` and averaged over wrapped offsets
+    from it, so a set straddling the antimeridian averages between its members
+    and the result stays on the anchor's branch. ``skipna=False``, so a NaN
+    member makes the mean NaN.
+    """
+    anchor = lon.isel({dim: 0}, drop=True)
+    return anchor + _wrap_lon(lon - anchor).mean(dim, skipna=False)
+
+
+def _central_separation_m(lon: xr.DataArray, lat: xr.DataArray, dim: str):
+    """Separation of the ``index + 1`` neighbour from the ``index - 1`` one along
+    ``dim``, as ``(dx, dy)`` meters.
 
     ``.shift`` fills NaN past both ends, so the first and last index along ``dim``
     are legitimately NaN: they have no neighbour to difference against.
     """
-    return field.shift({dim: -1}) - field.shift({dim: +1})
+    return _separation_m(
+        lon_a=lon.shift({dim: +1}),
+        lat_a=lat.shift({dim: +1}),
+        lon_b=lon.shift({dim: -1}),
+        lat_b=lat.shift({dim: -1}),
+    )
 
 
-def _arm_diff(field: xr.DataArray, positive: str, negative: str) -> xr.DataArray:
-    """Difference two opposing auxiliary arms, e.g. ``east`` minus ``west``.
+def _arm_separation_m(
+    lon: xr.DataArray, lat: xr.DataArray, positive: str, negative: str
+):
+    """Separation of one auxiliary arm from its opposite, e.g. ``east`` from
+    ``west``, as ``(dx, dy)`` meters.
 
-    The scalar ``displacement`` label is dropped on subtraction, so the result is
-    back on ``(i, j)``.
+    The arms are selected with ``drop=True``, so the result is back on ``(i, j)``.
     """
-    return field.sel(displacement=positive) - field.sel(displacement=negative)
+    return _separation_m(
+        lon_a=lon.sel(displacement=negative, drop=True),
+        lat_a=lat.sel(displacement=negative, drop=True),
+        lon_b=lon.sel(displacement=positive, drop=True),
+        lat_b=lat.sel(displacement=positive, drop=True),
+    )
 
 
 def _assemble_tensor(
@@ -455,35 +499,28 @@ class FlowMap(abc.ABC):
         """``|T|`` in seconds from the stored signed window ``T`` (``timedelta64``)."""
         return float(np.abs(self.ds["T"] / np.timedelta64(1, "s")))
 
-    def _stencil_meters(self) -> tuple[xr.DataArray, ...]:
-        """Reference and advected positions in the meters frame, as
-        ``(x_adv, y_adv, x_ref, y_ref)``.
+    def _positions(self) -> tuple[xr.DataArray, ...]:
+        """Reference and advected positions in degrees, as
+        ``(lon_0, lat_0, lon, lat)``.
 
         The ``lon_0``/``lat_0`` release-position coords are dropped: everything
         differenced from these is reported at the diagnostic grid point, so it
         must be labelled ``lon_grid``/``lat_grid`` and not by a release
         position -- which for :class:`AuxiliaryFlowMap` is one stencil arm.
 
-        Reference *and* advected positions are read in the *same* equirectangular
-        frame (:func:`_to_meters`), one standard parallel ``lat_ref``; the frame
-        does not follow the particle, so ``grad F`` picks up a bias that grows
-        with the particle's meridional excursion away from ``lat_ref``. The
-        algebra of that bias and the scale of it are in ``docs/numerics.md``;
-        it is tracked in issue #18, and the related dateline/longitude
-        arithmetic in issue #13.
+        Degrees, not meters: a separation only becomes meters once two positions
+        are named, and it is then taken in the local frame of that pair
+        (:func:`_separation_m`). The advected pair therefore gets its own cosine,
+        not the reference pair's, which is what makes ``grad F`` free of any
+        shared frame.
         """
-        lon_0, lat_0 = self.ds["lon_0"], self.ds["lat_0"]
         release = ["lon_0", "lat_0"]
-        x_adv, y_adv = _to_meters(
+        return (
+            self.ds["lon_0"].drop_vars(release),
+            self.ds["lat_0"].drop_vars(release),
             self.ds["lon"].drop_vars(release),
             self.ds["lat"].drop_vars(release),
-            lon_0,
-            lat_0,
         )
-        x_ref, y_ref = _to_meters(
-            lon_0.drop_vars(release), lat_0.drop_vars(release), lon_0, lat_0
-        )
-        return x_adv, y_adv, x_ref, y_ref
 
     @abc.abstractmethod
     def deformation_gradient(self) -> xr.DataArray:
@@ -491,8 +528,9 @@ class FlowMap(abc.ABC):
 
         The 2x2 tensor ``grad F = d(lon, lat) / d(lon_0, lat_0)`` per grid point,
         finite-differenced as ``(advected separation) / (initial separation)``,
-        both taken in the meters frame (:func:`_to_meters`): the denominator from
-        the reference ``lon_0``/``lat_0``, the numerator from the advected
+        each separation taken in meters in its own local east/north frame
+        (:func:`_separation_m`): the denominator from the reference
+        ``lon_0``/``lat_0``, the numerator from the advected
         ``lon``/``lat``. Subclasses define the stencil: neighbouring grid points
         (:class:`NeighborFlowMap`) or the fixed four-arm auxiliary stencil
         (:class:`AuxiliaryFlowMap`). Cells with a missing stencil point yield NaN.
@@ -626,7 +664,15 @@ class FlowMap(abc.ABC):
         Rectilinear grids only, like :func:`~lcs_parcels.shrink_lines`: the
         advected field (:attr:`grid_image`) is read on the axis-aligned
         diagnostic grid ``lon_grid``/``lat_grid`` (``lon_grid`` varying along
-        ``i``, ``lat_grid`` along ``j``).
+        ``i``, ``lat_grid`` along ``j``), and the ``lon_grid`` axis must be
+        monotonic -- a domain crossing the antimeridian is seeded ``170, 175,
+        180, 185``, not ``170, 175, 180, -175``.
+
+        The advected longitudes themselves may arrive on any branch: they are
+        re-anchored on the branch of the grid point they came from before the
+        interpolation, so an advection that returns positions wrapped to
+        ``[-180, 180)`` is read correctly. The returned longitudes are on that
+        same branch, which is the one ``lon0`` was given in.
 
         Parameters
         ----------
@@ -642,10 +688,23 @@ class FlowMap(abc.ABC):
             requested reference positions ride along as the ``lon_0``/``lat_0``
             coords.
         """
+        # Interpolation is arithmetic on the advected longitudes, so they have to
+        # be on one branch first: an advection that hands positions back wrapped
+        # to [-180, 180) tears from 179.9 to -179.9 between two adjacent grid
+        # points, and a linear interpolant reads that tear as a 40 000 km jump.
+        # Re-anchoring each image on the branch of the grid point it came from
+        # removes the tear whenever the displacement is under 180 degrees, which
+        # is every advection short of half the globe.
+        grid_image = self.grid_image
+        grid_image = grid_image.assign(
+            lon=(
+                self.lon_grid + _wrap_lon(grid_image["lon"] - self.lon_grid)
+            ).assign_attrs(LON_ATTRS)
+        )
         # Relabel the logical (i, j) index axes by their geographic values so the
         # interpolation runs against lon/lat directly.
         advected = (
-            self.grid_image.reset_coords(drop=True)
+            grid_image.reset_coords(drop=True)
             .assign_coords(
                 i=self.lon_grid.isel(j=0, drop=True).values,
                 j=self.lat_grid.isel(i=0, drop=True).values,
@@ -848,10 +907,11 @@ class AuxiliarySeed(Seed):
     Each grid point carries four arms ``east, north, west, south`` at offsets
     ``east = (+s, 0)``, ``north = (0, +s)``, ``west = (-s, 0)``,
     ``south = (0, -s)`` for ``s = aux_separation_m`` -- no centre point, no
-    diagonals. The arms are placed in the single grid equirectangular meters frame
-    (see :func:`_to_meters`), so the gradient step is ``s`` rather than the seed
-    grid spacing. The paired :class:`AuxiliaryFlowMap` differences ``grad F``
-    across the four arms (east-west, north-south).
+    diagonals. The arms are placed in each grid point's own local east/north
+    frame (see :func:`_separation_m`), so the gradient step is ``s`` rather than
+    the seed grid spacing, at every latitude. The paired
+    :class:`AuxiliaryFlowMap` differences ``grad F`` across the four arms
+    (east-west, north-south).
     """
 
     @classmethod
@@ -880,6 +940,14 @@ class AuxiliarySeed(Seed):
             Auxiliary separation ``s`` (meters) applied to every arm; sets the
             finite-difference step (the reference arm span is ``2s``). Chosen
             small relative to the flow scale.
+
+        Raises
+        ------
+        ValueError
+            If ``s`` spans 90 degrees of longitude or more at any grid point.
+            That happens closer to a pole than ``2 s / pi``, about 0.64 times the
+            arm separation itself: 640 m from it for the default 1 km arms, but
+            32 km for 50 km arms.
         """
         # Broadcast the 1-D axes into curvilinear 2-D fields on (i, j); lon
         # varies along i, lat along j. These are the diagnostic grid points.
@@ -901,12 +969,24 @@ class AuxiliarySeed(Seed):
             coords={"displacement": displacement},
         )
 
-        # Place the arms in the single grid reference frame (reference latitude =
-        # grid centroid), matching _to_meters. lon_grid (i, j) broadcasts with the
-        # (displacement,) offset into the arm positions (i, j, displacement).
-        lat_ref = float(lat_grid.mean())
-        c = np.cos(lat_ref * _DEG)
-        lon_0 = lon_grid + off_x / (EARTH_RADIUS_M * c * _DEG)
+        # Place the arms in each grid point's own local east/north frame, so the
+        # east-west and north-south spans are exactly 2s at every latitude.
+        # lon_grid (i, j) broadcasts with the (displacement,) offset into the arm
+        # positions (i, j, displacement); the east and west arms sit at
+        # lat_grid, so cos(lat_grid) is exactly their mid-latitude cosine.
+        deg_per_m = 1.0 / (EARTH_RADIUS_M * np.cos(lat_grid * _DEG) * _DEG)
+        # `s` degrees of longitude grows without bound as cos(lat) -> 0, and past
+        # 180 it aliases through the wrap into an arm on the far side of the
+        # pole -- a wrong gradient rather than a NaN. There is no east at the
+        # pole, so this is rejected rather than approximated.
+        if not bool((np.abs(s * deg_per_m) < 90.0).all()):
+            raise ValueError(
+                f"aux_separation_m={s} spans 90 degrees or more of longitude at "
+                f"latitude {float(np.abs(lat_grid).max())}; the east-west arms are "
+                "not local there. Use a smaller separation or keep the seed off "
+                "the pole."
+            )
+        lon_0 = lon_grid + off_x * deg_per_m
         lat_0 = lat_grid + off_y / (EARTH_RADIUS_M * _DEG)
 
         ds = xr.Dataset(
@@ -958,26 +1038,30 @@ class NeighborFlowMap(FlowMap):
         """grad F differenced against neighbouring grid points ``(i +/- 1, j +/- 1)``.
 
         Numerator: the separation of the advected neighbour positions;
-        denominator: the initial neighbour separation, both in the meters frame
-        (:func:`_to_meters`). Boundary cells lacking a neighbour yield NaN. Each
-        column is divided by a single axis step (``dx0`` along ``i``, ``dy0``
-        along ``j``), so this assumes an axis-aligned grid (see the class
-        docstring). See :meth:`FlowMap.deformation_gradient`.
+        denominator: the initial neighbour separation, each in its own local
+        east/north frame (:func:`_separation_m`). Boundary cells lacking a
+        neighbour yield NaN. Each column is divided by a single axis step
+        (``dx0`` along ``i``, ``dy0`` along ``j``), so this assumes an
+        axis-aligned grid (see the class docstring). See
+        :meth:`FlowMap.deformation_gradient`.
         """
-        x_adv, y_adv, x_ref, y_ref = self._stencil_meters()
+        lon_0, lat_0, lon, lat = self._positions()
 
         # lon_0 varies along i and lat_0 along j, so the denominators are the
-        # pure x- and y-separations of the two neighbours in meters. Each is
-        # written out where it is used: a name for a two-cell centred span reads
-        # as a one-cell step.
+        # pure east- and north-separations of the two neighbours. The names are
+        # spans over two cells, not one-cell steps.
+        span_x, _ = _central_separation_m(lon_0, lat_0, "i")
+        _, span_y = _central_separation_m(lon_0, lat_0, "j")
+        dx_i, dy_i = _central_separation_m(lon, lat, "i")
+        dx_j, dy_j = _central_separation_m(lon, lat, "j")
         return _assemble_tensor(
             name="deformation_gradient",
             long_name="deformation gradient grad F of the flow map",
             units="1",
-            fxx=_central_diff(x_adv, "i") / _central_diff(x_ref, "i"),
-            fxy=_central_diff(x_adv, "j") / _central_diff(y_ref, "j"),
-            fyx=_central_diff(y_adv, "i") / _central_diff(x_ref, "i"),
-            fyy=_central_diff(y_adv, "j") / _central_diff(y_ref, "j"),
+            fxx=dx_i / span_x,
+            fxy=dx_j / span_y,
+            fyx=dy_i / span_x,
+            fyy=dy_j / span_y,
         )
 
 
@@ -994,13 +1078,21 @@ class AuxiliaryFlowMap(FlowMap):
     @property
     def grid_image(self) -> xr.Dataset:
         """The centroid of the four advected arms -- the arms sit ~metres apart,
-        so this is the flow map image of the grid point. ``skipna=False`` so a
-        lost (NaN) arm makes the whole grid point NaN, matching the
+        so this is the flow map image of the grid point. The longitudes are
+        averaged on the circle (:func:`_circular_mean_lon`), so four arms
+        straddling the antimeridian average between themselves. ``skipna=False``
+        so a lost (NaN) arm makes the whole grid point NaN, matching the
         deformation-gradient path. See :attr:`FlowMap.grid_image`."""
-        centroid = self.ds[["lon", "lat"]].mean("displacement", skipna=False)
-        return centroid.assign(
-            lon=centroid["lon"].assign_attrs(LON_ATTRS),
-            lat=centroid["lat"].assign_attrs(LAT_ATTRS),
+        advected = self.ds[["lon", "lat"]].drop_vars(["lon_0", "lat_0"])
+        return xr.Dataset(
+            {
+                "lon": _circular_mean_lon(advected["lon"], "displacement").assign_attrs(
+                    LON_ATTRS
+                ),
+                "lat": advected["lat"]
+                .mean("displacement", skipna=False)
+                .assign_attrs(LAT_ATTRS),
+            }
         )
 
     def deformation_gradient(self) -> xr.DataArray:
@@ -1009,22 +1101,24 @@ class AuxiliaryFlowMap(FlowMap):
         ``grad F = d(lon, lat) / d(lon_0, lat_0)`` over the ``displacement`` dim:
         east minus west for the ``x`` derivative, north minus south for ``y``.
         Both the advected separation (numerator) and the reference arm separation
-        (denominator, the ``2s`` span) are read in the meters frame
-        (:func:`_to_meters`). Well-defined at every grid point, including the
-        boundary. See :meth:`FlowMap.deformation_gradient`.
+        (denominator, the ``2s`` span) are read in their own local east/north
+        frame (:func:`_separation_m`). Well-defined at every grid point,
+        including the boundary. See :meth:`FlowMap.deformation_gradient`.
         """
-        x_adv, y_adv, x_ref, y_ref = self._stencil_meters()
+        lon_0, lat_0, lon, lat = self._positions()
 
-        arm_span_x = _arm_diff(x_ref, "east", "west")
-        arm_span_y = _arm_diff(y_ref, "north", "south")
+        arm_span_x, _ = _arm_separation_m(lon_0, lat_0, "east", "west")
+        _, arm_span_y = _arm_separation_m(lon_0, lat_0, "north", "south")
+        dx_ew, dy_ew = _arm_separation_m(lon, lat, "east", "west")
+        dx_ns, dy_ns = _arm_separation_m(lon, lat, "north", "south")
         return _assemble_tensor(
             name="deformation_gradient",
             long_name="deformation gradient grad F of the flow map",
             units="1",
-            fxx=_arm_diff(x_adv, "east", "west") / arm_span_x,
-            fxy=_arm_diff(x_adv, "north", "south") / arm_span_y,
-            fyx=_arm_diff(y_adv, "east", "west") / arm_span_x,
-            fyy=_arm_diff(y_adv, "north", "south") / arm_span_y,
+            fxx=dx_ew / arm_span_x,
+            fxy=dx_ns / arm_span_y,
+            fyx=dy_ew / arm_span_x,
+            fyy=dy_ns / arm_span_y,
         )
 
 

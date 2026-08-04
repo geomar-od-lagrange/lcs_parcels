@@ -13,7 +13,7 @@ import xarray as xr
 from conftest import advected_flowmap
 
 from lcs_parcels import AuxiliarySeed, NeighborFlowMap, NeighborSeed
-from lcs_parcels.grids import _lonlat_to_meters
+from lcs_parcels.grids import _separation_m
 
 # Release/end times supplied only at ingest (the seed itself is time-free).
 RELEASE_TIME = np.datetime64("2020-01-01")
@@ -135,41 +135,53 @@ def test_grid_coords_are_canonical_across_stencils(lon_axis, lat_axis):
 def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
     """AuxiliarySeed places its four arms at exactly +/- ``aux_separation_m``.
 
-    Read the arm positions back into the meters frame
-    (:func:`_lonlat_to_meters`) with a non-default separation and assert: the
-    east-west and north-south spans are each exactly ``2s``, opposing arms share
-    the centre on the other axis (no cross-offset), and the geographic direction
-    of each labelled arm is correct.
+    Every arm is laid down in the local east/north frame of its own grid point,
+    so each arm sits ``s`` meters from that point in its labelled direction and
+    zero meters off it in the perpendicular one -- at *every* grid point, not on
+    average over the grid. Separations are read back with :func:`_separation_m`,
+    the same per-pair local frame the diagnostics measure in.
     """
     s = 2_500.0  # non-default aux_separation_m
     seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis, aux_separation_m=s)
     lon0, lat0 = seed.ds["lon_0"], seed.ds["lat_0"]
     lon_grid, lat_grid = seed.ds["lon_grid"], seed.ds["lat_grid"]
-    lon_ref, lat_ref = float(lon_grid.mean()), float(lat_grid.mean())
-    x, y = _lonlat_to_meters(lon0, lat0, lon_ref, lat_ref)  # dims (i, j, displacement)
 
-    ew = x.sel(displacement="east") - x.sel(displacement="west")
-    ns = y.sel(displacement="north") - y.sel(displacement="south")
-    assert float(abs(ew - 2 * s).max()) < 1e-6  # east-west span == 2s
-    assert float(abs(ns - 2 * s).max()) < 1e-6  # north-south span == 2s
+    # Each arm relative to its own grid point: s along the labelled direction, 0
+    # across it. Dims (i, j) after selecting one arm.
+    expected = {
+        "east": (+s, 0.0),
+        "west": (-s, 0.0),
+        "north": (0.0, +s),
+        "south": (0.0, -s),
+    }
+    for arm, (dx_expected, dy_expected) in expected.items():
+        dx, dy = _separation_m(
+            lon_a=lon_grid,
+            lat_a=lat_grid,
+            lon_b=lon0.sel(displacement=arm, drop=True),
+            lat_b=lat0.sel(displacement=arm, drop=True),
+        )
+        assert float(abs(dx - dx_expected).max()) < 1e-6
+        assert float(abs(dy - dy_expected).max()) < 1e-6
 
-    # opposing arms share the centre on the OTHER axis (no cross-offset)
-    assert (
-        float(abs(y.sel(displacement="east") - y.sel(displacement="west")).max()) < 1e-6
+    # Opposing arms span exactly 2s along their axis and share the centre on the
+    # other one -- again at every grid point.
+    ew_dx, ew_dy = _separation_m(
+        lon_a=lon0.sel(displacement="west", drop=True),
+        lat_a=lat0.sel(displacement="west", drop=True),
+        lon_b=lon0.sel(displacement="east", drop=True),
+        lat_b=lat0.sel(displacement="east", drop=True),
     )
-    assert (
-        float(abs(x.sel(displacement="north") - x.sel(displacement="south")).max())
-        < 1e-6
+    ns_dx, ns_dy = _separation_m(
+        lon_a=lon0.sel(displacement="south", drop=True),
+        lat_a=lat0.sel(displacement="south", drop=True),
+        lon_b=lon0.sel(displacement="north", drop=True),
+        lat_b=lat0.sel(displacement="north", drop=True),
     )
-
-    # geographic direction is correct
-    assert (
-        float((lon0.sel(displacement="east") - lon0.sel(displacement="west")).min()) > 0
-    )
-    assert (
-        float((lat0.sel(displacement="north") - lat0.sel(displacement="south")).min())
-        > 0
-    )
+    assert float(abs(ew_dx - 2 * s).max()) < 1e-6
+    assert float(abs(ew_dy).max()) < 1e-6
+    assert float(abs(ns_dy - 2 * s).max()) < 1e-6
+    assert float(abs(ns_dx).max()) < 1e-6
 
 
 # --- flow-map shape --------------------------------------------------------
@@ -278,8 +290,8 @@ def test_seed_repr_is_a_one_line_summary(lon_axis, lat_axis):
         assert "\n" not in text
         assert seed_cls.__name__ in text
         assert "4x5 grid" in text
-        assert "lon -2.00..1.00" in text
-        assert "lat 10.00..14.00" in text
+        assert f"lon {lon_axis.min():.2f}..{lon_axis.max():.2f}" in text
+        assert f"lat {lat_axis.min():.2f}..{lat_axis.max():.2f}" in text
 
 
 def test_flowmap_repr_adds_the_release_time_and_signed_window(lon_axis, lat_axis):
@@ -317,7 +329,8 @@ def test_repr_survives_an_all_nan_grid(lon_axis, lat_axis):
     fm = seed.pset_to_flowmap(lon=lost, lat=lost, t0=RELEASE_TIME, t1=END_TIME)
 
     assert "NeighborFlowMap" in repr(fm)
-    assert "lon -2.00..1.00" in repr(fm)  # the grid itself is intact
+    # the grid itself is intact
+    assert f"lon {lon_axis.min():.2f}..{lon_axis.max():.2f}" in repr(fm)
 
     nan_grid = NeighborFlowMap(
         fm.ds.assign_coords(

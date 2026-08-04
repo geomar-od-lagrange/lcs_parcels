@@ -25,7 +25,8 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 | $t_0$ | release time; supplied at ingest (`pset_to_flowmap`) and stored as a scalar coord on the `FlowMap` | 3 | `t0` (flow map coord) |
 | $t_1$ | integration end time; supplied at ingest, consumed to derive $T$, not stored (recoverable as $t_0 + T$) | 3 | `t1` (input) |
 | $T = t_1 - t_0$ | integration window, **signed**; derived at ingest from $t_0$ and the end time $t_1$, stored as a scalar coord on the `FlowMap`; its sign sets the integration direction | 3 | `T` (flow map coord) |
-| $dx = R\cos\phi_{\mathrm{ref}}\,d\lambda,\ \ dy = R\,d\phi$ | equirectangular metres frame with the single standard parallel $\phi_{\mathrm{ref}}$ ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ metres) | — | (internal metric) |
+| $dx = R\cos\phi\,d\lambda,\ \ dy = R\,d\phi$ | metric of the sphere of radius $R$: the local east/north frame in which every separation is measured ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ metres). A *finite* separation between two named points takes the cosine at that pair's mid-latitude, $\bar\phi = \tfrac{1}{2}(\phi_a + \phi_b)$ | — | (internal metric, `_separation_m`) |
+| $\Delta\lambda \in [-180^\circ, 180^\circ]$ | longitude *difference*, wrapped; stored longitudes are never wrapped | — | `_wrap_lon` |
 | $\dot r = \xi_1(r)$ | shrink line: tensor line tangent to $\xi_1$; a repelling LCS (forward flow) or, by forward–backward duality, attracting LCS (backward flow) | Table 1 ($n = 2$) | `shrink_lines`, `ftle_ridge_seeds` |
 | $\lambda_2 / \lambda_1 \ge a_{\min}$ | anisotropy floor: the ratio of the Cauchy–Green eigenvalues below which $\xi_1$ is not a well-defined direction (dimensionless) | — | `min_anisotropy` |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 | — |
@@ -86,10 +87,12 @@ never called "F".
 $\nabla F$ is estimated by finite differences of final positions with respect to
 initial positions. Each column of $\nabla F$ is a centered difference of the
 *advected* positions (the **numerator**, measured from the ingested Parcels
-outputs) divided by the controlled *initial* separation in meters (the
-**denominator**, from the metric below). The metric only converts lon/lat
-separations to meters; it never supplies the advected displacement (Haller's
-Eq. 9 stencil). Two stencil strategies are modeled as separate classes, both
+outputs) divided by the controlled *initial* separation (the **denominator**).
+Both are separations in meters, each taken in the local frame of its own pair of
+points (see [the local east-north frame](#the-local-east-north-frame) below);
+the metric only converts lon/lat separations to meters and never supplies the
+advected displacement (Haller's Eq. 9 stencil). Two stencil strategies are
+modeled as separate classes, both
 first-class:
 
 - **Neighbor differencing** (`NeighborFlowMap`): the stencil is the neighboring
@@ -98,7 +101,9 @@ first-class:
 - **Auxiliary grid** (`AuxiliaryFlowMap`): each grid point carries a fixed four-arm
   stencil on a single `displacement` dim
   (`displacement = ['east', 'north', 'west', 'south']`), placed at $\pm s$ meters
-  about the diagnostic grid point (`aux_separation_m`), per Haller Eq. 9. The arms are stored
+  about the diagnostic grid point (`aux_separation_m`) in that point's own local
+  east/north frame, so the arm spans are $2s$ at every latitude, per Haller
+  Eq. 9. The arms are stored
   *explicitly* as the reference release positions
   `lon_0(i, j, displacement)` / `lat_0(i, j, displacement)` (so the dataset is
   self-sufficient — no metric convention is needed to recover where particles
@@ -151,38 +156,89 @@ scalar-`(t0, T)` flow maps, assembled with `xr.concat` / `combine_by_coords`
 into the $(i, j, t_0, T)$ cube. See
 [`plans/timing-design.md`](../plans/timing-design.md).
 
-### Equirectangular metres frame
+### The local east-north frame
 
-Haller's math is Cartesian, but the grid is lon/lat. Positions are converted to
-metres by an **equirectangular** projection with a **single** standard parallel
-before differencing. The projection is anchored at the grid centroid — the one
-reference point
-$\lambda_{\mathrm{ref}} = \overline{\lambda_0}$, $\phi_{\mathrm{ref}} = \overline{\phi_0}$
-(the means of `lon_0`/`lat_0`), with $\phi_{\mathrm{ref}}$ the standard parallel:
+Haller's math is Cartesian, but the grid is lon/lat. There is no shared
+projection and no standard parallel. Distances are metres on a sphere of radius
+$R$ = `EARTH_RADIUS_M` = 6371 km, whose metric is
 
-$$X = R\cos\phi_{\mathrm{ref}}\,(\lambda - \lambda_{\mathrm{ref}})\,\tfrac{\pi}{180},
-\qquad Y = R\,(\phi - \phi_{\mathrm{ref}})\,\tfrac{\pi}{180},$$
+$$dx = R\cos\phi\,d\lambda, \qquad dy = R\,d\phi$$
 
-with $R$ the Earth radius, $\phi$ latitude, $\lambda$ longitude. This is a map
-projection of the whole domain, **not** a tangent plane: the cosine factor is
-that one $\cos\phi_{\mathrm{ref}}$ everywhere, not a per-point $\cos\phi$, and
-the *same* frame carries both the reference positions and the advected ones, so
-$\nabla F$ is a ratio of separations measured in one consistent set of
-coordinates. Both `NeighborFlowMap` and `AuxiliaryFlowMap` share the identical
-metric code (and `AuxiliarySeed` reuses it to lay out its arms), so positions
-are read back in the same frame the seed was emitted in.
+with $\lambda$ longitude and $\phi$ latitude in radians — the **local east/north
+frame** at the point where it is evaluated.
 
-Because the zonal scale factor is fixed at $\phi_{\mathrm{ref}}$, $\nabla F$
-picks up a bias that grows with how far the release and arrival latitudes stray
-from the standard parallel: what drives the error is the *meridional excursion*
-of the particles relative to $\phi_{\mathrm{ref}}$, not the width of the domain
-as such. The exact algebraic form of the bias — $F_{yy}$ exact, $F_{xx}$ off by
-$c_1/c_0$, the off-diagonals off by $c_1/c_{\mathrm{ref}}$ and
-$c_{\mathrm{ref}}/c_0$ — is in
-[`numerics.md`](numerics.md#the-equirectangular-metres-frame),
-together with an illustration of the scale of the error on one analytic test
-flow map. The convention is sound for regional domains of modest latitude range
-and away from the dateline, and not for basin-scale ones.
+A *finite* separation is between two named points, so the cosine is taken at
+their **mid-latitude**. For points $a$ and $b$ (`_separation_m`), with the
+degrees-to-radians factor $\pi/180$ written out:
+
+$$\Delta x = R\cos\!\left(\tfrac{\phi_a + \phi_b}{2}\right)
+\,\mathrm{wrap}(\lambda_b - \lambda_a)\,\tfrac{\pi}{180},
+\qquad
+\Delta y = R\,(\phi_b - \phi_a)\,\tfrac{\pi}{180},$$
+
+where $\mathrm{wrap}$ (`_wrap_lon`) maps a longitude *difference* into
+$[-180^\circ, 180^\circ]$ by subtracting the nearest multiple of $360^\circ$.
+Every pair therefore gets its own frame: the reference
+separation is measured at the mid-latitude of the reference points, the advected
+separation at the mid-latitude of the advected ones, and $\nabla F$ is the ratio
+of the two. That is the correct object — the Jacobian of the map read between
+the tangent frame at $x_0$ and the tangent frame at $F(x_0)$ — because on a
+sphere no chart has a constant tangent Jacobian, so there is no one frame in
+which both ends could be measured. A rigid meridional translation, which changes
+the metres-per-degree of longitude, accordingly comes back with $F_{xx} \ne 1$
+rather than as a null deformation.
+
+Both `NeighborFlowMap` and `AuxiliaryFlowMap` difference through the same
+`_separation_m`, and `AuxiliarySeed` places its arms by inverting the same
+relation at each grid point's own latitude, so an arm span is $2s$ metres
+wherever the grid point sits. No separation therefore carries a domain-size
+limit, and none of them treats the antimeridian as a special case. The
+`lon_grid` **axis** is a separate matter: `FlowMap.image` and `shrink_lines`
+interpolate along it, so it must be monotonic, and a domain crossing the
+antimeridian is seeded on `170, 175, 180, 185` rather than on
+`170, 175, 180, -175`. On a wrapped axis `shrink_lines` and `hyperbolic_lcs`
+raise `ValueError` out of SciPy; `FlowMap.image` does not raise, and reads the
+axis as if it were sorted, so a query in the wrapped half comes back `NaN` or
+interpolated between the wrong two grid points. Traced tensor lines are not
+bound by that and cross freely. The mid-latitude cosine is a midpoint rule, so
+the accuracy of a separation is set by the separation itself; the error series
+is in [the local east-north frame](numerics.md#the-local-east-north-frame),
+together with the numerical checks.
+
+The poles are excluded. Going the other way — metres to degrees, which is what
+`AuxiliarySeed.from_axes` does to place an arm — a fixed eastward offset needs
+$\Delta\lambda = \Delta x / (R\cos\phi)$, and that grows without bound as
+$\cos\phi \to 0$. Past $180^\circ$ it aliases through the wrap into an arm on
+the far side of the pole, which is a wrong gradient rather than a NaN, so
+`AuxiliarySeed.from_axes` raises `ValueError` once the offset reaches
+$90^\circ$ of longitude. `_step_lonlat_by_meters` divides by the same cosine and
+does not fold latitude at $\pm 90^\circ$: a line stepped past the pole runs off
+the chart.
+
+Longitudes are stored in whatever convention the caller hands us; nothing is
+normalised on ingest, and `lon_grid`, `lon_0` and `lon` come back on the branch
+they went in on. Only *differences* and *means* are wrapped. A mean is taken on
+the circle by `_circular_mean_lon`, which anchors on the first element along the
+averaging dim and averages the wrapped offsets from it, so the result keeps the
+anchor's branch; `AuxiliaryFlowMap.grid_image` uses it for the longitude of the
+four-arm centroid.
+
+Stepping *along* a direction, as opposed to differencing between two points, is
+`_separation_m` read backwards. `tensorlines._step_lonlat_by_meters` advances
+$(\lambda, \phi)$ by a local east/north vector $d$ of length `step_m` as
+
+$$\Delta\phi = \frac{d_{\text{north}}}{R}\tfrac{180}{\pi},
+\qquad
+\Delta\lambda = \frac{d_{\text{east}}}
+{R\,\cos\!\left(\phi + \tfrac{1}{2}\Delta\phi\right)}\tfrac{180}{\pi},$$
+
+the same mid-latitude cosine solved for $\Delta\lambda$, so that measuring the
+step with `_separation_m` returns the vector that was asked for. It is not the
+great-circle endpoint of that length and bearing; why the inverse is the right
+operation for a tensor line is in
+[stepping a tensor line](numerics.md#stepping-a-tensor-line). The longitude
+increment is added to the incoming longitude, so a traced line crossing the
+antimeridian stays on its seed's branch.
 
 ### Geometric LCS layer (tensor lines)
 

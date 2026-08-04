@@ -1,22 +1,35 @@
 """Tensor-line tests: ftle_ridge_seeds and shrink_lines.
 
-For a constant linear flow map ``F(x) = M @ x`` the Cauchy-Green tensor
-``C = M^T M`` is uniform, so its eigenvectors are the same everywhere and a
-shrink line (tangent to ``xi_1``) is a straight line. Picking ``M = diag(1, 3)``
-makes ``C = diag(1, 9)``: ``xi_1`` is the x-axis, so the shrink line is purely
-zonal (constant latitude) -- a closed-form check. ``conftest.advected_flowmap``
-builds such a flow map (``AuxiliarySeed`` so ``gradF`` is defined at every grid
-point, no NaN edges).
+``conftest.advected_flowmap`` advects a seed through a constant linear map ``M``
+acting in the one tangent frame at the seed centroid (``AuxiliarySeed``, so
+``gradF`` is defined at every grid point and there are no NaN edges). The package
+measures every separation in the local east/north frame of the pair it connects,
+so what it recovers is ``M`` rescaled by the release and arrival cosines
+(``conftest.local_frame_gradient``). For a diagonal ``M`` the rescaling is
+diagonal too and touches the east component only, by ``cos(arrival) /
+cos(release)``. That factor is within a percent of 1 over the reference band and
+a good deal further from it at 70 N, where the same meridional map moves a point
+through a much larger change in cosine, so a test that pins an absolute
+eigenvalue states the factor rather than absorbing it in a tolerance.
+
+``M = diag(1, 3)`` gives a diagonal ``C`` whose ``xi_1`` points exactly due east
+whatever that factor is: the shrink line through a seed is that seed's parallel
+of latitude, a closed-form check.
+
+``_local_frame_flowmap`` builds the other closed-form case, a flow map whose
+``C`` is the *same* in every local frame. Its ``xi_1`` then has one constant
+compass bearing, so the shrink line is a loxodrome and can be compared against
+the classical formula.
 """
 
 import numpy as np
 import pytest
 import xarray as xr
-from conftest import advected_flowmap, advected_flowmap_f
+from conftest import advected_flowmap, advected_flowmap_f, seed_origin
 from scipy.interpolate import RegularGridInterpolator
 
 from lcs_parcels import AuxiliarySeed, ftle_ridge_seeds, shrink_lines
-from lcs_parcels.grids import _lonlat_to_meters
+from lcs_parcels.grids import _DEG, EARTH_RADIUS_M, _separation_m
 from lcs_parcels.tensorlines import (
     _shrink_line_tangent,
     _step_lonlat_by_meters,
@@ -31,17 +44,14 @@ END_TIME = np.datetime64("2020-01-02")
 # --- ftle_ridge_seeds ------------------------------------------------------
 
 
-def test_ftle_ridge_seeds_picks_the_peak(lon_axis, lat_axis):
-    """A single smooth FTLE bump yields exactly its peak grid point as the seed."""
+def _gridded_field(values, lon_axis, lat_axis):
+    """``values`` on ``(i, j)`` with the ``lon_grid``/``lat_grid`` coords
+    :func:`ftle_ridge_seeds` reads."""
     lon2d, lat2d = xr.broadcast(
         xr.DataArray(lon_axis, dims="i"), xr.DataArray(lat_axis, dims="j")
     )
-    ii, jj = np.meshgrid(
-        np.arange(lon_axis.size), np.arange(lat_axis.size), indexing="ij"
-    )
-    bump = np.exp(-((ii - 2.0) ** 2 + (jj - 2.0) ** 2))
-    ftle = xr.DataArray(
-        bump,
+    return xr.DataArray(
+        values,
         dims=("i", "j"),
         coords={
             "lon_grid": (("i", "j"), lon2d.values),
@@ -49,7 +59,47 @@ def test_ftle_ridge_seeds_picks_the_peak(lon_axis, lat_axis):
         },
     )
 
-    lon, lat = ftle_ridge_seeds(ftle, window_m=330_000.0, quantile=0.90)
+
+def _three_cell_window_m(field):
+    """A ``window_m`` worth at least three cells in *both* dimensions of ``field``.
+
+    ``window_m`` is one metre length against a grid whose two cell sizes need not
+    match: at 72 N the fixture's 1 x 2 degree cells are 34 km by 222 km, so a
+    window chosen for the zonal spacing is a single cell meridionally, and every
+    grid point is then trivially a local maximum along ``j``. Three times the
+    *larger* median spacing clears three cells either way. That is
+    :func:`~lcs_parcels.tensorlines._window_cells` behaving as documented -- one
+    median per dimension -- so the test states the grid it wants rather than a
+    number that happens to suit one latitude.
+    """
+    lon_grid, lat_grid = field["lon_grid"], field["lat_grid"]
+    dx, _ = _separation_m(
+        lon_a=lon_grid.shift(i=1),
+        lat_a=lat_grid.shift(i=1),
+        lon_b=lon_grid,
+        lat_b=lat_grid,
+    )
+    _, dy = _separation_m(
+        lon_a=lon_grid.shift(j=1),
+        lat_a=lat_grid.shift(j=1),
+        lon_b=lon_grid,
+        lat_b=lat_grid,
+    )
+    return 3.0 * max(float(np.abs(dx).median()), float(np.abs(dy).median()))
+
+
+def test_ftle_ridge_seeds_picks_the_peak(lon_axis, lat_axis):
+    """A single smooth FTLE bump yields exactly its peak grid point as the seed."""
+    ii, jj = np.meshgrid(
+        np.arange(lon_axis.size), np.arange(lat_axis.size), indexing="ij"
+    )
+    ftle = _gridded_field(
+        np.exp(-((ii - 2.0) ** 2 + (jj - 2.0) ** 2)), lon_axis, lat_axis
+    )
+
+    window_m = _three_cell_window_m(ftle)
+    assert min(_window_cells(ftle, window_m)) >= 3
+    lon, lat = ftle_ridge_seeds(ftle, window_m=window_m, quantile=0.90)
 
     assert lon.size == 1
     assert lon[0] == lon_axis[2]
@@ -58,21 +108,11 @@ def test_ftle_ridge_seeds_picks_the_peak(lon_axis, lat_axis):
 
 def test_ftle_ridge_seeds_skips_nan(lon_axis, lat_axis):
     """NaN cells never qualify as seeds."""
-    lon2d, lat2d = xr.broadcast(
-        xr.DataArray(lon_axis, dims="i"), xr.DataArray(lat_axis, dims="j")
-    )
     field = np.full((lon_axis.size, lat_axis.size), np.nan)
     field[1, 1] = 5.0  # a lone finite peak
-    ftle = xr.DataArray(
-        field,
-        dims=("i", "j"),
-        coords={
-            "lon_grid": (("i", "j"), lon2d.values),
-            "lat_grid": (("i", "j"), lat2d.values),
-        },
-    )
+    ftle = _gridded_field(field, lon_axis, lat_axis)
 
-    lon, lat = ftle_ridge_seeds(ftle, window_m=330_000.0, quantile=0.5)
+    lon, lat = ftle_ridge_seeds(ftle, window_m=_three_cell_window_m(ftle), quantile=0.5)
 
     assert lon.tolist() == [lon_axis[1]]
     assert lat.tolist() == [lat_axis[1]]
@@ -108,13 +148,14 @@ def test_window_cell_count_tracks_grid_resolution():
 
 
 def test_window_cell_count_is_per_dimension_and_odd():
-    """Each dimension gets its own count, from its own spacing in the package's
-    single-reference-latitude metres frame, rounded down to an odd number.
+    """Each dimension gets its own count, from the median local east/north
+    spacing of that dimension, rounded down to an odd number.
 
     A mid-latitude grid of 0.1 deg by 0.05 deg cells separates the three things an
-    equatorial isotropic grid hides. With ``phi_ref = 40 N`` the spacings are
-    ``dx = 0.1 * 111195 * cos(40) = 8518 m`` and ``dy = 0.05 * 111195 = 5560 m``,
-    so a 50 km window is ``round(5.87) = 6 -> 5`` cells along ``i`` (the
+    equatorial isotropic grid hides. The zonal spacing shrinks poleward across
+    this grid and its median cell sits at 40 N, so the spacings are
+    ``dx = 0.1 * 111195 * cos(40) = 8518 m`` and ``dy = 0.05 * 111195 = 5560 m``:
+    a 50 km window is ``round(5.87) = 6 -> 5`` cells along ``i`` (the
     odd-enforcement branch fires) and ``round(8.99) = 9`` along ``j``.
     """
     lon_axis = np.arange(0.0, 4.0001, 0.1)
@@ -148,8 +189,8 @@ def test_ftle_ridge_seeds_selectivity_is_physical(n_lon):
 # --- lifted integrator internals -------------------------------------------
 #
 # These take the state that used to be closed over (the interpolator, the
-# anisotropy floor, the step, the reference latitude) as explicit arguments, so
-# they can be driven from an analytic tensor field without building a FlowMap.
+# anisotropy floor, the step) as explicit arguments, so they can be driven from
+# an analytic tensor field without building a FlowMap.
 
 TENSOR_LON = np.linspace(-1.0, 1.0, 21)
 TENSOR_LAT = np.linspace(-1.0, 1.0, 21)
@@ -279,36 +320,71 @@ def test_shrink_line_tangent_passes_a_round_off_negative_lambda_1():
 
 
 def test_step_lonlat_moves_the_requested_arc_length():
-    """A unit direction moves exactly step_m in the package's own metres frame."""
+    """A unit direction moves step_m metres, measured in the local frame of the step.
+
+    Exactly step_m, not step_m to a truncation: the step is the algebraic inverse
+    of ``_separation_m``, sharing its mid-latitude cosine, so measuring the step
+    with the same formula that defines it returns the length asked for to
+    round-off. Measured residual 1.6e-15 relative at a 25 km step.
+    """
     lon0, lat0 = np.array([0.0]), np.array([20.0])
     direction = np.array([[np.cos(0.7), np.sin(0.7)]])
 
-    lon1, lat1 = _step_lonlat_by_meters(
-        lon0, lat0, direction, step_m=25_000.0, lat_ref=20.0
-    )
+    lon1, lat1 = _step_lonlat_by_meters(lon0, lat0, direction, step_m=25_000.0)
 
-    x0, y0 = _lonlat_to_meters(lon0, lat0, 0.0, 20.0)
-    x1, y1 = _lonlat_to_meters(lon1, lat1, 0.0, 20.0)
-    assert np.allclose(np.hypot(x1 - x0, y1 - y0), 25_000.0)
+    dx, dy = _separation_m(lon_a=lon0, lat_a=lat0, lon_b=lon1, lat_b=lat1)
+    np.testing.assert_allclose(np.hypot(dx, dy), 25_000.0, rtol=1e-13, atol=0.0)
 
 
-def test_step_lonlat_spends_more_degrees_at_higher_latitude():
-    """The same eastward metres are more degrees of longitude nearer the pole."""
-    lon0, lat0 = np.array([0.0]), np.array([0.0])
+@pytest.mark.parametrize("lat", [30.0, 60.0, 80.0])
+def test_step_lonlat_spends_more_degrees_at_higher_latitude(lat):
+    """A due-east step at latitude L costs exactly ``1 / cos(L)`` times the degrees
+    it costs at the equator, and moves no latitude at all.
+
+    The step inverts ``_separation_m`` at the point's *own* latitude -- there is
+    no reference latitude left to pass -- and a due-east direction has a zero
+    north component, so its mid-latitude is the starting latitude and the
+    ``1 / cos`` is the whole of the relation, not its leading term. A
+    great-circle step would leave a ``(step_m / R)^2`` correction on the ratio
+    and a curvature sag on the latitude; both are zero here.
+    """
+    lon0 = np.array([0.0])
     east = np.array([[1.0, 0.0]])
 
     lon_equator, _ = _step_lonlat_by_meters(
-        lon0, lat0, east, step_m=25_000.0, lat_ref=0.0
+        lon0, np.array([0.0]), east, step_m=25_000.0
     )
-    lon_polar, _ = _step_lonlat_by_meters(
-        lon0, lat0, east, step_m=25_000.0, lat_ref=60.0
+    lon_polar, lat_polar = _step_lonlat_by_meters(
+        lon0, np.array([lat]), east, step_m=25_000.0
     )
 
     assert lon_polar[0] > lon_equator[0]
-    assert np.allclose(lon_polar[0], lon_equator[0] / np.cos(np.deg2rad(60.0)))
+    np.testing.assert_allclose(
+        lon_polar[0] * np.cos(np.deg2rad(lat)), lon_equator[0], rtol=1e-14, atol=0.0
+    )
+    assert lat_polar[0] == lat
 
 
-def _turning_tensor(turn_per_degree, *, half_extent_deg=10.0):
+def test_step_lonlat_crosses_the_antimeridian_on_the_seed_branch():
+    """A step east from 179.9 lands at 180.1, not at -179.9.
+
+    The longitude increment is added to the incoming longitude, so a track keeps
+    the branch its seed came in on instead of being folded into (-180, 180].
+    """
+    lon0, lat0 = np.array([179.9]), np.array([0.0])
+    east = np.array([[1.0, 0.0]])
+
+    lon1, lat1 = _step_lonlat_by_meters(
+        lon0, lat0, east, step_m=0.2 * EARTH_RADIUS_M * _DEG
+    )
+
+    # Due east on the equator is the equator itself, so the arc is exact here:
+    # both residuals measure 0.0, and 1e-12 degrees is 0.1 micrometre of slack.
+    np.testing.assert_allclose(lon1, 180.1, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(lat1, 0.0, rtol=0.0, atol=1e-12)
+
+
+def _turning_tensor(turn_per_degree, *, half_extent_lon_deg=30.0):
     """``C`` whose ``xi_1`` direction turns with longitude, as a callable.
 
     ``C(lon) = R(theta) diag(1, 9) R(theta)^T`` with ``theta = turn_per_degree *
@@ -319,8 +395,9 @@ def _turning_tensor(turn_per_degree, *, half_extent_deg=10.0):
 
     Exposes the ``RegularGridInterpolator`` call interface but evaluates exactly,
     so a measured error is the integrator's own rather than the tensor
-    interpolation's. Points beyond ``half_extent_deg`` return NaN, standing in for
-    leaving the grid.
+    interpolation's. Longitudes beyond ``half_extent_lon_deg`` return NaN,
+    standing in for leaving the grid; latitude is unbounded, so the same field
+    can be traced at any latitude.
     """
 
     def evaluate(points):
@@ -331,7 +408,7 @@ def _turning_tensor(turn_per_degree, *, half_extent_deg=10.0):
         out[:, 0, 0] = c * c + 9.0 * s * s
         out[:, 0, 1] = out[:, 1, 0] = -8.0 * c * s
         out[:, 1, 1] = s * s + 9.0 * c * c
-        out[np.max(np.abs(points), axis=1) > half_extent_deg] = np.nan
+        out[np.abs(points[:, 0]) > half_extent_lon_deg] = np.nan
         return out
 
     return evaluate
@@ -353,12 +430,20 @@ def _dipping_tensor(lon_dip, *, half_width_deg):
     return evaluate
 
 
-def test_trace_half_line_is_second_order_in_the_step():
+@pytest.mark.parametrize("seed_lat", [0.0, 45.0, 70.0])
+def test_trace_half_line_is_second_order_in_the_step(seed_lat):
     """RK2, not Euler: halving the step cuts the endpoint change about fourfold.
 
     Traces the same arc length at three step sizes on a tensor field whose
     ``xi_1`` turns, and compares successive endpoints. Second order gives a ratio
     near 4; first-order Euler gives near 2.
+
+    Run off the equator as well as on it. At the equator the step's own
+    latitude-dependent term is identically zero, so an equatorial trace alone
+    cannot see a stepper that is first-order in latitude -- which is what the
+    great-circle step tried before was, at ``(step / R)^2 tan(phi) / 2`` per step
+    accumulating linearly in the step count. Measured ratios are 3.97 at the
+    equator, 4.04 at 45 N and 4.24 at 70 N.
     """
     tensor = _turning_tensor(0.5)
     arc_m = 300_000.0
@@ -366,12 +451,11 @@ def test_trace_half_line_is_second_order_in_the_step():
     def endpoint(n_steps):
         track = _trace_half_line(
             np.array([0.0]),
-            np.array([0.0]),
+            np.array([seed_lat]),
             +1,
             tensor_interp=tensor,
             min_anisotropy=1.1,
             step_m=arc_m / n_steps,
-            lat_ref=0.0,
             n_steps=n_steps,
         )
         return np.array([track[-1][0][0], track[-1][1][0]])
@@ -402,7 +486,6 @@ def test_trace_half_line_guard_fires_at_the_rk2_midpoint():
         tensor_interp=tensor,
         min_anisotropy=1.1,
         step_m=111_195.0,  # about one degree of longitude at the equator
-        lat_ref=0.0,
         n_steps=3,
     )
 
@@ -422,7 +505,6 @@ def test_trace_half_line_point_count_and_nan_padding():
         tensor_interp=interp,
         min_anisotropy=1.1,
         step_m=50_000.0,
-        lat_ref=0.0,
         n_steps=10,
     )
 
@@ -446,7 +528,16 @@ def _centre_seed(flowmap):
 
 
 def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
-    """M = diag(1, 3) => xi_1 is the x-axis => the shrink line has constant latitude."""
+    """M = diag(1, 3) => xi_1 is due east => the shrink line is a parallel of latitude.
+
+    Exactly a parallel, not one to within a sag. ``xi_1`` here has a zero north
+    component, and the step's latitude increment is that component times the step
+    -- so every point of the line carries the seed's latitude bit for bit, at any
+    step size and at any latitude. Measured ``ptp(lat)`` is 0.0 in all three
+    regions. A great-circle step would instead have bent each arc back towards
+    the equator by ``(step_m / R)^2 tan(lat) / 2``, which is what the 1e-4
+    tolerance this assertion used to carry was absorbing.
+    """
     fm = advected_flowmap(
         AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
     )
@@ -459,7 +550,7 @@ def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
     valid = np.isfinite(lon) & np.isfinite(lat)
 
     assert valid.all()  # short line stays on the grid
-    assert np.ptp(lat[valid]) < 1e-9  # constant latitude (tangent to x)
+    assert np.ptp(lat[valid]) < 1e-12  # a parallel, to round-off
     assert np.ptp(lon[valid]) > 0.1  # and spans in longitude
 
 
@@ -556,26 +647,43 @@ def test_shrink_lines_guard_passes_a_uniformly_compressive_map(lon_axis, lat_axi
     """The guard is a *relative* gap, not a magnitude floor on ``lambda_2``: this
     is the case that separates the two.
 
-    ``M = diag(0.5, 0.4)`` compresses in both directions, so ``C = diag(0.25,
-    0.16)``: ``lambda_1 = 0.16``, ``lambda_2 = 0.25`` and ``det C = 0.04``. The
-    ratio is 1.5625, comfortably clear of the 1.15 default, and ``xi_1`` is as
-    well defined here as in any stretching flow -- so the line must survive.
-    Any floor on the magnitude of ``lambda_2`` at or above 1 would kill it.
+    ``M = diag(0.5, 0.4)`` compresses in both directions, so ``lambda_1 = 0.16``
+    exactly (north is unrescaled) and ``lambda_2`` is ``0.25`` carrying the east
+    component's ``cos(arrival) / cos(release)``, squared. That factor is 1 to
+    within a percent over the reference band but not over the 68-76 N one, where
+    ``M``'s meridional compression moves each point far enough in latitude to
+    change its cosine: ``lambda_2`` runs from 0.2005 to 0.3405 there, against the
+    closed form below. The ratio bottoms out at 1.25, still clear of the 1.15
+    default, and ``xi_1`` is as well defined here as in any stretching flow -- so
+    the line must survive. Any floor on the magnitude of ``lambda_2`` at or above
+    1 would kill it.
 
-    Not a synthetic corner: ``det grad F = 0.2`` here, and in the backward
+    Not a synthetic corner: ``det grad F`` is about 0.2 here, and in the backward
     Cabo Verde example (5-day window, measured 34 km clear of any coast) the
     0.1st percentile of ``det grad F`` is 0.196. Convergent patches this strong
     are rare but real, and they are where attracting LCS live -- which is why a
     magnitude floor terminating there is a directional bias, not just a
     conservative choice.
     """
+    a, b = 0.5, 0.4
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([0.5, 0.4]), RELEASE_TIME, END_TIME
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([a, b]), RELEASE_TIME, END_TIME
     )
 
+    # The map acts in the one tangent frame at the seed centroid, so a grid point
+    # at latitude phi arrives at lat_origin + b * (phi - lat_origin).
+    phi = fm.ds["lat_grid"]
+    lat_origin = seed_origin(fm)[1]
+    arrival = lat_origin + b * (phi - lat_origin)
+    lambda_2 = (a * np.cos(np.deg2rad(arrival)) / np.cos(np.deg2rad(phi))) ** 2
+
+    # Worst measured relative residuals across the three regions: 2.4e-12 on
+    # lambda_1 and 1.2e-11 on lambda_2, both in the antimeridian/high-latitude
+    # runs. 1e-9 keeps about two orders of margin over those.
     lam = fm.cg_eigen()["lambda"]
-    assert np.allclose(lam.isel(eig=0), 0.16)
-    assert np.allclose(lam.isel(eig=1), 0.25)
+    np.testing.assert_allclose(lam.isel(eig=0), b**2, rtol=1e-9, atol=0.0)
+    np.testing.assert_allclose(lam.isel(eig=1), lambda_2, rtol=1e-9, atol=0.0)
+    assert bool((lam.isel(eig=1) / lam.isel(eig=0) > 1.15).all())
 
     lines = shrink_lines(fm, **_centre_seed(fm), step_m=3_000.0, line_length_m=30_000.0)
 
@@ -598,14 +706,22 @@ def test_shrink_lines_seed_off_grid_is_nan(lon_axis, lat_axis):
     assert bool(lines["lat"].isnull().all())
 
 
-def test_shrink_line_uses_reference_latitude_metric():
-    """A uniform-C shrink line is straight in the single-reference-latitude metres
-    frame the tensor lives in. Stepping with a per-point cos(lat) instead bows the
-    curve as it climbs in latitude, so it would not stay collinear.
+def test_shrink_line_steps_in_the_frame_the_tensor_lives_in():
+    """The stepper and the tensor share one frame: every segment of a traced line
+    runs along the local ``xi_1`` measured at that segment's midpoint.
 
-    ``M = R(45) diag(1, 3) R(45)^T`` is symmetric, so ``C = M^2`` shares its
-    eigenvectors and ``xi_1`` (the smaller eigenvalue) points along the 45-degree
-    diagonal -- a line that spans latitude, unlike the zonal test above.
+    ``C`` is built from separations in the local east/north frame of each pair
+    (:func:`~lcs_parcels.grids._separation_m`), so a segment must be measured the
+    same way -- which is what this checks, by taking ``_separation_m`` between
+    consecutive points of the line and comparing its heading with the tangent the
+    integrator would read there. Measured in the same frame the tensor is built
+    in, the two agree to round-off -- 2e-6 degrees of arc. Measuring the same
+    segments in a single-reference-cosine frame at 20 N instead tilts them off
+    ``xi_1`` by up to 1.7 degrees, a million times as much.
+
+    ``M = R(45) diag(1, 3) R(45)^T`` puts ``xi_1`` near the 45-degree diagonal, so
+    the line climbs from 12 N to 28 N and the two frames have every chance to
+    disagree.
     """
     c = np.cos(np.pi / 4)
     R = np.array([[c, -c], [c, c]])
@@ -621,12 +737,122 @@ def test_shrink_line_uses_reference_latitude_metric():
     lat = lines["lat"].isel(line=0).values
     valid = np.isfinite(lon) & np.isfinite(lat)
     assert valid.sum() > 50  # the diagonal line stays on this wide grid
+    lon, lat = lon[valid], lat[valid]
 
-    # In the frame C lives in (one reference latitude), the line must be straight.
-    lon_ref, lat_ref = float(fm.ds["lon_0"].mean()), float(fm.ds["lat_0"].mean())
-    x, y = _lonlat_to_meters(lon[valid], lat[valid], lon_ref, lat_ref)
-    resid = y - np.polyval(np.polyfit(x, y, 1), x)
-    assert np.max(np.abs(resid)) < 1e3  # collinear to < 1 km over ~1000 km
+    dx, dy = _separation_m(lon_a=lon[:-1], lat_a=lat[:-1], lon_b=lon[1:], lat_b=lat[1:])
+    segment = np.column_stack([dx, dy]) / np.hypot(dx, dy)[:, None]
+    tangent = _shrink_line_tangent(
+        0.5 * (lon[:-1] + lon[1:]),
+        0.5 * (lat[:-1] + lat[1:]),
+        segment,
+        tensor_interp=RegularGridInterpolator(
+            (fm.lon_grid.isel(j=0).values, fm.lat_grid.isel(i=0).values),
+            fm.cauchy_green().transpose("i", "j", "row", "col").values,
+        ),
+        min_anisotropy=1.15,
+    )
+
+    # Worst measured ``1 - dot`` is 4.4e-16, two ulp; the single-cosine frame
+    # above gives 4.3e-4, so 1e-12 sits far from both.
+    np.testing.assert_allclose(
+        np.sum(segment * tangent, axis=1), 1.0, rtol=0.0, atol=1e-12
+    )
+
+
+def _local_frame_flowmap(lon_axis, lat_axis, M):
+    """A flow map whose Cauchy-Green tensor is ``M^T M`` in *every* local frame.
+
+    ``conftest.advected_flowmap`` applies ``M`` in one tangent frame for the whole
+    grid, so the tensor it produces varies over the grid (that is
+    ``conftest.local_frame_gradient``). Here ``M`` is instead applied in each grid
+    point's own east/north frame: read each arm's offset from its grid point in
+    that frame, map it with ``M``, and place the advected arm back at the mapped
+    offset. The arithmetic is written out rather than taken from
+    ``lcs_parcels.grids``, since what the frame *is* is the thing under test.
+    """
+    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
+    lon_c, lat_c = seed.ds["lon_grid"], seed.ds["lat_grid"]
+    lon_a, lat_a = seed.ds["lon_0"], seed.ds["lat_0"]
+
+    m_per_deg = EARTH_RADIUS_M * _DEG
+    dx = m_per_deg * np.cos(0.5 * (lat_a + lat_c) * _DEG) * (lon_a - lon_c)
+    dy = m_per_deg * (lat_a - lat_c)
+    dx_out = M[0, 0] * dx + M[0, 1] * dy
+    dy_out = M[1, 0] * dx + M[1, 1] * dy
+
+    dlat = dy_out / m_per_deg
+    lat_out = lat_c + dlat
+    lon_out = lon_c + dx_out / (m_per_deg * np.cos((lat_c + 0.5 * dlat) * _DEG))
+
+    dims = seed.ds["lon_0"].dims
+    return seed.pset_to_flowmap(
+        lon=lon_out.transpose(*dims).stack(particle=dims).values,
+        lat=lat_out.transpose(*dims).stack(particle=dims).values,
+        t0=RELEASE_TIME,
+        t1=END_TIME,
+    )
+
+
+def test_shrink_line_of_a_frame_constant_tensor_is_a_loxodrome():
+    """A shrink line whose ``xi_1`` holds one compass bearing is the classical
+    loxodrome, and the traced line matches its closed form off the equator.
+
+    Independent of the package throughout: the flow map is built so that ``C`` is
+    ``M^T M`` in every local frame, ``M = R(45) diag(1, 3) R(45)^T`` puts ``xi_1``
+    on a constant 45-degree bearing, and a curve of constant bearing satisfies
+    ``d(lambda) / d(phi) = tan(bearing) / cos(phi)``, i.e.
+    ``lambda = lambda_0 + tan(bearing) * (psi(phi) - psi(phi_0))`` with ``psi``
+    the inverse Gudermannian ``log(tan(pi/4 + phi/2))``. Nothing in that came
+    from ``lcs_parcels``.
+
+    A 3000 km line from 40 N, spanning 30.5 N to 49.5 N, sits 8.4e-6 degrees --
+    0.7 m -- off the closed form at a 20 km step, and the residual falls by four
+    at each halving of the step (3.4e-5, 8.4e-6, 2.1e-6, 5.2e-7 degrees at 40,
+    20, 10 and 5 km), which is the step's mid-latitude cosine truncating a rhumb
+    increment and not a drift.
+    The single-tangent-frame construction cannot make this check: its ``xi_1``
+    turns as the line climbs, so there is no closed form to compare against.
+    """
+    c = np.cos(np.pi / 4)
+    R = np.array([[c, -c], [c, c]])
+    M = R @ np.diag([1.0, 3.0]) @ R.T
+    fm = _local_frame_flowmap(
+        np.linspace(-20.0, 20.0, 41), np.linspace(20.0, 60.0, 41), M
+    )
+
+    # The construction did what it claims: C is M^T M everywhere.
+    uniform = xr.DataArray(
+        M.T @ M, dims=("row", "col"), coords={"row": ["x", "y"], "col": ["x", "y"]}
+    )
+    assert float(abs(fm.cauchy_green() - uniform).max()) < 1e-6
+
+    seed_lon, seed_lat = 0.0, 40.0
+    lines = shrink_lines(
+        fm,
+        seed_lon=[seed_lon],
+        seed_lat=[seed_lat],
+        step_m=20_000.0,
+        line_length_m=3_000_000.0,
+    )
+    lon = lines["lon"].isel(line=0).values
+    lat = lines["lat"].isel(line=0).values
+    valid = np.isfinite(lon) & np.isfinite(lat)
+    assert valid.all()  # the whole line stays on this wide grid
+    assert np.ptp(lat) > 15.0  # and climbs far enough for cos(lat) to matter
+
+    def inverse_gudermannian(lat_deg):
+        return np.log(np.tan(0.25 * np.pi + 0.5 * np.deg2rad(lat_deg)))
+
+    # tan(45 degrees) = 1, so the bearing factor drops out.
+    expected_lon = seed_lon + np.rad2deg(
+        inverse_gudermannian(lat) - inverse_gudermannian(seed_lat)
+    )
+    # 8.4e-6 degrees measured at these parameters, second order in the step and
+    # roughly linear in the line length (5.0e-6 at 2000 km, 1.3e-5 at 4000 km).
+    # 1e-4 therefore survives a doubled step or a much longer line, while a
+    # stepper that took the cosine at the segment's start rather than its
+    # mid-latitude -- first order -- lands at 1.5e-2 degrees here, 150 times over.
+    assert np.max(np.abs(lon - expected_lon)) < 1e-4
 
 
 # --- FlowMap.hyperbolic_lcs ------------------------------------------------

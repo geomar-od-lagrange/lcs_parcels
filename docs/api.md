@@ -24,8 +24,9 @@ inheritance pair**: neither class is a subclass of the other, so a `Seed` has no
 diagnostics and a `FlowMap` emits no particle set.
 Symbols and units are defined in [`notation.md`](notation.md); the type
 structure and the session walkthrough are in
-[`architecture.md`](architecture.md), and the metres frame, its error structure
-and the tuning parameters are in [`numerics.md`](numerics.md). Naming follows
+[`architecture.md`](architecture.md), and the local east/north frame separations
+are measured in, together with the tuning parameters, is in
+[`numerics.md`](numerics.md). Naming follows
 Haller (2015),
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
 
@@ -61,6 +62,21 @@ positions explicitly.
 A single `FlowMap` carries `t0`/`T` as *scalar* coords; `t1` is not stored,
 being recoverable as `t0 + T`.
 
+Longitudes are stored in whatever convention they arrive in — $[-180, 180)$,
+$[0, 360)$, or anything else — and are never renormalised, so what comes back
+sits on the branch that went in. Only longitude *differences* and *means* are
+wrapped, so a stencil straddling the antimeridian differences correctly whatever
+branch its points sit on.
+
+The `lon_grid` **axis** itself must be monotonic, which is a stricter
+requirement: `FlowMap.image` and `shrink_lines` interpolate along it. Seed a
+domain crossing the antimeridian on `170, 175, 180, 185`, not on
+`175, 178, -179, -176`. On the latter, `hyperbolic_lcs()` raises `ValueError`
+("the points in dimension 0 must be strictly ascending or descending") out of
+SciPy, and `image()` does not raise at all — it reads the axis as if it were
+sorted, so a point in the wrapped half of the domain comes back `NaN` or
+interpolated between the wrong two grid points.
+
 Both families expose the diagnostic grid directly, so no consumer indexes `.ds`
 for it:
 
@@ -76,8 +92,10 @@ FlowMap.grid_image -> xr.Dataset     # abstract property (per-stencil)
   $F_{t_0}^{t_1}(x_{\mathrm{grid}})$: `lon`/`lat` (degrees) on `(i, j)`, one
   advected position per grid point whatever stencil it was released with. For
   `NeighborFlowMap` that is the advected positions unchanged; for
-  `AuxiliaryFlowMap` it is the centroid of the four advected arms, taken with
-  `skipna=False` so a single lost arm makes the whole grid point `NaN`.
+  `AuxiliaryFlowMap` it is the centroid of the four advected arms — the
+  longitude averaged on the circle, so four arms straddling the antimeridian
+  average between themselves — taken with `skipna=False` so a single lost arm
+  makes the whole grid point `NaN`.
 
 Both `Seed` and `FlowMap` have a terse one-line `repr`; `.ds` remains how the
 dataset itself is displayed.
@@ -111,8 +129,13 @@ FlowMap.to_seed() -> Seed                                 # concrete (base)
   takes a keyword-only `aux_separation_m` (the controlled arm separation $s$ in
   meters; default `1000.0`), lays out the fixed four-arm
   `displacement = ['east', 'north', 'west', 'south']` stencil at $\pm s$ about
-  each grid point, and stores those arms explicitly as `lon_0`/`lat_0` on
-  `(i, j, displacement)`.
+  each grid point — in that point's own local east/north frame, so the east–west
+  and north–south arm spans are $2s$ at every latitude — and stores those arms
+  explicitly as `lon_0`/`lat_0` on `(i, j, displacement)`. It raises
+  `ValueError` if $s$ would span 90 degrees of longitude or more at any grid
+  point, which happens closer to a pole than about $0.64\,s$: 640 m for the
+  default $s = 1$ km, 32 km for $s = 50$ km. There is no east there, so the
+  east–west arms are rejected rather than approximated.
 - **`to_parcels_pset()`** — flatten the *reference* release positions to plain
   `(lon, lat)` lists (a 2-tuple) over the `particle` index (`('i', 'j')`, plus
   `'displacement'` for `AuxiliarySeed`). The auxiliary arms are emitted directly
@@ -160,12 +183,13 @@ FlowMap.ftle() -> xr.DataArray                    # concrete (base)
 - **`deformation_gradient()`** — $\nabla F = \partial(\text{lon},
   \text{lat}) / \partial(\text{lon}_0, \text{lat}_0)$ as advected separations
   (numerator, from the ingested outputs) over reference separations
-  (denominator), both taken in the shared equirectangular metres frame — one
-  standard parallel `lat_ref` for the whole grid, and the same frame for
-  reference and advected positions (see
-  [`notation.md`](notation.md#equirectangular-metres-frame)). It is accurate for
-  a regional domain of modest latitude range and not for a basin spanning tens of
-  degrees of latitude. Dims `i`, `j`, `row`, `col` — a *set*, not an order: the
+  (denominator). Each separation is taken in metres in the local east/north
+  frame of the two points it connects (see
+  [`notation.md`](notation.md#the-local-east-north-frame)). What limits the
+  accuracy of a separation is the span of the stencil, not the size or position
+  of the domain; the error series is in
+  [`numerics.md`](numerics.md#the-local-east-north-frame). Dims `i`, `j`,
+  `row`, `col` — a *set*, not an order: the
   package is label-based, so the axis order the call returns is not part of the
   contract (today it is `('row', 'col', 'i', 'j')`, and that may change).
   `row`/`col` are dimension coordinates valued `['x', 'y']` and
@@ -265,7 +289,10 @@ semi-definite, so $\lambda_2 \ge \lambda_1 \ge 0$ always, and any
 and lines then stop only by leaving the grid or hitting a NaN cell.
 
 This layer interpolates on the axis-aligned `lon_grid`/`lat_grid` axes, so (like
-`NeighborFlowMap`) it assumes a rectilinear flow map.
+`NeighborFlowMap`) it assumes a rectilinear flow map, and the `lon_grid` axis
+must be monotonic. The traced lines themselves are unconstrained: a line steps
+by adding a longitude increment to its current longitude, so it crosses the
+antimeridian on its seed's branch.
 
 ### One call: `FlowMap.hyperbolic_lcs()`
 
@@ -320,7 +347,12 @@ FlowMap.image(*, lon0, lat0) -> xr.Dataset
   curve is drop-in plottable and can itself be re-fed. The requested reference
   positions ride along as `lon_0`/`lat_0` coords on the output. Points off the
   grid, in a NaN (land/edge) cell, or NaN themselves map to NaN. Rectilinear
-  grids only, like `shrink_lines`.
+  grids only, like `shrink_lines`, with a monotonic `lon_grid` axis.
+
+  The advected longitudes may arrive on any branch. Each is re-anchored on the
+  branch of the grid point it came from before the interpolation, so an
+  advection that hands positions back wrapped to $[-180, 180)$ is read
+  correctly. The returned longitudes are on the branch `lon0` was given in.
 
 An LCS is evolved in its **coherent** direction, where perturbations decay: an
 attracting LCS forward in time, a repelling one backward. Advecting the grid to a
@@ -370,7 +402,7 @@ The coordinates carry the same treatment, set once at construction
 
 The index and label coords (`i`, `j`, `displacement`, `row`, `col`, `comp`,
 `eig`, `line`, `point`) carry no `units`: their values are logical indices or
-string labels, so a unit would be a fiction. `t0` and `T` carry none either —
+string labels, so there is no unit to give. `t0` and `T` carry none either —
 they are `datetime64`/`timedelta64`, so the dtype already holds the unit.
 
 ## References

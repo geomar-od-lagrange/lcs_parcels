@@ -4,9 +4,9 @@ Why the diagnostic layer in
 [`src/lcs_parcels/grids.py`](../src/lcs_parcels/grids.py) is shaped the way it
 is: what the types are, how they compose, and which alternatives were rejected.
 The companion document [`docs/numerics.md`](numerics.md) covers the other half —
-why the numbers that come out of these types are right: the metres frame and its
-error structure, the units the tuning parameters are stated in, and the
-degeneracy guard. Symbols live in [`docs/notation.md`](notation.md); naming and
+why the numbers that come out of these types are right: the local east/north
+frame each separation is measured in, the units the tuning parameters are stated
+in, and the degeneracy guard. Symbols live in [`docs/notation.md`](notation.md); naming and
 notation follow Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev.
 Fluid Mech. 47:137–162,
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
@@ -29,8 +29,13 @@ The lifecycle is split into a time-free `Seed` family and a `FlowMap` family.
 They are *siblings*: a `FlowMap` is not a kind of `Seed`, because it emits
 nothing to Parcels, and a `Seed` is not a kind of `FlowMap`, because it has no
 advected positions and no window. Neither base inherits from the other, and
-there is no common base above both — what they genuinely share, the metres
-frame, is module-level helper code.
+there is no common base above both. There is little a common base would hold:
+the separation helpers are module-level functions called only from the
+`FlowMap` side (`AuxiliarySeed.from_axes` inverts the same relation inline to
+place its arms). What both families do share is small: `__init__` storing the
+dataset on `.ds`, and the `lon_grid`/`lat_grid` accessors reading it back — one
+line each, written identically on `Seed` and on `FlowMap` — plus the repr's grid
+summary, which is a module-level function both reprs call.
 
 A `Seed` holds coordinates only: the diagnostic grid points
 `lon_grid`/`lat_grid` and the reference release positions `lon_0`/`lat_0`
@@ -117,7 +122,7 @@ its four arms (with `skipna=False`, so one lost arm makes the grid point NaN,
 matching what the deformation gradient does).
 
 Diagnostics are labelled by `lon_grid`/`lat_grid` and *only* by that pair. The
-release positions are dropped in `FlowMap._stencil_meters`, because on an
+release positions are dropped in `FlowMap._positions`, because on an
 auxiliary flow map the surviving `lon_0` is one stencil arm — a point about $s$
 metres from the grid point the diagnostic describes. Introducing a canonical
 coordinate without removing the competing wrong one would have left the trap in
@@ -129,14 +134,54 @@ under the grid-point name. It renames them to `lon_0`/`lat_0` before returning:
 they are the $x_0$ that were mapped, not diagnostic grid points, and one name for
 two quantities is the defect the canonical pair exists to remove.
 
+### Why `_positions` hands out degrees, not metres
+
+`FlowMap._positions` returns the reference and advected positions as
+`(lon_0, lat_0, lon, lat)` in *degrees*; the subclass gradients convert to metres
+themselves, through `_separation_m`. The earlier version converted first and
+handed the stencil out already in metres, which only works if there is one frame
+for the whole grid to convert into. There is not: a separation becomes metres
+only once two points are named, because it is taken in the local east/north frame
+of *that pair* — the longitude difference wrapped to $[-180, 180]$ and scaled by
+the cosine of the pair's mid-latitude, the latitude difference by the Earth
+radius alone. The advected pair therefore gets its own cosine rather than the
+reference pair's, which is exactly the rescaling that makes $\nabla F$ report
+stretching for a rigid meridional translation.
+
+The same argument removed the shared projection everywhere else: there is no
+`lat_ref`, no standard parallel, and nothing that converts a position (as opposed
+to a pair) to metres. `_wrap_lon` applies to differences only and
+`_circular_mean_lon` anchors on the first element along its dim, so stored
+longitudes keep whatever convention they arrived in and no normalisation step
+exists to disagree with the caller about which branch a grid lives on.
+
+`tensorlines._step_lonlat_by_meters` closes the loop on the integration side. It
+is written as the *exact inverse* of `_separation_m` — the same mid-latitude
+cosine, solved for the longitude increment — rather than as the direct
+great-circle problem, so that measuring the step it took reproduces the
+direction it was given. A great-circle step is the more accurate arc, but it
+curves away from the direction field the ODE integrates, and that error
+accumulates linearly over the hundreds of steps in a line
+([`numerics.md`](numerics.md#stepping-a-tensor-line) has the measurement).
+The increment is added to the incoming longitude, so a traced line stays on its
+seed's branch across the antimeridian.
+
+`FlowMap.image` is the one place the package has to put positions from different
+sources on a common branch: it interpolates the advected longitude field, and
+arithmetic on a field that tears from 179.9 to -179.9 between adjacent grid
+points reads the tear as a 40 000 km jump. Rather than normalising anything, it
+re-anchors each advected longitude on the branch of its own grid point,
+`lon_grid + _wrap_lon(lon - lon_grid)`, which is a difference operation again
+and is correct for any displacement short of 180 degrees.
+
 ### Why lon/lat pairs are keyword-only
 
 Every public entry point that takes an adjacent lon/lat pair takes it
 keyword-only: `from_axes`, `pset_to_flowmap`, `image`, and `shrink_lines`' seed
 pair. Two same-typed adjacent arguments are the classic silent-swap footgun —
 transposing them does not raise, it returns a plausible-looking field somewhere
-off the coast of nowhere. The one thing a positional call buys, brevity, is
-worth less than an error at the call site.
+off the coast of nowhere. Keyword-only turns that into a `TypeError` at the call
+site, at the cost of a longer call.
 
 The rule is about same-typed neighbours, not about keywords for their own sake:
 `shrink_lines(flowmap, ...)` keeps `flowmap` positional, since it is the only
@@ -144,8 +189,7 @@ argument of its type and there is nothing to transpose it with. The cost is that
 the star-unpacking idiom is unavailable —
 `pset_to_flowmap(*seed.to_parcels_pset(), ...)` does not work, and the 2-tuples
 that `to_parcels_pset` and `ftle_ridge_seeds` return are unpacked into named
-locals first. That is a fair trade for a call form whose entire risk was that it
-hid which value went where.
+locals first, which costs one line per call site.
 
 ### Why the metadata is attached at construction
 
@@ -182,8 +226,8 @@ step but the advection is a method call on one of our objects:
    the seed's grid, yielding a `NeighborFlowMap` whose `.ds` adds the advected
    `lon`/`lat` as data variables and the scalar coords `t0` and signed `T`.
 5. `deformation_gradient()` (Haller Eq. 9) differences those positions against
-   the reference ones in metres, giving $\nabla F$ on `(i, j, row, col)`,
-   labelled by `lon_grid`/`lat_grid`.
+   the reference ones, each pair in its own local east/north frame, giving
+   $\nabla F$ on `(i, j, row, col)`, labelled by `lon_grid`/`lat_grid`.
 6. `cauchy_green()` (Eq. 6) forms $C = (\nabla F)^\top \nabla F$, `cg_eigen()`
    (Eq. 7) returns its eigenvalues in ascending order with orthonormal
    eigenvectors, and `ftle()` (§4.1) reduces that to
@@ -254,12 +298,12 @@ why they are stated in the units they are is in
 [`docs/numerics.md`](numerics.md).
 
 `hyperbolic_lcs()` being a method while the extraction lives in `tensorlines`
-means `grids` would import `tensorlines`, which already imports the metric
+means `grids` would import `tensorlines`, which already imports the separation
 helpers from `grids`. The two names are therefore imported inside
-`hyperbolic_lcs()` rather than at module level. The alternative — moving the
-metres frame into a third module — would touch every import in the package to
-buy back two lines, so the deferred import stands until something else needs
-that module to exist.
+`hyperbolic_lcs()` rather than at module level. The alternative — moving those
+helpers into a third module — would touch every import in the package to buy
+back two lines, so the deferred import stands until something else needs that
+module to exist.
 
 ## Reprs
 

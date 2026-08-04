@@ -1,58 +1,207 @@
 # Numerics: why the numbers come out right
 
-The quantitative half of the design record: the frame positions are measured in
-and the error that frame carries, the units the tuning parameters are stated in,
-and the guard that decides when $\xi_1$ is a direction rather than noise. The
-companion document [`docs/architecture.md`](architecture.md) covers the other
+The quantitative half of the design record: the frame separations are measured
+in, the longitude arithmetic that goes with it, the units the tuning parameters
+are stated in, and the guard that decides when $\xi_1$ is a direction rather
+than noise. The companion document
+[`docs/architecture.md`](architecture.md) covers the other
 half — what the types are and how they compose. Symbols and the definitions of
 every quantity used below live in [`docs/notation.md`](notation.md); notation
 follows Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech.
 47:137–162,
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
 
-## The equirectangular metres frame
+## The local east-north frame
 
-Positions go into metres through an **equirectangular projection with a single
-standard parallel** $\phi_{\mathrm{ref}}$ (the mean of `lon_0`/`lat_0`), and
-both the reference and the advected positions are read in that one frame. It is
-not a tangent plane, and describing it as one obscures where the error lives: a
-tangent plane would be a local linearisation whose error grows with distance
-from the touch point in *every* direction, whereas here $Y$ is exact by
-construction and only the zonal scale is approximated, by being frozen at
-$\cos\phi_{\mathrm{ref}}$.
+There is no projection and no shared frame. A separation is only ever taken
+between two named points, and it is taken in the local east/north frame of that
+pair. `_separation_m(lon_a=, lat_a=, lon_b=, lat_b=)` returns, for points
+$a = (\lambda_a, \phi_a)$ and $b = (\lambda_b, \phi_b)$ in degrees,
 
-Writing $c_0 = \cos(\text{release latitude})$, $c_1 = \cos(\text{arrival
-latitude})$ and $c_{\mathrm{ref}} = \cos\phi_{\mathrm{ref}}$, the true gradient
-relates to the one the package computes as
+$$\Delta x = R \cos\bar\phi \, \mathrm{wrap}(\lambda_b - \lambda_a)
+  \tfrac{\pi}{180}, \qquad
+\Delta y = R\,(\phi_b - \phi_a)\tfrac{\pi}{180},
+\qquad \bar\phi = \tfrac{1}{2}(\phi_a + \phi_b),$$
 
-$$\nabla F_{\mathrm{true}}
-= \mathrm{diag}\!\left(\tfrac{c_1}{c_{\mathrm{ref}}},\, 1\right)
-  \nabla F_{\mathrm{ours}}
-  \mathrm{diag}\!\left(\tfrac{c_{\mathrm{ref}}}{c_0},\, 1\right).$$
+with $R$ the mean Earth radius and $\mathrm{wrap}$ the longitude-difference wrap
+of the next section. The cosine is the pair's own **mid-latitude** cosine. No
+other latitude enters, so no point in the domain is measured against a parallel
+somewhere else.
 
-So $F_{yy}$ is exact; $F_{xx}$ is off by $c_1 / c_0$ — driven by *meridional
-excursion* of the particle, with $c_{\mathrm{ref}}$ cancelling entirely — and
-the two off-diagonals are off by $c_1 / c_{\mathrm{ref}}$ and
-$c_{\mathrm{ref}} / c_0$. The dominant error term is therefore not the size of
-the domain in longitude but how far particles travel in latitude relative to the
-standard parallel.
+$\nabla F$ is a ratio of two such separations — the advected pair over the
+reference pair — and each is taken with its own cosine: the denominator with the
+mid-latitude of the two release points, the numerator with the mid-latitude of
+the two arrival points. That is what makes the result the tangent-space Jacobian
+of the flow map, written in the orthonormal east/north basis at $x_0$ on the
+input side and in the orthonormal east/north basis at $F(x_0)$ on the output
+side. Both bases are orthonormal, so $C = (\nabla F)^\top \nabla F$, its
+eigenvalues and the FTLE are the geometric quantities Haller's equations refer
+to, at any latitude and across the antimeridian.
 
-That algebra is the whole error structure, and it needs no measurement to state.
-What it says is that the error is set by *meridional excursion relative to the
-standard parallel* — how far a particle's release and arrival latitudes sit from
-$\phi_{\mathrm{ref}}$ — and not by domain width as such; a wide, thin zonal band
-is fine, a narrow but meridionally tall one is not.
+Against the naive degrees-space Jacobian
+$\partial(\Lambda, \Phi) / \partial(\lambda, \phi)$ — arrival lon/lat
+differentiated with respect to release lon/lat, both in degrees — the same
+statement reads
 
-To put a scale on it, one analytic test flow map at one centre latitude gave a
-median FTLE error of 0.65% over a 5-degree domain, 3.0% over 20 degrees and 15%
-over 60 degrees. Those three numbers are an illustration of magnitude from a
-single case, not a table of error-versus-domain-size: another flow, or the same
-domain sizes at another centre latitude, moves them. The package is
-consequently valid for regional domains of modest latitude range with no
-dateline crossing, and is not currently correct for basin-scale ones. Tracked in
-GitHub issue #18, alongside the related dateline/longitude arithmetic in #13;
-the fix is exact and cheap — two diagonal rescalings by cosines already carried
-in the dataset — so it need not wait for the dateline work.
+$$\nabla F = \mathrm{diag}(\cos\Phi,\, 1)\;
+  \frac{\partial(\Lambda, \Phi)}{\partial(\lambda, \phi)}\;
+  \mathrm{diag}\!\left(\tfrac{1}{\cos\phi},\, 1\right),$$
+
+$R$ and the degree conversion cancelling. The two diagonal factors are the
+metric of the sphere at the two ends: they convert an input in degrees to metres
+at the release latitude $\phi$ and an output in metres back from degrees at the
+arrival latitude $\Phi$. Both are latitudes of the stencil itself; no third
+latitude, and so no property of the domain, enters.
+
+The rigid meridional translation is the case that makes the difference concrete.
+Shift every particle north by a fixed number of degrees: the degrees-space
+Jacobian is the identity, but the physical map is not an isometry — a zonal
+separation held at fixed $\Delta\lambda$ contracts by $\cos\Phi / \cos\phi$ — and
+$\nabla F = \mathrm{diag}(\cos\Phi/\cos\phi,\, 1)$ reports exactly that
+contraction. This replaced an equirectangular frame with a single standard
+parallel at the seed centroid, which reported the identity here and whose error
+grew with meridional excursion, restricting the package to regional domains of
+modest latitude range; GitHub issue #18.
+
+The remaining approximation is the finite arc. $\Delta y$ carries none of it:
+$R\,\Delta\phi$ is the meridional geodesic exactly. $\Delta x$ is the arc along
+the parallel through the pair's mid-latitude, evaluating a cosine at the
+midpoint of the interval it is applied across, and both of the errors that
+introduces are second-order in the **separation of the pair** — not in the size
+of the domain, its latitude range, or where it sits.
+
+For a zonal pair at latitude $\phi$ spanning $\Delta\lambda$ radians the
+mid-latitude is the pair's own latitude, so what is left is the parallel arc
+against the geodesic joining the two points, longer by a relative
+
+$$\frac{(\Delta\lambda \sin\phi)^2}{24}.$$
+
+The term vanishes on the equator, where the parallel *is* a great circle, and
+grows as $\tan\phi$ at fixed separation in metres. Measured against the
+great-circle distance, the separation at which it reaches $10^{-6}$ is 54 km at
+30 N, 18 km at 60 N and 5.5 km at 80 N; $10^{-4}$ needs 541 km, 180 km and
+55 km. For a pair separated in latitude as well, the midpoint value $\cos\bar\phi$
+stands in for the interval mean $(\sin\phi_b - \sin\phi_a)/(\phi_b - \phi_a)$ and
+is high by $\Delta\phi^2/24$, again with $\Delta\phi$ the pair's own span.
+
+The default 1 km auxiliary arms are far inside all of this everywhere. A larger
+`aux_separation_m`, or the neighbour stencil, should be read off the series at
+the span actually used. The neighbour span is not a tunable and it is not one
+grid cell either: `_central_separation_m` differences the $i + 1$ neighbour
+against the $i - 1$ one, so the span is **two** cells, and the series is read at
+twice the grid spacing. For a neighbour stencil on a coarse grid the
+finite-difference truncation of that same two-cell span is the larger term.
+
+The rule is *exact* for a map that is linear in one tangent frame, so both
+stencils reproduce the analytic answer of the synthetic test flow with no metric
+error left. Worst case over the three regions the suite runs (`reference`,
+`antimeridian`, `high_latitude`), the largest absolute deviation of any
+$\nabla F$ component from the analytic value is 1.5e-14 for the neighbour
+stencil — about 20 ulp on components of order 3, which is round-off — and 3.0e-12
+for the auxiliary one. The auxiliary figure is some 4500 ulp, so it is not
+round-off: it is cancellation in differencing arms a kilometre apart on a sphere
+6371 km across.
+
+## Wrapping differences, never positions
+
+`_wrap_lon` wraps a longitude **difference** into $[-180, 180]$, as
+`dlon - 360 * round(dlon / 360)`. It is applied to differences and to the
+offsets a circular mean is built from, and to nothing else: longitudes are
+stored exactly as the caller handed them over, and the advected positions come
+back on whatever branch Parcels returned.
+
+Subtracting the nearest multiple of 360 rather than shifting by 180 and taking a
+modulo is a precision choice. The shift-and-modulo form
+`-((180 - dlon) % 360 - 180)` is not the identity on an argument already inside
+the range: swept over $(-180, 180)$ it departs from its input by up to 2.8e-14
+degrees. The `round` form returns such an argument bit-for-bit (measured 0.0),
+which is what the metre-scale stencil differences need, since every one of them
+is a wrap of a quantity already far inside the range.
+
+Normalising stored positions would have to pick a branch, and any branch has a
+cut that some domain straddles — a seed grid running 350 to 370 degrees east
+would come back torn into two pieces at 0, and its `lon_grid` axis would stop
+being monotone, which `FlowMap.image` needs for its interpolation. Wrapping the
+difference has no such choice to make: $\mathrm{wrap}(\lambda_b - \lambda_a)$ is
+the shorter of the two ways round for any pair less than 180 degrees apart, in
+any convention, and every pair the package differences — opposite stencil arms,
+adjacent grid points, and their advected images — is far inside that.
+
+A mean needs more than a difference, because averaging longitudes across the cut
+is not a difference operation. `_circular_mean_lon(lon, dim)` anchors on the
+first element along `dim` and averages the wrapped offsets from it,
+
+$$\bar\lambda = \lambda_{\mathrm{anchor}}
+  + \overline{\mathrm{wrap}(\lambda - \lambda_{\mathrm{anchor}})},$$
+
+which is the circular mean for a set spanning much less than a hemisphere and
+which returns a value on the anchor's branch — so the mean of four auxiliary arms
+inherits the convention of the arm positions rather than imposing one.
+`AuxiliaryFlowMap.grid_image` is the one caller: the four advected arms it
+averages can straddle the antimeridian. `skipna=False`, so a lost arm makes the
+grid point NaN, matching the gradient path.
+
+`FlowMap.image` needs the same treatment for a different reason. It interpolates
+the advected longitude *field*, and an advection that hands positions back
+wrapped to $[-180, 180)$ gives that field a tear: two adjacent grid points read
+179.9 and -179.9, and a linear interpolant between them traverses 40 000 km.
+Instead of normalising, `image` re-anchors each advected longitude on the branch
+of the grid point it came from,
+
+$$\lambda_{\mathrm{grid}} +
+  \mathrm{wrap}(\lambda_{\mathrm{advected}} - \lambda_{\mathrm{grid}}),$$
+
+which is a difference operation again and so has no branch to choose. It is
+correct whenever the displacement over the window is under 180 degrees. The
+interpolated result therefore comes back on the branch `lon0` was given in.
+
+## Stepping a tensor line
+
+`_step_lonlat_by_meters` advances a shrink line by `step_m` along a direction
+that is a local east/north vector at the current point — the same frame $C$ and
+its eigenvectors were built in. It is written as the **exact inverse of
+`_separation_m`**: the northward component gives $R\,\Delta\phi$, and the
+eastward one is divided by $R\cos(\phi + \tfrac{1}{2}\Delta\phi)$, the same
+mid-latitude cosine, solved for $\Delta\lambda$. Measuring the step afterwards
+with `_separation_m` returns the vector that was asked for. The increment is
+added to the incoming longitude, so a track crossing the antimeridian stays on
+the branch its seed came in on — the same rule as above, applied to a step
+rather than a difference.
+
+The step it replaced divided the eastward component by one reference cosine
+$\cos\phi_{\mathrm{ref}}$ for the whole field. That is the standard-parallel
+error again, but compounded: a tensor line is hundreds of steps long and the
+error is systematic, so it does not average out — it bends the traced curve away
+from the direction $\xi_1$ that was integrated.
+
+An intermediate version solved the *direct great-circle problem* instead —
+angular distance $\lVert d\rVert / R$ and bearing
+$\mathrm{atan2}(d_{\mathrm{east}}, d_{\mathrm{north}})$, then the standard
+formulae for the endpoint. That gives a more accurate arc, but the integrator is
+solving $\dot r = \xi_1(r)$, and what a step has to do there is stay on the
+direction field. A great-circle arc launched due east turns poleward, leaving a
+heading-invariant field at a rate
+$(\text{step}/R)^2 \tan\phi / 2$ per step, which accumulates *linearly* in the
+step count rather than cancelling. Measured on a due-east field traced 800 km:
+
+| Latitude | step 20 km | 10 km | 5 km |
+|---|---|---|---|
+| 0 N | 0.0 m | 0.0 m | 0.0 m |
+| 45 N | 1255 m | 628 m | 314 m |
+| 70 N | 3447 m | 1724 m | 862 m |
+
+Halving the step halves the drift, since the per-step rate falls by four and the
+step count doubles. The inverse step measures 0.0 m in every cell of that table:
+a step whose measured east/north components equal the direction it was given
+stays on the field at any step size and any latitude.
+
+Three truncations remain in a traced line, none of them metric. The midpoint
+scheme is second-order in `step_m` along the direction field.
+`RegularGridInterpolator` reads $C$ between grid points linearly, so the field
+the line follows is piecewise-linear in the grid spacing. And $\nabla F$
+underneath it carries the finite-difference truncation of its own stencil. The
+last two are properties of the tensor field the line is traced through, and
+shrinking `step_m` does not reduce them.
 
 ## Why the tuning parameters are stated in their own units
 
@@ -76,8 +225,9 @@ past termination so every row has equal length. `window_m` is the *side* of the
 ridge-seed neighbourhood, which reaches only `window_m / 2` to either side of
 its own grid point; two seeds can therefore sit about `window_m / 2` apart. That
 is geometry, not measurement: the bound follows from the window's reach and
-holds for any field. Anyone reading either budget as "the length you get" or
-"the spacing you get" is off by a factor of two.
+holds for any field. So `line_length_m` is an upper bound on the traced length
+rather than the length itself, and the minimum seed spacing is `window_m / 2`
+rather than `window_m`.
 
 ## Why the degeneracy guard is an eigenvalue ratio
 

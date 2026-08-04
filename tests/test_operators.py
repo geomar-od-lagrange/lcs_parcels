@@ -1,33 +1,47 @@
 """Operator tests: gradF -> C -> eigen -> FTLE (diagnostics on a FlowMap).
 
-For a constant linear flow map ``F(x) = M @ x`` in the local meters frame,
-``gradF`` equals ``M`` at every grid point, so the whole chain has closed-form
-answers. The ``conftest.advected_flowmap`` helper seeds a time-free grid, emits
-its particle set, advects through ``M`` about the seed centroid, and ingests via
-``seed.pset_to_flowmap`` (the signed window ``T = t1 - t0`` lands on
-the ``FlowMap``).
+The ``conftest.advected_flowmap`` helper seeds a time-free grid, emits its
+particle set, advects through ``M`` about the seed centroid, and ingests via
+``seed.pset_to_flowmap`` (the signed window ``T = t1 - t0`` lands on the
+``FlowMap``).
+
+That advection acts in the one tangent frame at the centroid, while the package
+measures every separation in the local east/north frame of the pair it connects.
+So a constant ``M`` does not give a constant gradF: the expectation is ``M``
+rescaled per grid point by ``conftest.analytic_gradient``, and the whole chain
+downstream of it varies over the grid too.
 
 A non-symmetric ``M = [[2.0, 0.5], [0.0, 3.0]]`` is used for the general tests so
-that ``C = M^T M`` is a non-trivial check.
+that ``C`` is a non-trivial check.
 """
 
 import numpy as np
+import pytest
 import xarray as xr
-from conftest import advected_flowmap, advected_flowmap_f
+from conftest import (
+    DEG,
+    EARTH_RADIUS_M,
+    advected_flowmap,
+    advected_flowmap_f,
+    analytic_gradient,
+    apply_map_to_lonlat,
+    local_frame_gradient,
+    seed_origin,
+)
 
 from lcs_parcels import AuxiliarySeed, NeighborSeed
-from lcs_parcels.grids import _arm_diff, _central_diff, _lonlat_to_meters
+from lcs_parcels.grids import _arm_separation_m, _central_separation_m, _separation_m
 
 # Release time and integration end time; the signed window T = END_TIME - RELEASE_TIME spans one
 # day (|T| = 86400 s).
 RELEASE_TIME = np.datetime64("2020-01-01")
 END_TIME = np.datetime64("2020-01-02")
 
-# Non-symmetric linear flow map; C = M^T M is then a non-trivial check.
+# Non-symmetric linear flow map, applied in the seed-centroid tangent frame.
 M = np.array([[2.0, 0.5], [0.0, 3.0]])
 
-# The same map as a (row, col) tensor, for label-based broadcasting against
-# gradF (gradF.sel(row=a, col=b) = dF_a/dx0_b = M[a, b]).
+# The same map as a (row, col) tensor. gradF is *not* equal to this -- it is this
+# rescaled into the local frames -- so it serves as the contrast case.
 M_TENSOR = xr.DataArray(
     M, dims=("row", "col"), coords={"row": ["x", "y"], "col": ["x", "y"]}
 )
@@ -36,44 +50,124 @@ M_TENSOR = xr.DataArray(
 T_SEC = abs((END_TIME - RELEASE_TIME) / np.timedelta64(1, "s"))
 
 
-# --- stencil differences ----------------------------------------------------
+def cauchy_green_of(gradF):
+    """``(grad F)^T grad F`` for a ``(row, col)`` tensor, contracted over ``row``."""
+    left = gradF.rename({"col": "row_out"})
+    right = gradF.rename({"col": "col_out"})
+    product = xr.dot(left, right, dim="row")
+    return product.rename({"row_out": "row", "col_out": "col"})
 
 
-def test_central_diff_spans_two_cells_and_nans_the_edges():
-    """``_central_diff`` is ``(index + 1) - (index - 1)``, NaN at both ends."""
-    field = xr.DataArray(
-        np.arange(5.0)[:, None] * np.ones(3), dims=("i", "j"), name="field"
+def analytic_eigenvalues(gradF):
+    """Ascending eigenvalues of ``gradF^T gradF``, on ``(i, j, eig)``."""
+    C = cauchy_green_of(gradF).transpose("i", "j", "row", "col")
+    values = np.linalg.eigvalsh(C.values)
+    return xr.DataArray(
+        values, dims=("i", "j", "eig"), coords={"eig": [0, 1]}
+    ).assign_coords(i=C["i"], j=C["j"])
+
+
+# --- stencil separations ----------------------------------------------------
+
+
+def test_central_separation_spans_two_cells_and_nans_the_edges():
+    """``_central_separation_m`` is ``(index + 1) - (index - 1)``, NaN at both ends."""
+    lon = xr.DataArray(np.arange(5.0)[:, None] * np.ones(3), dims=("i", "j"))
+    lat = xr.zeros_like(lon)
+
+    dx, dy = _central_separation_m(lon, lat, "i")
+
+    assert set(dx.dims) == {"i", "j"}
+    assert np.isnan(dx.isel(i=0)).all()
+    assert np.isnan(dx.isel(i=-1)).all()
+    # Two one-degree cells along i, on the equator, so the span is 2 degrees of
+    # longitude in meters everywhere inside; nothing moves north.
+    assert np.allclose(dx.isel(i=slice(1, -1)), 2.0 * EARTH_RADIUS_M * DEG)
+    assert np.allclose(dy.isel(i=slice(1, -1)), 0.0)
+
+    # Constant along j, so the j separation vanishes where it is defined.
+    dx_j, dy_j = _central_separation_m(lon, lat, "j")
+    assert np.allclose(dx_j.isel(j=1), 0.0)
+    assert np.allclose(dy_j.isel(j=1), 0.0)
+
+
+def test_central_separation_wraps_lon_and_uses_the_mid_latitude():
+    """A wrapped longitude difference, scaled by the cosine of the pair's mid-latitude."""
+    lon = xr.DataArray(np.array([[179.0], [180.0], [-179.0]]), dims=("i", "j"))
+    lat = xr.DataArray(np.array([[0.0], [5.0], [40.0]]), dims=("i", "j"))
+
+    dx, dy = _central_separation_m(lon, lat, "i")
+    dx_mid = float(dx.isel(i=1, j=0))
+
+    # The pair straddles the antimeridian: 2 degrees apart, not 358.
+    assert dx_mid == pytest.approx(
+        2.0 * EARTH_RADIUS_M * np.cos(20.0 * DEG) * DEG, rel=1e-12
+    )
+    assert abs(dx_mid) < 0.1 * abs(358.0 * EARTH_RADIUS_M * DEG)
+
+    # 20 degrees is the mid-latitude of the differenced pair (0 and 40), not the
+    # latitude of the centre point (5).
+    assert abs(dx_mid - 2.0 * EARTH_RADIUS_M * np.cos(5.0 * DEG) * DEG) > 1.0e4
+
+    assert float(dy.isel(i=1, j=0)) == pytest.approx(
+        40.0 * EARTH_RADIUS_M * DEG, rel=1e-12
     )
 
-    diff = _central_diff(field, "i")
 
-    assert set(diff.dims) == {"i", "j"}
-    assert np.isnan(diff.isel(i=0)).all()
-    assert np.isnan(diff.isel(i=-1)).all()
-    # Unit spacing along i, so the two-cell span is 2 everywhere inside.
-    assert np.allclose(diff.isel(i=slice(1, -1)), 2.0)
-    # Constant along j, so the j difference vanishes where it is defined.
-    assert np.allclose(_central_diff(field, "j").isel(j=1), 0.0)
-
-
-def test_arm_diff_subtracts_opposing_arms_onto_the_grid():
-    """``_arm_diff`` differences two ``displacement`` labels back onto ``(i, j)``."""
-    field = xr.DataArray(
-        np.array([[[1.0, 10.0, -1.0, -10.0]]]),
+def test_arm_separation_subtracts_opposing_arms_onto_the_grid():
+    """``_arm_separation_m`` differences two ``displacement`` labels back onto ``(i, j)``."""
+    coords = {"displacement": ["east", "north", "west", "south"]}
+    lon = xr.DataArray(
+        np.array([[[-179.0, 179.5, 179.0, 179.5]]]),
         dims=("i", "j", "displacement"),
-        coords={"displacement": ["east", "north", "west", "south"]},
-        name="field",
+        coords=coords,
+    )
+    lat = xr.DataArray(
+        np.array([[[0.0, 1.0, 0.0, -1.0]]]),
+        dims=("i", "j", "displacement"),
+        coords=coords,
     )
 
-    span_x = _arm_diff(field, "east", "west")
-    span_y = _arm_diff(field, "north", "south")
+    dx_ew, dy_ew = _arm_separation_m(lon, lat, "east", "west")
+    dx_ns, dy_ns = _arm_separation_m(lon, lat, "north", "south")
 
-    assert set(span_x.dims) == {"i", "j"}
-    assert "displacement" not in span_x.coords
-    assert np.allclose(span_x, 2.0)
-    assert np.allclose(span_y, 20.0)
+    assert set(dx_ew.dims) == {"i", "j"}
+    assert "displacement" not in dx_ew.coords
+
+    # The east/west arms straddle the antimeridian: 2 degrees apart on the
+    # equator, not 358.
+    assert np.allclose(dx_ew, 2.0 * EARTH_RADIUS_M * DEG)
+    assert np.allclose(dy_ew, 0.0)
+    assert float(abs(dx_ew).max()) < 0.1 * abs(358.0 * EARTH_RADIUS_M * DEG)
+
+    # The north/south arms share a longitude and span 2 degrees of latitude.
+    assert np.allclose(dx_ns, 0.0)
+    assert np.allclose(dy_ns, 2.0 * EARTH_RADIUS_M * DEG)
+
     # Antisymmetric in its two arms.
-    assert np.allclose(_arm_diff(field, "west", "east"), -2.0)
+    dx_we, dy_we = _arm_separation_m(lon, lat, "west", "east")
+    assert np.allclose(dx_we, -dx_ew)
+    assert np.allclose(dy_we, -dy_ew)
+
+
+def test_arm_separation_east_uses_the_arm_pair_mid_latitude():
+    """The east component scales with the cosine of the two arms' mid-latitude."""
+    coords = {"displacement": ["east", "west"]}
+    lon = xr.DataArray(
+        np.array([[[1.0, -1.0]]]), dims=("i", "j", "displacement"), coords=coords
+    )
+    lat = xr.DataArray(
+        np.array([[[40.0, 0.0]]]), dims=("i", "j", "displacement"), coords=coords
+    )
+
+    dx, dy = _arm_separation_m(lon, lat, "east", "west")
+
+    assert float(dx.isel(i=0, j=0)) == pytest.approx(
+        2.0 * EARTH_RADIUS_M * np.cos(20.0 * DEG) * DEG, rel=1e-12
+    )
+    assert float(dy.isel(i=0, j=0)) == pytest.approx(
+        40.0 * EARTH_RADIUS_M * DEG, rel=1e-12
+    )
 
 
 # --- deformation gradient --------------------------------------------------
@@ -104,20 +198,27 @@ def test_deformation_gradient_dims_and_coords(lon_axis, lat_axis):
     assert "lat_0" not in gradF.coords
 
 
-def test_deformation_gradient_equals_M_neighbor(lon_axis, lat_axis):
-    """NeighborSeed: gradF == M at every *interior* grid point.
+def test_deformation_gradient_matches_local_frame_neighbor(lon_axis, lat_axis):
+    """NeighborSeed: gradF matches the analytic gradient at every *interior* point.
 
     Neighbour differencing has no stencil at the domain edge, so boundary cells
-    are NaN. Check the interior against ``M`` to ~1e-6; assert the edges are NaN
-    where their stencil step is missing.
+    are NaN. Check the interior to ~1e-6; assert the edges are NaN where their
+    stencil step is missing.
     """
     g = advected_flowmap(NeighborSeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     gradF = g.deformation_gradient()
+    expected = analytic_gradient(M, flowmap=g, origin=seed_origin(g))
 
     interior = gradF.isel(i=slice(1, -1), j=slice(1, -1))
     assert bool(interior.notnull().all())
-    # gradF.sel(row=a, col=b) == M[a, b], broadcast over (i, j) by label.
-    assert float(abs(interior - M_TENSOR).max()) < 1e-6
+    expected_interior = expected.isel(i=slice(1, -1), j=slice(1, -1))
+    assert float(abs(interior - expected_interior).max()) < 1e-6
+
+    # The expectation is not degenerate: it varies over the grid, and it is far
+    # from the constant M the advection was built from.
+    spread = expected.max(("i", "j")) - expected.min(("i", "j"))
+    assert float(spread.max()) > 0.01
+    assert float(abs(expected - M_TENSOR).max()) > 0.01
 
     # The i-derivative (col='x') is undefined on the i edges; likewise the
     # j-derivative (col='y') on the j edges.
@@ -127,28 +228,35 @@ def test_deformation_gradient_equals_M_neighbor(lon_axis, lat_axis):
     assert bool(gradF.isel(j=-1).sel(col="y").isnull().all())
 
 
-def test_deformation_gradient_equals_M_auxiliary(lon_axis, lat_axis):
-    """AuxiliarySeed: gradF == M at *every* grid point, including the boundary.
+def test_deformation_gradient_matches_local_frame_auxiliary(lon_axis, lat_axis):
+    """AuxiliarySeed: gradF matches the analytic gradient everywhere, edges included.
 
-    The per-point auxiliary stencil makes the gradient well-defined everywhere,
-    so there are no NaN edges to exclude. Check each component against ``M``.
+    The per-point auxiliary stencil makes the gradient well-defined at every grid
+    point, so there are no NaN edges to exclude.
     """
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     gradF = g.deformation_gradient()
+    expected = analytic_gradient(M, flowmap=g, origin=seed_origin(g))
 
     assert bool(gradF.notnull().all())
-    assert float(abs(gradF - M_TENSOR).max()) < 1e-6
+    assert float(abs(gradF - expected).max()) < 1e-6
+
+    # Not degenerate: the expectation varies over the grid and differs from the
+    # constant M by far more than the tolerance above.
+    spread = expected.max(("i", "j")) - expected.min(("i", "j"))
+    assert float(spread.max()) > 0.01
+    assert float(abs(expected - M_TENSOR).max()) > 0.01
 
 
 def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
     """AuxiliarySeed: gradF equals a spatially-VARYING analytic Jacobian.
 
-    The map is quadratic in the meters frame,
-    ``f(dx, dy) = (dx + a*dx**2, dy + b*dy**2)``, whose exact Jacobian is
+    The map is quadratic in the centroid tangent frame,
+    ``f(dx, dy) = (dx + a*dx**2, dy + b*dy**2)``, whose Jacobian there is
     ``diag(1 + 2*a*X, 1 + 2*b*Y)`` with ``(X, Y)`` each grid point's meters
     position from the centroid. Central differencing is exact for a quadratic, so
-    gradF must match the analytic per-point Jacobian to ~1e-6 -- exercising
-    per-point differencing, not the constant-``M`` case.
+    gradF must match that Jacobian, rescaled into the local frames, to ~1e-6 --
+    exercising per-point differencing, not the constant-``M`` case.
     """
     a, b = 1.0e-6, -0.8e-6
 
@@ -158,18 +266,33 @@ def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
     g = advected_flowmap_f(AuxiliarySeed, lon_axis, lat_axis, f, RELEASE_TIME, END_TIME)
     gradF = g.deformation_gradient()
 
-    lon_grid, lat_grid = g.ds["lon_grid"], g.ds["lat_grid"]
-    lon0 = float(g.ds["lon_0"].mean())
-    lat0 = float(g.ds["lat_0"].mean())
-    # grid-point positions in meters, dims (i, j)
-    X, Y = _lonlat_to_meters(lon_grid, lat_grid, lon0, lat0)
+    release = ["lon_0", "lat_0"]
+    lon_grid = g.ds["lon_grid"].drop_vars(release, errors="ignore")
+    lat_grid = g.ds["lat_grid"].drop_vars(release, errors="ignore")
+    lon0, lat0 = seed_origin(g)
+
+    # Grid-point positions in the centroid tangent frame, dims (i, j). That frame
+    # uses the origin's cosine throughout, so hold one coordinate fixed per call:
+    # a pair sharing lat0 has mid-latitude lat0, and a pair sharing lon0 has no
+    # east component to scale.
+    X, _ = _separation_m(lon_a=lon0, lat_a=lat0, lon_b=lon_grid, lat_b=lat0)
+    _, Y = _separation_m(lon_a=lon0, lat_a=lat0, lon_b=lon0, lat_b=lat_grid)
+
     fxx = 1 + 2 * a * X
     fyy = 1 + 2 * b * Y
     zero = xr.zeros_like(X)
     row_x = xr.concat([fxx, zero], dim="col")
     row_y = xr.concat([zero, fyy], dim="col")
-    expected = xr.concat([row_x, row_y], dim="row").assign_coords(
-        row=["x", "y"], col=["x", "y"]
+    flat_jacobian = xr.concat([row_x, row_y], dim="row")
+
+    _, lat_advected = apply_map_to_lonlat(
+        lon_grid.values, lat_grid.values, f, (lon0, lat0)
+    )
+    expected = local_frame_gradient(
+        flat_jacobian,
+        lat_grid=lat_grid,
+        lat_advected=lat_grid.copy(data=lat_advected),
+        lat_origin=lat0,
     )
     assert float(abs(gradF - expected).max()) < 1e-6
 
@@ -194,20 +317,22 @@ def test_cauchy_green_symmetry(lon_axis, lat_axis):
     xr.testing.assert_allclose(C, C_transposed)
 
 
-def test_cauchy_green_equals_MT_M(lon_axis, lat_axis):
-    """C == M^T M for the linear flow map.
+def test_cauchy_green_equals_gradF_T_gradF(lon_axis, lat_axis):
+    """C equals ``gradF^T gradF`` built from the analytic gradient.
 
-    With ``gradF == M`` everywhere, ``C = (grad F)^T grad F`` equals the constant
-    ``M.T @ M`` at every grid point. Use AuxiliarySeed to avoid NaN edges; check
-    to ~1e-6.
+    Use AuxiliarySeed to avoid NaN edges; check to ~1e-6. The constant ``M.T @ M``
+    is not the answer -- assert it misses by far more than that tolerance.
     """
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     C = g.cauchy_green()
 
-    expected = xr.DataArray(
+    expected = cauchy_green_of(analytic_gradient(M, flowmap=g, origin=seed_origin(g)))
+    assert float(abs(C - expected).max()) < 1e-6
+
+    constant = xr.DataArray(
         M.T @ M, dims=("row", "col"), coords={"row": ["x", "y"], "col": ["x", "y"]}
     )
-    assert float(abs(C - expected).max()) < 1e-6
+    assert float(abs(expected - constant).max()) > 0.01
 
 
 # --- eigen-analysis --------------------------------------------------------
@@ -263,41 +388,57 @@ def test_cg_eigen_relation(lon_axis, lat_axis):
 
 
 def test_cg_eigen_values_match_analytic(lon_axis, lat_axis):
-    """Eigenvalues equal ``eigvalsh(M^T M)`` for the linear map.
+    """Eigenvalues equal those of the analytic ``gradF^T gradF``, per grid point.
 
-    Compare ``lambda`` (ascending) against ``numpy.linalg.eigvalsh(M.T @ M)`` to
-    ~1e-6.
+    Compare ``lambda`` (ascending) against ``numpy.linalg.eigvalsh`` of the
+    analytic Cauchy-Green tensor to ~1e-6.
     """
     g = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     lam = g.cg_eigen()["lambda"]
 
-    expected = xr.DataArray(
-        np.linalg.eigvalsh(M.T @ M), dims="eig", coords={"eig": [0, 1]}
+    expected = analytic_eigenvalues(
+        analytic_gradient(M, flowmap=g, origin=seed_origin(g))
     )
     assert float(abs(lam - expected).max()) < 1e-6
+
+    # The eigenvalues vary over the grid, so this is not the constant-M answer.
+    constant = np.linalg.eigvalsh(M.T @ M)
+    assert float(abs(expected - xr.DataArray(constant, dims="eig")).max()) > 0.01
 
 
 # --- FTLE ------------------------------------------------------------------
 
 
-def test_ftle_pure_stretch(lon_axis, lat_axis):
-    """Pure stretch ``M = diag(a, b)`` gives a constant analytic FTLE.
+def test_ftle_pure_stretch_follows_the_local_frame_gradient(lon_axis, lat_axis):
+    """Pure stretch ``M = diag(a, b)`` gives an FTLE that varies over the grid.
 
-    Then ``lambda_max = max(a, b)**2`` and
-    ``ftle == (1 / |T|) * log(max(a, b))``. Use AuxiliarySeed so the field is
-    NaN-free; assert dims ``(i, j)`` and the constant value.
+    The local east/north rescaling makes the x-stretch latitude-dependent, so the
+    expectation is ``(1 / |T|) * log(sqrt(lambda_max))`` of the *analytic*
+    gradient's own Cauchy-Green tensor, not ``log(max(a, b)) / |T|``. ``a > b``
+    puts the rescaled x-stretch in charge of ``lambda_max``, so the variation
+    reaches the FTLE. Use AuxiliarySeed so the field is NaN-free.
     """
-    a, b = 2.0, 3.0
+    a, b = 3.0, 2.0
     M_stretch = np.array([[a, 0.0], [0.0, b]])
     g = advected_flowmap(
         AuxiliarySeed, lon_axis, lat_axis, M_stretch, RELEASE_TIME, END_TIME
     )
     ftle = g.ftle()
 
-    expected = (1.0 / T_SEC) * np.log(max(a, b))
+    lam_max = analytic_eigenvalues(
+        analytic_gradient(M_stretch, flowmap=g, origin=seed_origin(g))
+    ).isel(eig=1, drop=True)
+    expected = (1.0 / T_SEC) * np.log(np.sqrt(lam_max))
+
     assert set(ftle.dims) == {"i", "j"}
     assert "eig" not in ftle.coords  # the eigenvalue pick leaves no scalar coord
-    assert float(abs(ftle - expected).max()) < 1e-6
+    # The FTLE is O(1e-5) here, so 1e-6 would pass on a constant field; hold the
+    # match to round-off instead.
+    assert float(abs(ftle - expected).max()) < 1e-12
+
+    # Not degenerate: the field genuinely varies, by far more than the tolerance
+    # above, so this is not the old constant log(max(a, b)) / |T| answer.
+    assert float(expected.max() - expected.min()) > 1e-9
 
 
 def test_ftle_matches_eigen(lon_axis, lat_axis):
