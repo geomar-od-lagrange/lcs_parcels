@@ -60,9 +60,9 @@ information; nothing sniffs for a `displacement` dim to decide what to do.
 
 - **Neighbour** (`Neighbor*`): the stencil is the neighbouring grid points
   $(i \pm 1, j \pm 1)$. No dims beyond `(i, j)`, and `lon_0`/`lat_0` equal
-  `lon_grid`/`lat_grid`. This is the SPASSO / d'Ovidio approach (see
-  `src/Diagnostics.py` in [SPASSO](https://github.com/OceanCruises/SPASSO)), and
-  it ties the gradient step to the seed resolution.
+  `lon_grid`/`lat_grid`. This is the SPASSO approach (see `src/Diagnostics.py`
+  in [SPASSO](https://github.com/OceanCruises/SPASSO)), and it ties the gradient
+  step to the seed resolution.
 - **Auxiliary** (`Auxiliary*`): each grid point carries four arms —
   east, north, west, south — on a single `displacement` dim, stored explicitly
   as the reference positions `lon_0`/`lat_0` around the grid point. No centre

@@ -88,10 +88,14 @@ jobs:
       # LCS_REQUIRE_EXAMPLES turns a skip into a failure. This job only reaches
       # here with credentials in hand, so a skipped example means the gate did
       # nothing -- which must be red, not green.
-      - name: Run every example as a test
+      # Takes ~15 min, nearly all of it cabo_verde_lcs_evolution. `-v` plus
+      # unbuffered output makes each example report as it finishes, so a long
+      # step is legible rather than looking hung.
+      - name: Run every example as a test (~15 min)
         if: steps.creds.outputs.available == 'true'
         env:
           COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
           COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
           LCS_REQUIRE_EXAMPLES: "1"
-        run: pixi run -e examples test-examples -ra
+          PYTHONUNBUFFERED: "1"
+        run: pixi run -e examples test-examples -v --durations=0 -ra

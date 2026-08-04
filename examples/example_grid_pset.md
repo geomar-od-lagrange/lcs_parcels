@@ -24,7 +24,10 @@ both directions -- `Seed.to_parcels_pset()` emits flat `(lon, lat)`,
 stands in for Parcels here is one line of arithmetic.
 
 The same grid is seeded twice, once per stencil, and carried side by side to
-the FTLE, which is where the two stop agreeing.
+the FTLE. On this smooth analytic flow the two agree on the *value* to roughly
+machine precision; what differs is where the value exists at all, since the
+neighbour stencil loses the outer ring of grid points and the auxiliary one
+does not.
 
 ```python
 import numpy as np

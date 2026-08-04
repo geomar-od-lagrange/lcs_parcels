@@ -20,7 +20,8 @@
 # An extracted hyperbolic LCS (see `cabo_verde_lcs`) is a **material** curve:
 # once we have its vertices at $t_0$ — the `lon`/`lat` that `shrink_lines`
 # returns — its position at any other time is fixed by the flow,
-# $\mathcal{M}(t) = F_{t_0}^{t}(\mathcal{M}(t_0))$ (Haller 2015, Eq. 5). We do
+# $\mathcal{M}(t) = F_{t_0}^{t}(\mathcal{M}(t_0))$ (Haller 2015, Eq. 5,
+# [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322)). We do
 # not re-diagnose the LCS at each time; we watch one fixed curve move.
 #
 # The flow map $F_{t_0}^{t}$ *is* the advected-position field a `FlowMap`
@@ -156,6 +157,11 @@ print(
 # directly with the curve it came from. Concatenating the curve at $t_0$ with
 # its image under each horizon map gives an evolution cube on
 # `(lead, line, point)`, `lead` being the signed offset from $t_0$ in days.
+#
+# The scalar `T` on each cube points the *opposite* way to its `lead`, which
+# looks wrong and is not: `T` is inherited provenance, the window the curve was
+# diagnosed over, while `lead` is the direction it is being advected. An
+# attracting LCS is diagnosed backward ($T < 0$) and evolved forward.
 
 # %%
 lead_days = np.concatenate([[0.0], leads / np.timedelta64(1, "D")])

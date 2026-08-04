@@ -35,7 +35,9 @@ from lcs_parcels import NeighborSeed
 
 ## Parameters
 
-Ten days is a few eddy turnover times at these latitudes: long enough for the
+Ten days is roughly one eddy turnover time at these latitudes -- the FTLE map
+below comes out around 0.1/day over most of the box, an e-folding time of about
+ten days. That is long enough for the
 stretching to separate neighbouring particles by more than a grid cell, short
 enough that the seed grid still resolves where they went. The seed spacing
 (1/25°) is finer than the 1/12° currents, so the differencing stencil is not

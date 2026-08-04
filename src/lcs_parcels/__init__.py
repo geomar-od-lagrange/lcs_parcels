@@ -20,7 +20,7 @@ from lcs_parcels.grids import (
 )
 from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
 
-__version__ = "2026.07.17.1"
+__version__ = "2026.08.04.1"
 
 __all__ = [
     "AuxiliaryFlowMap",

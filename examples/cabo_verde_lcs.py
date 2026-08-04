@@ -18,8 +18,9 @@
 # # Repelling and attracting LCS as strain tensor lines
 #
 # The FTLE map (see `cabo_verde_ftle`) shows *where* the flow stretches, but not
-# the material curves themselves. Haller (2015, §5.1 / Table 1) constructs those
-# curves directly from the Cauchy–Green strain tensor
+# the material curves themselves. Haller (2015, §5.1 / Table 1,
+# [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322))
+# constructs those curves directly from the Cauchy–Green strain tensor
 # $C = (\nabla F)^\top \nabla F$, whose eigenpairs satisfy
 # $C\,\xi_i = \lambda_i\,\xi_i$ with $0 < \lambda_1 \le \lambda_2$ and
 # $\xi_1 \perp \xi_2$. A **repelling** LCS is a *shrink line* — a curve tangent
@@ -185,10 +186,25 @@ repelling
 # %% [markdown]
 # Every line is one row of a fixed `(line, point)` rectangle, NaN-padded past the
 # point where it terminated — so the rows are all the same length and the curves
-# are not.
+# are not. A row that is NaN in *every* column is a different thing from a short
+# curve: it means $\xi_1$ was already undefined at the seed itself, so no curve
+# was traced through that seed at all.
 
 # %%
 repelling["lon"].isnull().sum("point")
+
+# %% [markdown]
+# That is about a quarter of the seeds here, and the reason is the NaN mask
+# rather than `min_anisotropy`. Each of these seeds sits on a grid point whose own
+# Cauchy–Green tensor is finite — a NaN grid point could not have been picked as a
+# ridge seed in the first place — but the tensor is interpolated bilinearly, and
+# the cell around the seed reaches into a neighbouring grid point that *is* NaN:
+# either a particle that beached on an island, or the outermost ring of the
+# `NeighborFlowMap`, which has no neighbour to difference $\nabla F$ against.
+
+# %%
+untraceable = repelling["lon"].isnull().all("point")
+int(untraceable.sum()), repelling.sizes["line"]
 
 # %% [markdown]
 # ## Attracting LCS, in one call
@@ -212,7 +228,8 @@ attracting
 # ## Repelling LCS over the forward FTLE
 #
 # The seed points are dotted so we can check they sit on the ridge tops and stay
-# separated. The FTLE gets a greyscale so the curves read against it.
+# separated. The FTLE gets a greyscale so the curves read against it. The dots
+# with no curve through them are the untraceable seeds counted above.
 
 # %%
 fig, ax = plt.subplots()
