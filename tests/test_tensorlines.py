@@ -380,6 +380,83 @@ def test_shrink_line_uses_reference_latitude_metric():
     assert np.max(np.abs(resid)) < 1e3  # collinear to < 1 km over ~1000 km
 
 
+# --- FlowMap.lcs -----------------------------------------------------------
+#
+# The uniform linear map makes every grid point an equally strong FTLE ridge
+# point, so the seed set is the whole grid -- fine for contract tests, which
+# care that lcs() runs the three steps, not which points it picks.
+
+LCS_KWARGS = {
+    "window_m": 330_000.0,
+    "quantile": 0.90,
+    "step_m": 10_000.0,
+    "line_length_m": 30_000.0,
+}
+
+
+def test_lcs_matches_the_manual_pipeline(lon_axis, lat_axis):
+    """lcs() is exactly ftle -> ftle_ridge_seeds -> shrink_lines, plus the FTLE."""
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
+    )
+
+    ftle = fm.ftle()
+    seed_lon, seed_lat = ftle_ridge_seeds(
+        ftle, window_m=LCS_KWARGS["window_m"], quantile=LCS_KWARGS["quantile"]
+    )
+    manual = shrink_lines(
+        fm,
+        seed_lon=seed_lon,
+        seed_lat=seed_lat,
+        step_m=LCS_KWARGS["step_m"],
+        line_length_m=LCS_KWARGS["line_length_m"],
+    )
+
+    lcs = fm.lcs(**LCS_KWARGS)
+
+    assert set(lcs.data_vars) == {"lon", "lat", "ftle"}
+    for name in ("lon", "lat"):
+        np.testing.assert_array_equal(lcs[name].values, manual[name].values)
+    np.testing.assert_array_equal(lcs["ftle"].values, ftle.values)
+
+
+def test_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):
+    """The FTLE is computed a single time and handed to the ridge finder."""
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
+    )
+    calls = []
+    original = type(fm).ftle
+
+    def counting_ftle(self):
+        calls.append(self)
+        return original(self)
+
+    monkeypatch.setattr(type(fm), "ftle", counting_ftle)
+
+    fm.lcs(**LCS_KWARGS)
+
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("t0", "t1", "kind"), [(T0, T1, "repelling"), (T1, T0, "attracting")]
+)
+def test_lcs_metadata_names_the_lcs_type(lon_axis, lat_axis, t0, t1, kind):
+    """A forward flow map yields repelling LCS, a backward one attracting ones,
+    and the returned dataset says which without being asked."""
+    fm = advected_flowmap(
+        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), t0, t1
+    )
+
+    lcs = fm.lcs(**LCS_KWARGS)
+
+    assert kind in lcs.attrs["long_name"]
+    assert kind in lcs["lon"].attrs["long_name"]
+    assert kind in lcs["lat"].attrs["long_name"]
+    assert lcs["ftle"].attrs["units"] == "1/s"
+
+
 def test_shrink_lines_seed_pair_is_keyword_only(lon_axis, lat_axis):
     """Passing the seed lon/lat pair positionally raises, so a swap cannot pass
     silently -- including the ``*ftle_ridge_seeds(...)`` unpacking form."""

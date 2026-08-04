@@ -181,6 +181,27 @@ def _assemble_tensor(
     return tensor.assign_attrs(long_name=long_name, units=units)
 
 
+def _extent(values: xr.DataArray) -> str:
+    """``min..max`` of a coordinate in degrees, or ``nan..nan`` if it is all NaN."""
+    return f"{float(values.min()):.3f}..{float(values.max()):.3f}"
+
+
+def _grid_summary(obj: Seed | FlowMap) -> str:
+    """Opening of the one-line repr: class, grid shape, lon/lat extent.
+
+    Shared by :meth:`Seed.__repr__` and :meth:`FlowMap.__repr__`, which close it
+    (the flow map after appending its timing). Reads the diagnostic grid via the
+    ``lon_grid``/``lat_grid`` accessors, so it is stencil-agnostic; ``min``/``max``
+    skip NaN.
+    """
+    lon_grid, lat_grid = obj.lon_grid, obj.lat_grid
+    shape = f"{lon_grid.sizes['i']}x{lon_grid.sizes['j']}"
+    return (
+        f"<{type(obj).__name__} {shape} grid, "
+        f"lon {_extent(lon_grid)}, lat {_extent(lat_grid)}"
+    )
+
+
 class Seed(abc.ABC):
     """Time-free wrapper around an ``xr.Dataset`` of seed positions.
 
@@ -230,6 +251,10 @@ class Seed(abc.ABC):
     def lat_grid(self) -> xr.DataArray:
         """Latitude of the diagnostic grid points, ``(i, j)``, degrees north."""
         return self.ds["lat_grid"]
+
+    def __repr__(self) -> str:
+        """One-line summary: class, grid shape, lon/lat extent."""
+        return f"{_grid_summary(self)}>"
 
     @classmethod
     @abc.abstractmethod
@@ -395,6 +420,24 @@ class FlowMap(abc.ABC):
     def lat_grid(self) -> xr.DataArray:
         """Latitude of the diagnostic grid points, ``(i, j)``, degrees north."""
         return self.ds["lat_grid"]
+
+    def __repr__(self) -> str:
+        """One-line summary: class, grid shape, lon/lat extent, ``t0`` and ``T``."""
+        return (
+            f"{_grid_summary(self)}, "
+            f"t0 {np.datetime64(self.ds['t0'].values, 's')}, "
+            f"T {self._window_days():+.2f} days ({self._direction()})>"
+        )
+
+    def _direction(self) -> str:
+        """``'forward/repelling'`` or ``'backward/attracting'``, from ``sign(T)``."""
+        if self.ds["T"] > np.timedelta64(0, "s"):
+            return "forward/repelling"
+        return "backward/attracting"
+
+    def _window_days(self) -> float:
+        """The signed window ``T`` in days."""
+        return float(self.ds["T"] / np.timedelta64(1, "D"))
 
     @property
     @abc.abstractmethod
@@ -605,6 +648,79 @@ class FlowMap(abc.ABC):
         image["lon_grid"].attrs.update(LON_0_ATTRS)
         image["lat_grid"].attrs.update(LAT_0_ATTRS)
         return image
+
+    def lcs(
+        self,
+        *,
+        window_m: float | None = None,
+        quantile: float | None = None,
+        ftle_min_per_day: float | None = None,
+        step_m: float | None = None,
+        line_length_m: float | None = None,
+    ) -> xr.Dataset:
+        """Hyperbolic LCS of this flow map: FTLE, ridge seeds, and shrink lines.
+
+        Runs the three-step workflow in one call: compute the FTLE field
+        (:meth:`ftle`), pick seed points at its strong local maxima
+        (:func:`~lcs_parcels.ftle_ridge_seeds`), and integrate the shrink lines
+        through them (:func:`~lcs_parcels.shrink_lines`). The FTLE is computed
+        once and handed to the ridge finder, which keeps taking a field rather
+        than a flow map, so a caller who wants a smoothed or masked field still
+        drives the three steps directly.
+
+        A *forward* flow map (``T > 0``) yields repelling LCS, a *backward* one
+        (``T < 0``) attracting LCS, by the Haller-Sapsis duality; the sign of the
+        stored window decides, and the returned dataset says which it holds.
+
+        Parameters
+        ----------
+        window_m, quantile : float, optional
+            Ridge-selection parameters, passed to
+            :func:`~lcs_parcels.ftle_ridge_seeds`.
+        ftle_min_per_day, step_m, line_length_m : float, optional
+            Integration parameters, passed to
+            :func:`~lcs_parcels.shrink_lines`.
+
+        Returns
+        -------
+        xr.Dataset
+            ``lon``/``lat`` (degrees) on dims ``(line, point)`` -- the LCS curves,
+            NaN past termination -- together with the ``ftle`` field (1/s) on
+            ``(i, j)`` that the seeds were picked from, so the curves can be
+            plotted over it without recomputing.
+        """
+        # tensorlines imports from this module, so the import is made here: at
+        # module level it would close an import cycle.
+        from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
+
+        # Only arguments the caller actually set are forwarded, so the defaults
+        # live once, in the function that consumes them.
+        def given(**kwargs) -> dict[str, float]:
+            return {k: v for k, v in kwargs.items() if v is not None}
+
+        ftle = self.ftle()
+        seed_lon, seed_lat = ftle_ridge_seeds(
+            ftle, **given(window_m=window_m, quantile=quantile)
+        )
+        lines = shrink_lines(
+            self,
+            seed_lon=seed_lon,
+            seed_lat=seed_lat,
+            **given(
+                ftle_min_per_day=ftle_min_per_day,
+                step_m=step_m,
+                line_length_m=line_length_m,
+            ),
+        )
+        direction, kind = self._direction().split("/")
+        lines["lon"].attrs["long_name"] = f"longitude along the {kind} LCS"
+        lines["lat"].attrs["long_name"] = f"latitude along the {kind} LCS"
+        lcs = lines.assign(ftle=ftle)
+        lcs.attrs["long_name"] = (
+            f"{kind} LCS: shrink lines of the {direction} flow map, "
+            "with the FTLE field their seeds were picked from"
+        )
+        return lcs
 
     def to_seed(self) -> Seed:
         """Drop the advected positions and time, recovering a time-free seed.

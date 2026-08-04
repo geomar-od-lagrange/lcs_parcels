@@ -10,7 +10,7 @@ coords and ``lon``/``lat`` data vars.
 import numpy as np
 import pytest
 
-from lcs_parcels import AuxiliarySeed, NeighborSeed
+from lcs_parcels import AuxiliarySeed, NeighborFlowMap, NeighborSeed
 from lcs_parcels.grids import _lonlat_to_meters
 
 # Release/end times supplied only at ingest (the seed itself is time-free).
@@ -232,6 +232,57 @@ def test_grid_image_is_on_the_diagnostic_grid(lon_axis, lat_axis):
         # Undisplaced particles: the image of a grid point is the grid point.
         assert np.allclose(image["lon"], fm.lon_grid)
         assert np.allclose(image["lat"], fm.lat_grid)
+
+
+# --- reprs -----------------------------------------------------------------
+
+
+def test_seed_repr_is_a_one_line_summary(lon_axis, lat_axis):
+    """Class, grid shape and lon/lat extent on one line -- not the dataset."""
+    for seed_cls in (NeighborSeed, AuxiliarySeed):
+        text = repr(seed_cls.from_axes(lon=lon_axis, lat=lat_axis))
+
+        assert "\n" not in text
+        assert seed_cls.__name__ in text
+        assert "4x5 grid" in text
+        assert "lon -2.000..1.000" in text
+        assert "lat 10.000..14.000" in text
+
+
+def test_flowmap_repr_adds_the_window_and_its_direction(lon_axis, lat_axis):
+    """The flow-map repr is the seed summary plus t0 and the signed window,
+    which reads forward/repelling or backward/attracting from sign(T)."""
+    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+    lon, lat = seed.to_parcels_pset()
+
+    forward = repr(seed.pset_to_flowmap(lon=lon, lat=lat, t0=T0, t1=T1))
+    backward = repr(seed.pset_to_flowmap(lon=lon, lat=lat, t0=T1, t1=T0))
+
+    assert "\n" not in forward
+    assert "NeighborFlowMap" in forward
+    assert "4x5 grid" in forward
+    assert "t0 2020-01-01T00:00:00" in forward
+    assert "T +1.00 days (forward/repelling)" in forward
+    assert "T -1.00 days (backward/attracting)" in backward
+
+
+def test_repr_survives_an_all_nan_grid(lon_axis, lat_axis):
+    """An all-NaN dataset still reprs: every particle lost, and even the grid
+    coords NaN, prints rather than raising or warning."""
+    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+    lon, _ = seed.to_parcels_pset()
+    lost = [np.nan] * len(lon)
+    fm = seed.pset_to_flowmap(lon=lost, lat=lost, t0=T0, t1=T1)
+
+    assert "NeighborFlowMap" in repr(fm)
+    assert "lon -2.000..1.000" in repr(fm)  # the grid itself is intact
+
+    nan_grid = NeighborFlowMap(
+        fm.ds.assign_coords(
+            lon_grid=fm.lon_grid * np.nan, lat_grid=fm.lat_grid * np.nan
+        )
+    )
+    assert "lon nan..nan" in repr(nan_grid)
 
 
 # --- keyword-only lon/lat pairs --------------------------------------------
