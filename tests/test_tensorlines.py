@@ -13,10 +13,16 @@ import numpy as np
 import pytest
 import xarray as xr
 from conftest import advected_flowmap
+from scipy.interpolate import RegularGridInterpolator
 
 from lcs_parcels import AuxiliarySeed, ftle_ridge_seeds, shrink_lines
 from lcs_parcels.grids import _lonlat_to_meters
-from lcs_parcels.tensorlines import _window_cells
+from lcs_parcels.tensorlines import (
+    _shrink_direction,
+    _step_lonlat_by_meters,
+    _trace_half_line,
+    _window_cells,
+)
 
 T0 = np.datetime64("2020-01-01")
 T1 = np.datetime64("2020-01-02")
@@ -113,6 +119,161 @@ def test_ftle_ridge_seeds_selectivity_is_physical(n_lon):
 
     assert np.allclose(np.sort(lon_narrow), [-0.5, 0.5])
     assert np.allclose(lon_wide, [-0.5])  # only the stronger bump survives
+
+
+# --- lifted integrator internals -------------------------------------------
+#
+# These take the state that used to be closed over (the interpolator, the
+# eigenvalue floor, the step, the reference latitude) as explicit arguments, so
+# they can be driven from an analytic tensor field without building a FlowMap.
+
+TENSOR_LON = np.linspace(-1.0, 1.0, 21)
+TENSOR_LAT = np.linspace(-1.0, 1.0, 21)
+
+
+def _uniform_tensor_interp(C, nan_at=None):
+    """Interpolator over a constant Cauchy-Green tensor ``C`` on a small grid.
+
+    ``nan_at``, if given, is an ``(i, j)`` index pair whose tensor is set to NaN,
+    standing in for a lost/land cell.
+    """
+    field = np.broadcast_to(
+        np.asarray(C, dtype=float), (TENSOR_LON.size, TENSOR_LAT.size, 2, 2)
+    ).copy()
+    if nan_at is not None:
+        field[nan_at[0], nan_at[1]] = np.nan
+    return RegularGridInterpolator(
+        (TENSOR_LON, TENSOR_LAT), field, bounds_error=False, fill_value=np.nan
+    )
+
+
+def test_shrink_direction_is_unit_xi1():
+    """C = diag(1, 9) has xi_1 along x; the returned vector is that unit vector."""
+    interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
+
+    direction = _shrink_direction(
+        np.array([0.0]),
+        np.array([0.0]),
+        np.array([[1.0, 0.0]]),
+        tensor_interp=interp,
+        lambda_max_min=1.1,
+    )
+
+    assert np.allclose(direction, [[1.0, 0.0]])
+    assert np.allclose(np.linalg.norm(direction, axis=1), 1.0)
+
+
+def test_shrink_direction_follows_the_heading():
+    """An eigenvector has no intrinsic sign: the heading picks which way it points."""
+    interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
+    lon, lat = np.zeros(2), np.zeros(2)
+
+    direction = _shrink_direction(
+        lon,
+        lat,
+        np.array([[1.0, 0.0], [-1.0, 0.0]]),
+        tensor_interp=interp,
+        lambda_max_min=1.1,
+    )
+
+    assert np.allclose(direction, [[1.0, 0.0], [-1.0, 0.0]])
+
+
+def test_shrink_direction_is_nan_off_grid():
+    """Points outside the tensor grid terminate."""
+    interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
+
+    direction = _shrink_direction(
+        np.array([0.0, 5.0]),
+        np.array([0.0, 0.0]),
+        np.ones((2, 2)),
+        tensor_interp=interp,
+        lambda_max_min=1.1,
+    )
+
+    assert np.isfinite(direction[0]).all()
+    assert np.isnan(direction[1]).all()
+
+
+def test_shrink_direction_is_nan_in_a_nan_cell():
+    """A NaN tensor cell terminates a line landing on it."""
+    interp = _uniform_tensor_interp(np.diag([1.0, 9.0]), nan_at=(10, 10))
+
+    direction = _shrink_direction(
+        np.array([TENSOR_LON[10], TENSOR_LON[0]]),
+        np.array([TENSOR_LAT[10], TENSOR_LAT[0]]),
+        np.ones((2, 2)),
+        tensor_interp=interp,
+        lambda_max_min=1.1,
+    )
+
+    assert np.isnan(direction[0]).all()
+    assert np.isfinite(direction[1]).all()
+
+
+def test_shrink_direction_is_nan_below_the_eigenvalue_floor():
+    """The degeneracy guard fires on lambda_2, whatever xi_1 happens to be."""
+    interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
+    args = (np.array([0.0]), np.array([0.0]), np.array([[1.0, 0.0]]))
+
+    below = _shrink_direction(*args, tensor_interp=interp, lambda_max_min=100.0)
+    above = _shrink_direction(*args, tensor_interp=interp, lambda_max_min=1.1)
+
+    assert np.isnan(below).all()
+    assert np.isfinite(above).all()
+
+
+def test_step_lonlat_moves_the_requested_arc_length():
+    """A unit direction moves exactly step_m in the package's own metres frame."""
+    lon0, lat0 = np.array([0.0]), np.array([20.0])
+    direction = np.array([[np.cos(0.7), np.sin(0.7)]])
+
+    lon1, lat1 = _step_lonlat_by_meters(
+        lon0, lat0, direction, step_m=25_000.0, lat_ref=20.0
+    )
+
+    x0, y0 = _lonlat_to_meters(lon0, lat0, 0.0, 20.0)
+    x1, y1 = _lonlat_to_meters(lon1, lat1, 0.0, 20.0)
+    assert np.allclose(np.hypot(x1 - x0, y1 - y0), 25_000.0)
+
+
+def test_step_lonlat_spends_more_degrees_at_higher_latitude():
+    """The same eastward metres are more degrees of longitude nearer the pole."""
+    lon0, lat0 = np.array([0.0]), np.array([0.0])
+    east = np.array([[1.0, 0.0]])
+
+    lon_equator, _ = _step_lonlat_by_meters(
+        lon0, lat0, east, step_m=25_000.0, lat_ref=0.0
+    )
+    lon_polar, _ = _step_lonlat_by_meters(
+        lon0, lat0, east, step_m=25_000.0, lat_ref=60.0
+    )
+
+    assert lon_polar[0] > lon_equator[0]
+    assert np.allclose(lon_polar[0], lon_equator[0] / np.cos(np.deg2rad(60.0)))
+
+
+def test_trace_half_line_point_count_and_nan_padding():
+    """The track is n_steps + 1 points and, once it leaves the grid, stays NaN."""
+    interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
+
+    track = _trace_half_line(
+        np.array([0.0]),
+        np.array([0.0]),
+        +1,
+        tensor_interp=interp,
+        lambda_max_min=1.1,
+        step_m=50_000.0,
+        lat_ref=0.0,
+        n_steps=10,
+    )
+
+    assert len(track) == 11
+    lon = np.array([p[0][0] for p in track])
+    assert np.isfinite(lon[:3]).all()  # 0.45 deg steps stay inside |lon| <= 1
+    assert np.isnan(lon[-1])
+    finite = np.isfinite(lon)
+    assert not finite[np.argmin(finite) :].any()  # never recovers once terminated
 
 
 # --- shrink_lines ----------------------------------------------------------

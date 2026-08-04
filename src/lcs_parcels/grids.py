@@ -810,16 +810,16 @@ class NeighborFlowMap(FlowMap):
 
         # lon_0 varies along i, lat_0 along j, so these are the pure x- and y-
         # reference steps in meters.
-        dx0 = central_diff(x_ref, "i")
-        dy0 = central_diff(y_ref, "j")
+        reference_step_x = central_diff(x_ref, "i")
+        reference_step_y = central_diff(y_ref, "j")
         return _assemble_tensor(
             name="deformation_gradient",
             long_name="deformation gradient grad F of the flow map",
             units="1",
-            fxx=central_diff(x_adv, "i") / dx0,
-            fxy=central_diff(x_adv, "j") / dy0,
-            fyx=central_diff(y_adv, "i") / dx0,
-            fyy=central_diff(y_adv, "j") / dy0,
+            fxx=central_diff(x_adv, "i") / reference_step_x,
+            fxy=central_diff(x_adv, "j") / reference_step_y,
+            fyx=central_diff(y_adv, "i") / reference_step_x,
+            fyy=central_diff(y_adv, "j") / reference_step_y,
         )
 
 
@@ -856,21 +856,21 @@ class AuxiliaryFlowMap(FlowMap):
         """
         x_adv, y_adv, x_ref, y_ref = self._stencil_meters()
 
-        def arm_diff(field: xr.DataArray, hi: str, lo: str) -> xr.DataArray:
+        def arm_diff(field: xr.DataArray, positive: str, negative: str) -> xr.DataArray:
             # Difference two opposing arms; the scalar `displacement` label is
             # dropped on subtraction so the result is back on (i, j).
-            return field.sel(displacement=hi) - field.sel(displacement=lo)
+            return field.sel(displacement=positive) - field.sel(displacement=negative)
 
-        den_x = arm_diff(x_ref, "east", "west")
-        den_y = arm_diff(y_ref, "north", "south")
+        arm_span_x = arm_diff(x_ref, "east", "west")
+        arm_span_y = arm_diff(y_ref, "north", "south")
         return _assemble_tensor(
             name="deformation_gradient",
             long_name="deformation gradient grad F of the flow map",
             units="1",
-            fxx=arm_diff(x_adv, "east", "west") / den_x,
-            fxy=arm_diff(x_adv, "north", "south") / den_y,
-            fyx=arm_diff(y_adv, "east", "west") / den_x,
-            fyy=arm_diff(y_adv, "north", "south") / den_y,
+            fxx=arm_diff(x_adv, "east", "west") / arm_span_x,
+            fxy=arm_diff(x_adv, "north", "south") / arm_span_y,
+            fyx=arm_diff(y_adv, "east", "west") / arm_span_x,
+            fyy=arm_diff(y_adv, "north", "south") / arm_span_y,
         )
 
 

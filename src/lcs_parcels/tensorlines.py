@@ -12,7 +12,7 @@ Two functions compose the workflow: :func:`ftle_ridge_seeds` picks start points,
 :func:`shrink_lines` integrates the tensor lines through them. Both take the
 gridded xarray outputs of a :class:`~lcs_parcels.FlowMap`; the tight ODE loop
 drops to NumPy/SciPy (a :class:`scipy.interpolate.RegularGridInterpolator` on the
-tensor field), the one place we leave the label-based xarray API.
+tensor field).
 
 Rectilinear grids only: like :class:`~lcs_parcels.NeighborFlowMap`, the tensor is
 interpolated on axis-aligned ``lon_grid``/``lat_grid`` axes (``lon_grid`` varying
@@ -99,6 +99,191 @@ def ftle_ridge_seeds(
     return lon[mask], lat[mask]
 
 
+def _shrink_direction(
+    lon: np.ndarray,
+    lat: np.ndarray,
+    heading: np.ndarray,
+    *,
+    tensor_interp: RegularGridInterpolator,
+    lambda_max_min: float,
+) -> np.ndarray:
+    """Unit ``xi_1`` at each ``(lon, lat)``, oriented to ``heading``.
+
+    Parameters
+    ----------
+    lon, lat : np.ndarray
+        Positions (degrees), shape ``(n,)``.
+    heading : np.ndarray
+        Shape ``(n, 2)``; the running direction each returned vector is aligned
+        with. Need not be a unit vector -- only its sign against ``xi_1``
+        matters.
+    tensor_interp : RegularGridInterpolator
+        Interpolator over the Cauchy-Green tensor field, returning ``(n, 2, 2)``
+        and ``NaN`` off-grid.
+    lambda_max_min : float
+        Degeneracy guard: points whose ``lambda_2`` falls below this return NaN.
+
+    Returns
+    -------
+    np.ndarray
+        Shape ``(n, 2)`` unit vectors in the metres frame; ``NaN`` rows where the
+        point is off-grid, in a NaN cell, or below ``lambda_max_min``.
+    """
+    cauchy_green = tensor_interp(np.column_stack([lon, lat]))
+    terminated = ~np.isfinite(cauchy_green).all(axis=(1, 2))
+    # eigh returns eigenvalues ascending: eigenvalues[:, 0] = lambda_1 (the
+    # *smaller*, weak-stretch eigenvalue) with eigenvector eigenvectors[:, :, 0]
+    # = xi_1, the shrink-line tangent; eigenvalues[:, 1] = lambda_2 = lambda_max.
+    # Off-grid points are diagonalised as the identity purely to keep eigh from
+    # raising; their rows are overwritten with NaN below.
+    eigenvalues, eigenvectors = np.linalg.eigh(
+        np.where(terminated[:, None, None], np.eye(2), cauchy_green)
+    )
+    # Stop at near-degenerate points: where lambda_1 ~ lambda_2 the tensor is
+    # close to isotropic and xi_1 is an arbitrary direction in the plane, so
+    # continuing would trace numerical noise.
+    terminated = terminated | (eigenvalues[:, 1] < lambda_max_min)
+    direction = eigenvectors[:, :, 0]
+    # An eigenvector has no intrinsic sign, so eigh's choice flips arbitrarily
+    # between neighbouring points. Flip each one to the acute side of the running
+    # heading, which is what makes the marched sequence a continuous curve rather
+    # than a zig-zag.
+    direction[np.sum(direction * heading, axis=1) < 0] *= -1
+    direction[terminated] = np.nan
+    return direction
+
+
+def _step_lonlat_by_meters(
+    lon: np.ndarray,
+    lat: np.ndarray,
+    direction: np.ndarray,
+    *,
+    step_m: float,
+    lat_ref: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Advance ``(lon, lat)`` by ``step_m`` metres along ``direction``.
+
+    ``direction`` is a vector in the single-reference-latitude metres frame the
+    Cauchy-Green tensor lives in (:func:`~lcs_parcels.grids._to_meters`), so the
+    conversion back to degrees uses the one ``lat_ref``, not a per-point
+    ``cos(lat)``. A unit ``direction`` moves exactly ``step_m``; a shorter one
+    (the half-step of the midpoint scheme) moves proportionally less.
+
+    Parameters
+    ----------
+    lon, lat : np.ndarray
+        Positions (degrees), shape ``(n,)``.
+    direction : np.ndarray
+        Shape ``(n, 2)``, metres-frame ``(x, y)`` components.
+    step_m : float
+        Arc length in metres for a unit ``direction``.
+    lat_ref : float
+        The reference latitude (degrees) of the metres frame.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        The stepped ``(lon, lat)`` in degrees.
+    """
+    m_per_deg_lat = EARTH_RADIUS_M * _DEG
+    m_per_deg_lon = m_per_deg_lat * np.cos(lat_ref * _DEG)
+    return (
+        lon + direction[:, 0] / m_per_deg_lon * step_m,
+        lat + direction[:, 1] / m_per_deg_lat * step_m,
+    )
+
+
+def _trace_half_line(
+    seed_lon: np.ndarray,
+    seed_lat: np.ndarray,
+    sign: int,
+    *,
+    tensor_interp: RegularGridInterpolator,
+    lambda_max_min: float,
+    step_m: float,
+    lat_ref: float,
+    n_steps: int,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """March every seed ``n_steps`` steps in one of the two ``xi_1`` directions.
+
+    Integrates ``dr/ds = xi_1(r)`` with RK2 (the midpoint / modified-Euler
+    scheme): evaluate ``xi_1`` at the current point, half-step along it, evaluate
+    again at that midpoint, and take the full step along the midpoint direction.
+
+    Parameters
+    ----------
+    seed_lon, seed_lat : np.ndarray
+        Seed positions (degrees), shape ``(n,)``.
+    sign : int
+        ``+1`` or ``-1``, selecting which of the two opposite ``xi_1`` branches
+        this half follows away from the seeds.
+    tensor_interp, lambda_max_min, step_m, lat_ref
+        As for :func:`_shrink_direction` and :func:`_step_lonlat_by_meters`.
+    n_steps : int
+        Number of steps taken; the returned track has ``n_steps + 1`` entries,
+        the first being the seeds themselves.
+
+    Returns
+    -------
+    list[tuple[np.ndarray, np.ndarray]]
+        ``n_steps + 1`` ``(lon, lat)`` pairs, each of shape ``(n,)``, ordered
+        along the curve away from the seed. Terminated lines carry ``NaN`` from
+        the step that terminated them onward.
+    """
+    lon = np.asarray(seed_lon, dtype=float).ravel().copy()
+    lat = np.asarray(seed_lat, dtype=float).ravel().copy()
+    # Pick the initial branch by dotting xi_1 against the 45-degree direction --
+    # an arbitrary tie-break, since at the seed there is no running heading yet.
+    # A seed whose xi_1 lies near the anti-diagonal therefore flips branch on
+    # numerical noise. The two halves make this choice independently, so a curve
+    # can kink at the seed point they share.
+    heading = sign * _shrink_direction(
+        lon,
+        lat,
+        np.ones((lon.size, 2)),
+        tensor_interp=tensor_interp,
+        lambda_max_min=lambda_max_min,
+    )
+    # A seed we cannot trace from (off-grid, NaN cell, or below the guard)
+    # makes an all-NaN line rather than a dangling seed point.
+    untraceable = ~np.isfinite(heading).all(axis=1)
+    lon[untraceable] = np.nan
+    lat[untraceable] = np.nan
+    track = [(lon.copy(), lat.copy())]
+    for _ in range(n_steps):
+        direction = _shrink_direction(
+            lon,
+            lat,
+            heading,
+            tensor_interp=tensor_interp,
+            lambda_max_min=lambda_max_min,
+        )
+        mid_lon, mid_lat = _step_lonlat_by_meters(
+            lon, lat, 0.5 * direction, step_m=step_m, lat_ref=lat_ref
+        )
+        # The degeneracy guard is evaluated at the RK2 midpoint too, so a step
+        # whose two endpoints are both fine still terminates the line if the
+        # tensor is degenerate halfway along it.
+        mid_direction = _shrink_direction(
+            mid_lon,
+            mid_lat,
+            direction,
+            tensor_interp=tensor_interp,
+            lambda_max_min=lambda_max_min,
+        )
+        lon, lat = _step_lonlat_by_meters(
+            lon, lat, mid_direction, step_m=step_m, lat_ref=lat_ref
+        )
+        heading = mid_direction
+        # Every line runs the full n_steps and is NaN-filled past termination,
+        # rather than breaking out: the whole seed population marches together in
+        # one array, so there is nothing to break out of, and the result is a
+        # rectangular (line, point) block. That costs work on lines that died
+        # early and pads the output; see #11.
+        track.append((lon.copy(), lat.copy()))
+    return track
+
+
 def shrink_lines(
     flowmap,
     *,
@@ -169,56 +354,26 @@ def shrink_lines(
     # CG_grid (not "C-grid": no Arakawa staggering here) is the Cauchy-Green
     # tensor on the analysis grid, interpolated point-by-point during the trace.
     CG_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
-    interp = RegularGridInterpolator(
+    # The one place this package leaves the label-based xarray API: the ODE loop
+    # below evaluates the tensor at millions of scattered points, which
+    # ``.interp()`` cannot do without building an xarray object per step.
+    tensor_interp = RegularGridInterpolator(
         (lon_axis, lat_axis), CG_grid, bounds_error=False, fill_value=np.nan
     )
 
-    def xi1(lon, lat, heading):
-        """Unit xi_1 at (lon, lat), oriented to `heading`; NaN where the line stops."""
-        CG = interp(np.column_stack([lon, lat]))
-        bad = ~np.isfinite(CG).all(axis=(1, 2))
-        # eigh returns eigenvalues ascending: lam[:, 0] = lambda_1 (the *smaller*,
-        # weak-stretch eigenvalue) with eigenvector vec[:, :, 0] = xi_1, the
-        # shrink-line tangent; lam[:, 1] = lambda_2 = lambda_max (the larger).
-        lam, vec = np.linalg.eigh(np.where(bad[:, None, None], np.eye(2), CG))
-        bad = bad | (lam[:, 1] < lambda_max_min)  # stop at near-degenerate points
-        d = vec[:, :, 0]
-        d[np.sum(d * heading, axis=1) < 0] *= -1  # orient to the running heading
-        d[bad] = np.nan
-        return d
-
-    def step(lon, lat, d):
-        m_per_deg_lat = EARTH_RADIUS_M * _DEG
-        m_per_deg_lon = m_per_deg_lat * np.cos(lat_ref * _DEG)
-        d_lon = d[:, 0] / m_per_deg_lon * step_m
-        d_lat = d[:, 1] / m_per_deg_lat * step_m
-        return lon + d_lon, lat + d_lat
-
-    def half(sign):
-        lon = np.asarray(seed_lon, dtype=float).ravel().copy()
-        lat = np.asarray(seed_lat, dtype=float).ravel().copy()
-        heading = sign * xi1(
-            lon, lat, np.ones((lon.size, 2))
-        )  # pick the initial branch
-        # A seed we cannot trace from (off-grid, NaN cell, or below the guard)
-        # makes an all-NaN line rather than a dangling seed point.
-        untraceable = ~np.isfinite(heading).all(axis=1)
-        lon[untraceable] = np.nan
-        lat[untraceable] = np.nan
-        track = [(lon.copy(), lat.copy())]
-        for _ in range(n_steps):
-            d1 = xi1(lon, lat, heading)
-            mid_lon, mid_lat = step(lon, lat, 0.5 * d1)
-            d2 = xi1(mid_lon, mid_lat, d1)
-            lon, lat = step(lon, lat, d2)
-            heading = d2
-            track.append((lon.copy(), lat.copy()))
-        return track
-
+    trace_kwargs = {
+        "tensor_interp": tensor_interp,
+        "lambda_max_min": lambda_max_min,
+        "step_m": step_m,
+        "lat_ref": lat_ref,
+        "n_steps": n_steps,
+    }
     # Trace both ways from each seed and stitch into one curve through it: the
     # backward half reversed (so it runs into the seed), then the forward half
-    # with its first point (the seed, shared) dropped.
-    points = half(-1)[::-1] + half(+1)[1:]
+    # with its first point (the seed, shared) dropped. Each half picks its
+    # initial branch on its own, so the stitched curve may kink at the seed.
+    points = _trace_half_line(seed_lon, seed_lat, -1, **trace_kwargs)[::-1]
+    points += _trace_half_line(seed_lon, seed_lat, +1, **trace_kwargs)[1:]
     lon_lines = np.array([p[0] for p in points]).T  # (line, point)
     lat_lines = np.array([p[1] for p in points]).T
     return xr.Dataset(
