@@ -18,6 +18,7 @@ from scipy.interpolate import RegularGridInterpolator
 from lcs_parcels import AuxiliarySeed, ftle_ridge_seeds, shrink_lines
 from lcs_parcels.grids import _lonlat_to_meters
 from lcs_parcels.tensorlines import (
+    SECONDS_PER_DAY,
     _shrink_direction,
     _step_lonlat_by_meters,
     _trace_half_line,
@@ -105,6 +106,30 @@ def test_window_cell_count_tracks_grid_resolution():
 
     assert cells_coarse == (5, 5)
     assert cells_fine == (11, 11)
+
+
+def test_window_cell_count_is_per_dimension_and_odd():
+    """Each dimension gets its own count, from its own spacing in the package's
+    single-reference-latitude metres frame, rounded down to an odd number.
+
+    A mid-latitude grid of 0.1 deg by 0.05 deg cells separates the three things an
+    equatorial isotropic grid hides. With ``phi_ref = 40 N`` the spacings are
+    ``dx = 0.1 * 111195 * cos(40) = 8518 m`` and ``dy = 0.05 * 111195 = 5560 m``,
+    so a 50 km window is ``round(5.87) = 6 -> 5`` cells along ``i`` (the
+    odd-enforcement branch fires) and ``round(8.99) = 9`` along ``j``.
+    """
+    lon_axis = np.arange(0.0, 4.0001, 0.1)
+    lat_axis = np.arange(30.0, 50.0001, 0.05)
+    lon2d, lat2d = xr.broadcast(
+        xr.DataArray(lon_axis, dims="i"), xr.DataArray(lat_axis, dims="j")
+    )
+    ftle = xr.DataArray(
+        np.zeros(lon2d.shape),
+        dims=("i", "j"),
+        coords={"lon_grid": lon2d, "lat_grid": lat2d},
+    )
+
+    assert _window_cells(ftle, 50_000.0) == (5, 9)
 
 
 @pytest.mark.parametrize("n_lon", [61, 121])
@@ -253,6 +278,109 @@ def test_step_lonlat_spends_more_degrees_at_higher_latitude():
     assert np.allclose(lon_polar[0], lon_equator[0] / np.cos(np.deg2rad(60.0)))
 
 
+def _turning_tensor(turn_per_degree, *, half_extent_deg=10.0):
+    """``C`` whose ``xi_1`` direction turns with longitude, as a callable.
+
+    ``C(lon) = R(theta) diag(1, 9) R(theta)^T`` with ``theta = turn_per_degree *
+    lon``, so ``xi_1`` is ``(cos theta, sin theta)`` and a curve tracing it bends
+    as it advances. Every uniform-``C`` fixture above hides the integration
+    scheme: there the midpoint direction equals the direction at the current
+    point, so RK2 and plain Euler produce bit-identical tracks.
+
+    Exposes the ``RegularGridInterpolator`` call interface but evaluates exactly,
+    so a measured error is the integrator's own rather than the tensor
+    interpolation's. Points beyond ``half_extent_deg`` return NaN, standing in for
+    leaving the grid.
+    """
+
+    def evaluate(points):
+        points = np.atleast_2d(np.asarray(points, dtype=float))
+        theta = turn_per_degree * points[:, 0]
+        c, s = np.cos(theta), np.sin(theta)
+        out = np.empty((points.shape[0], 2, 2))
+        out[:, 0, 0] = c * c + 9.0 * s * s
+        out[:, 0, 1] = out[:, 1, 0] = -8.0 * c * s
+        out[:, 1, 1] = s * s + 9.0 * c * c
+        out[np.max(np.abs(points), axis=1) > half_extent_deg] = np.nan
+        return out
+
+    return evaluate
+
+
+def _dipping_tensor(lon_dip, *, half_width_deg):
+    """``C = diag(1, lambda_2)`` with ``lambda_2`` dropping from 9 to 1 in a narrow
+    longitude band, so a step can straddle a degenerate patch its endpoints miss.
+    """
+
+    def evaluate(points):
+        points = np.atleast_2d(np.asarray(points, dtype=float))
+        in_dip = np.abs(points[:, 0] - lon_dip) < half_width_deg
+        out = np.zeros((points.shape[0], 2, 2))
+        out[:, 0, 0] = 1.0
+        out[:, 1, 1] = np.where(in_dip, 1.0, 9.0)
+        return out
+
+    return evaluate
+
+
+def test_trace_half_line_is_second_order_in_the_step():
+    """RK2, not Euler: halving the step cuts the endpoint change about fourfold.
+
+    Traces the same arc length at three step sizes on a tensor field whose
+    ``xi_1`` turns, and compares successive endpoints. Second order gives a ratio
+    near 4; first-order Euler gives near 2.
+    """
+    tensor = _turning_tensor(0.5)
+    arc_m = 300_000.0
+
+    def endpoint(n_steps):
+        track = _trace_half_line(
+            np.array([0.0]),
+            np.array([0.0]),
+            +1,
+            tensor_interp=tensor,
+            lambda_max_min=1.1,
+            step_m=arc_m / n_steps,
+            lat_ref=0.0,
+            n_steps=n_steps,
+        )
+        return np.array([track[-1][0][0], track[-1][1][0]])
+
+    coarse, medium, fine = endpoint(10), endpoint(20), endpoint(40)
+    first = np.linalg.norm(medium - coarse)
+    second = np.linalg.norm(fine - medium)
+
+    assert np.isfinite(coarse).all()  # the arc stays inside the field
+    assert first > 0.0  # the step size matters at all
+    assert 3.0 < first / second < 5.0
+
+
+def test_trace_half_line_guard_fires_at_the_rk2_midpoint():
+    """A step whose two endpoints are both fine still terminates the line if the
+    tensor is degenerate halfway along it.
+
+    One step spans a degree of longitude; the degenerate band sits at 0.5 deg, so
+    the seed and the step's endpoint both see ``lambda_2 = 9`` and only the RK2
+    midpoint lands below the floor.
+    """
+    tensor = _dipping_tensor(0.5, half_width_deg=0.1)
+
+    track = _trace_half_line(
+        np.array([0.0]),
+        np.array([0.0]),
+        +1,
+        tensor_interp=tensor,
+        lambda_max_min=1.1,
+        step_m=111_195.0,  # about one degree of longitude at the equator
+        lat_ref=0.0,
+        n_steps=3,
+    )
+
+    lon = np.array([p[0][0] for p in track])
+    assert np.isfinite(lon[0])  # the seed itself is fine
+    assert np.isnan(lon[1:]).all()  # the first step dies at its midpoint
+
+
 def test_trace_half_line_point_count_and_nan_padding():
     """The track is n_steps + 1 points and, once it leaves the grid, stays NaN."""
     interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
@@ -333,6 +461,36 @@ def test_shrink_lines_stop_below_ftle_guard(lon_axis, lat_axis):
     assert bool(lines["lon"].isnull().all())
 
 
+@pytest.mark.parametrize("sign", [+1, -1])
+@pytest.mark.parametrize("t_days", [2.0, 8.0])
+def test_shrink_lines_guard_is_a_rate_not_an_eigenvalue(
+    lon_axis, lat_axis, sign, t_days
+):
+    """The guard is an FTLE rate in 1/day, so it selects the same lines whatever
+    window the flow map spans and whichever way it runs.
+
+    ``M = diag(1, exp(rate |T|_days))`` gives ``lambda_2 = exp(2 rate |T|_days)``,
+    i.e. an FTLE of exactly ``rate`` per day at every grid point. A floor just
+    under ``rate`` must let the line through and a floor just over it must kill
+    it -- for both windows and both directions, which is what makes the
+    ``lambda_min = exp(2 |T|_days Lambda_min)`` conversion load-bearing rather
+    than decorative.
+    """
+    rate = 0.1  # 1/day
+    t1 = T0 + sign * np.timedelta64(int(t_days * 24), "h")
+    M = np.diag([1.0, np.exp(rate * t_days)])
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, T0, t1)
+
+    assert np.isclose(float(fm.ftle().mean()) * SECONDS_PER_DAY, rate)
+
+    kwargs = {**_centre_seed(fm), "step_m": 3_000.0, "line_length_m": 30_000.0}
+    survives = shrink_lines(fm, ftle_min_per_day=0.9 * rate, **kwargs)
+    dies = shrink_lines(fm, ftle_min_per_day=1.1 * rate, **kwargs)
+
+    assert bool(survives["lon"].notnull().any())
+    assert bool(dies["lon"].isnull().all())
+
+
 def test_shrink_lines_seed_off_grid_is_nan(lon_axis, lat_axis):
     """A seed outside the grid produces an all-NaN line."""
     fm = advected_flowmap(
@@ -388,7 +546,10 @@ def test_shrink_line_uses_reference_latitude_metric():
 
 LCS_KWARGS = {
     "window_m": 330_000.0,
-    "quantile": 0.90,
+    # Deliberately not ftle_ridge_seeds' own default: with the default here, a
+    # lcs() that forgot to forward quantile at all would still match the manual
+    # pipeline below.
+    "quantile": 0.5,
     "step_m": 10_000.0,
     "line_length_m": 30_000.0,
 }

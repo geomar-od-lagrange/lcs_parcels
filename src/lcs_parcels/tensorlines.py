@@ -235,8 +235,8 @@ def _trace_half_line(
     # Pick the initial branch by dotting xi_1 against the 45-degree direction --
     # an arbitrary tie-break, since at the seed there is no running heading yet.
     # A seed whose xi_1 lies near the anti-diagonal therefore flips branch on
-    # numerical noise. The two halves make this choice independently, so a curve
-    # can kink at the seed point they share.
+    # numerical noise. The tie-break itself does not depend on `sign`, so the two
+    # halves start from exactly opposite headings.
     heading = sign * _shrink_direction(
         lon,
         lat,
@@ -370,8 +370,10 @@ def shrink_lines(
     }
     # Trace both ways from each seed and stitch into one curve through it: the
     # backward half reversed (so it runs into the seed), then the forward half
-    # with its first point (the seed, shared) dropped. Each half picks its
-    # initial branch on its own, so the stitched curve may kink at the seed.
+    # with its first point (the seed, shared) dropped. Both halves get their
+    # initial heading from the same branch pick with opposite sign, so they leave
+    # the seed in exactly opposite directions and the stitch is continuous to the
+    # order of the scheme.
     points = _trace_half_line(seed_lon, seed_lat, -1, **trace_kwargs)[::-1]
     points += _trace_half_line(seed_lon, seed_lat, +1, **trace_kwargs)[1:]
     lon_lines = np.array([p[0] for p in points]).T  # (line, point)

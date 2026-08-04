@@ -254,8 +254,9 @@ class Seed(abc.ABC):
         Parameters
         ----------
         ds : xr.Dataset
-            Dataset with dims ``i, j`` and reference coordinates ``lon_0``,
-            ``lat_0`` (degrees). Subclasses may require additional
+            Dataset with dims ``i, j``, the diagnostic grid coordinates
+            ``lon_grid``/``lat_grid`` on ``(i, j)``, and the reference coordinates
+            ``lon_0``, ``lat_0`` (degrees). Subclasses may require additional
             coordinates/dimensions. No data variables, no ``t0``/``T``.
         """
         self.ds = ds
@@ -422,10 +423,11 @@ class FlowMap(abc.ABC):
         Parameters
         ----------
         ds : xr.Dataset
-            Dataset with dims ``i, j``, reference coordinates ``lon_0``/``lat_0``,
-            advected data variables ``lon``/``lat`` (degrees), and scalar ``t0``
-            and signed ``T`` coordinates. Subclasses may require additional
-            variables/dimensions.
+            Dataset with dims ``i, j``, the diagnostic grid coordinates
+            ``lon_grid``/``lat_grid`` on ``(i, j)``, reference coordinates
+            ``lon_0``/``lat_0``, advected data variables ``lon``/``lat``
+            (degrees), and scalar ``t0`` and signed ``T`` coordinates. Subclasses
+            may require additional variables/dimensions.
         """
         self.ds = ds
 
@@ -771,10 +773,11 @@ class NeighborSeed(Seed):
 
     The release point is the grid point itself, so ``.ds`` carries the reference
     positions ``lon_0``/``lat_0`` on ``(i, j)`` -- no displacement dim -- equal
-    to the diagnostic grid ``lon_grid``/``lat_grid``. The paired :class:`NeighborFlowMap` differences ``grad F`` against
-    neighbouring grid points ``(i +/- 1, j +/- 1)``, coupling the diagnostic
-    resolution to the seed grid resolution. This is the SPASSO approach; see
-    ``src/Diagnostics.py`` at https://github.com/OceanCruises/SPASSO.
+    to the diagnostic grid ``lon_grid``/``lat_grid``. The paired
+    :class:`NeighborFlowMap` differences ``grad F`` against neighbouring grid
+    points ``(i +/- 1, j +/- 1)``, coupling the diagnostic resolution to the seed
+    grid resolution. This is the SPASSO approach; see ``src/Diagnostics.py`` at
+    https://github.com/OceanCruises/SPASSO.
     """
 
     @classmethod
