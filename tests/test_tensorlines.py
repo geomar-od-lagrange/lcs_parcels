@@ -12,7 +12,7 @@ point, no NaN edges).
 import numpy as np
 import pytest
 import xarray as xr
-from conftest import advected_flowmap
+from conftest import advected_flowmap, advected_flowmap_f
 from scipy.interpolate import RegularGridInterpolator
 
 from lcs_parcels import AuxiliarySeed, ftle_ridge_seeds, shrink_lines
@@ -540,26 +540,45 @@ def test_shrink_line_uses_reference_latitude_metric():
 
 # --- FlowMap.lcs -----------------------------------------------------------
 #
-# The uniform linear map makes every grid point an equally strong FTLE ridge
-# point, so the seed set is the whole grid -- fine for contract tests, which
-# care that lcs() runs the three steps, not which points it picks.
+# A *uniform* linear map will not do here. It makes the FTLE constant to within
+# float noise, so every point ties as a ridge point and both ridge parameters
+# become inert: neither `window_m` nor `quantile` changes the seed set at all, and
+# a parity test built on it cannot see `lcs()` dropping either forward. These
+# tests therefore run on a flow map whose stretching oscillates in longitude, so
+# the FTLE has real maxima and both parameters bite (see the sweeps asserted in
+# `test_lcs_ridge_parameters_are_forwarded`).
+
+LCS_LON = np.linspace(-3.0, 3.0, 25)
+LCS_LAT = np.linspace(18.0, 22.0, 11)
+LCS_T1 = T0 + np.timedelta64(7, "D")
 
 LCS_KWARGS = {
-    "window_m": 330_000.0,
-    # Deliberately not ftle_ridge_seeds' own default: with the default here, a
-    # lcs() that forgot to forward quantile at all would still match the manual
-    # pipeline below.
+    "window_m": 150_000.0,
+    # Deliberately not ftle_ridge_seeds' own default of 0.90.
     "quantile": 0.5,
     "step_m": 10_000.0,
     "line_length_m": 30_000.0,
 }
 
 
-def test_lcs_matches_the_manual_pipeline(lon_axis, lat_axis):
+def _wavy_stretch_flowmap(period_m=250_000.0, base=3.0, amp=1.0):
+    """A flow map whose meridional stretching oscillates with zonal position.
+
+    ``f(dx, dy) = (dx, dy * (base + amp cos(2 pi dx / period_m)))``, so the
+    Cauchy-Green tensor -- and hence the FTLE -- varies along ``i`` with several
+    maxima across the domain. That makes the windowed local-maximum test and the
+    quantile floor both load-bearing, unlike a constant-``C`` fixture.
+    """
+
+    def f(dx, dy):
+        return dx, dy * (base + amp * np.cos(2.0 * np.pi * dx / period_m))
+
+    return advected_flowmap_f(AuxiliarySeed, LCS_LON, LCS_LAT, f, T0, LCS_T1)
+
+
+def test_lcs_matches_the_manual_pipeline():
     """lcs() is exactly ftle -> ftle_ridge_seeds -> shrink_lines, plus the FTLE."""
-    fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), T0, T1
-    )
+    fm = _wavy_stretch_flowmap()
 
     ftle = fm.ftle()
     seed_lon, seed_lat = ftle_ridge_seeds(
@@ -576,9 +595,27 @@ def test_lcs_matches_the_manual_pipeline(lon_axis, lat_axis):
     lcs = fm.lcs(**LCS_KWARGS)
 
     assert set(lcs.data_vars) == {"lon", "lat", "ftle"}
+    assert lcs.sizes["line"] == seed_lon.size > 1  # a real, partial seed selection
     for name in ("lon", "lat"):
         np.testing.assert_array_equal(lcs[name].values, manual[name].values)
     np.testing.assert_array_equal(lcs["ftle"].values, ftle.values)
+
+
+def test_lcs_ridge_parameters_are_forwarded():
+    """Both ridge parameters reach ``ftle_ridge_seeds``: tightening either one
+    yields strictly fewer lines, so a dropped forward cannot pass unnoticed."""
+    fm = _wavy_stretch_flowmap()
+    trace = {
+        "step_m": LCS_KWARGS["step_m"],
+        "line_length_m": LCS_KWARGS["line_length_m"],
+    }
+
+    loose = fm.lcs(window_m=60_000.0, quantile=0.5, **trace)
+    tight_quantile = fm.lcs(window_m=60_000.0, quantile=0.99, **trace)
+    tight_window = fm.lcs(window_m=400_000.0, quantile=0.5, **trace)
+
+    assert tight_quantile.sizes["line"] < loose.sizes["line"]
+    assert tight_window.sizes["line"] < loose.sizes["line"]
 
 
 def test_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):
