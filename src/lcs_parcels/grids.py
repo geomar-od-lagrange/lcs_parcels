@@ -538,10 +538,7 @@ class FlowMap(abc.ABC):
                 if name in gradF.coords and name not in ("row", "col")
             }
         )
-        # Second call, not merged into the one above: that one restores attrs the
-        # operand already had, while `row` and `col` are new axes of this tensor
-        # and get theirs stated here. Merging them would mean copying the renamed
-        # `col`'s attrs onto `row` and then overwriting them.
+        # Separate call: `row` and `col` are new axes here, not restored ones.
         C = C.assign_coords(
             row=xr.DataArray(["x", "y"], dims="row", attrs=ROW_ATTRS),
             col=xr.DataArray(["x", "y"], dims="col", attrs=COL_ATTRS),
