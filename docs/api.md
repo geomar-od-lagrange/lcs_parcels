@@ -20,12 +20,12 @@ A `Seed` lays out reference positions and emits a particle set for Parcels; the
 advected positions are ingested back into a `FlowMap`, which computes the
 deformation gradient $\nabla F$ and everything downstream (Cauchy–Green $C$, its
 eigen-decomposition, and the FTLE). The two families are **siblings, not an
-inheritance pair**: a `FlowMap` is not a kind of `Seed` (it emits nothing to
-Parcels) and a `Seed` is not a kind of `FlowMap` (it has no advected positions
-or window). What the two families genuinely share — the equirectangular metres
-frame — lives in module-level helpers, not in a common base above both.
-Symbols and units are defined in [`notation.md`](notation.md); the class diagram
-and session flow are in [`architecture.md`](architecture.md). Naming follows
+inheritance pair**: neither class is a subclass of the other, so a `Seed` has no
+diagnostics and a `FlowMap` emits no particle set.
+Symbols and units are defined in [`notation.md`](notation.md); the type
+structure and the session walkthrough are in
+[`architecture.md`](architecture.md), and the metres frame, its error structure
+and the tuning parameters are in [`numerics.md`](numerics.md). Naming follows
 Haller (2015),
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
 
@@ -34,8 +34,9 @@ ingests advected positions; Parcels (external) owns the integration.
 
 ## Data model
 
-Each object wraps an `xr.Dataset` held in `.ds` (composition, *not* an
-`xr.Dataset` subclass), with logical grid dims `i, j`. A **`Seed` is time-free
+Each object wraps an `xr.Dataset`, held in `.ds` — these are not `xr.Dataset`
+subclasses, so xarray calls go through `.ds`. Logical grid dims are `i, j`. A
+**`Seed` is time-free
 and all-coordinates** (no data variables): it holds the diagnostic grid points
 and the reference release positions $x_0$. A **`FlowMap` adds the advected
 positions** as its only data variables, plus scalar `t0`/`T` coordinates.
@@ -49,15 +50,13 @@ positions** as its only data variables, plus scalar `t0`/`T` coordinates.
 | `t0` | release time | scalar | coord | flow map only |
 | `T` | signed integration window $T = t_1 - t_0$ (`timedelta64`) | scalar | coord | flow map only |
 
-`lon_grid`/`lat_grid` is the one name that works for both stencils and the
-coordinate every downstream consumer reads — it labels every diagnostic and is
-what a plot is drawn against. For the `Neighbor*` classes the release position
-*is* the grid point, so `lon_grid` equals `lon_0` there; the value is stored
-rather than reconstructed. For the `Auxiliary*` classes the release positions
-are the four stencil arms, so `lon_0`/`lat_0` (and the advected `lon`/`lat` on a
-flow map) carry the extra `displacement` dim, and the arms are stored
-*explicitly*, so the dataset is self-sufficient (no metric needed to recover
-them).
+`lon_grid`/`lat_grid` carries the same meaning on both stencils: it labels every
+diagnostic and is what a gridded plot is drawn against. For the `Neighbor*`
+classes the release position *is* the grid point, so `lon_grid` equals `lon_0`
+there, and both pairs are present. For the `Auxiliary*` classes the release
+positions are the four stencil arms, so `lon_0`/`lat_0` (and the advected
+`lon`/`lat` on a flow map) carry the extra `displacement` dim and hold the arm
+positions explicitly.
 
 A single `FlowMap` carries `t0`/`T` as *scalar* coords; `t1` is not stored,
 being recoverable as `t0 + T`.
@@ -256,11 +255,8 @@ call means the same thing at any resolution and over any window:
 
 **`min_anisotropy`** is a floor on $\lambda_2 / \lambda_1$, the ratio of the two
 Cauchy–Green eigenvalues, and so dimensionless. It is a **well-definedness
-guard, not an LCS selector** — `quantile` is what selects. The ratio is the
-quantity that matters because an eigenvector's sensitivity to a perturbation of
-$C$ scales as the inverse of the *relative* gap between the eigenvalues: at the
-default 1.15 a 1% error in $C$ swings $\xi_1$ by about 2 degrees, at a ratio of
-1.05 by 6 degrees, and by a ratio of 4 it has flattened out at about 0.25
+guard, not an LCS selector** — `quantile` is what selects. At the default 1.15 a
+1% error in $C$ swings $\xi_1$ by about 2 degrees; at a ratio of 1.05 by 6
 degrees. Being a ratio it carries no $T$, no grid scale and no stretching rate,
 so 1.15 means the same thing for a six-hour laboratory flow and a six-month
 basin-scale one. Its useful range starts just above 1: $C$ is positive
@@ -301,9 +297,8 @@ plt.plot(lcs["lon"].T, lcs["lat"].T)
 grid be curvilinear), so a gridded field is drawn against them by naming them;
 `.plot()` on its own falls back to the logical `i`/`j` axes.
 
-Ridge-finding itself stays a free function taking a *field*, not a flow map, so
-a caller who wants to smooth or mask the FTLE first still drives the three steps
-by hand.
+Ridge-finding itself takes a *field*, not a flow map, so to pick ridges from a
+smoothed or masked FTLE, drive the three steps by hand.
 
 ## Evolving a material curve
 
@@ -362,7 +357,7 @@ The coordinates carry the same treatment, set once at construction
 | Coord | `long_name` | `units` |
 |---|---|---|
 | `i` / `j` | logical grid index along i / j | — |
-| `lon_grid` / `lat_grid` | longitude/latitude of the diagnostic grid point | `degrees_east` / `degrees_north` |
+| `lon_grid` / `lat_grid` | longitude / latitude | `degrees_east` / `degrees_north` |
 | `lon_0` / `lat_0` | longitude/latitude of the reference release position x_0 | `degrees_east` / `degrees_north` |
 | `displacement` | auxiliary stencil arm | — |
 | `t0` | release time t0 | — |

@@ -1,67 +1,35 @@
 """Seed and flow-map classes for Lagrangian coherent structure (LCS) diagnostics.
 
-The diagnostic layer on top of trajectory integration. It contains no Parcels
-code: it emits particle sets and ingests their advected positions. Notation
-follows Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech.
-47:137-162, doi:10.1146/annurev-fluid-010313-141322
+A :class:`Seed` lays out a time-free grid of release positions and emits a
+particle set; the advected positions are ingested back into a :class:`FlowMap`,
+which computes the deformation gradient, the Cauchy-Green tensor, its
+eigen-decomposition and the FTLE. This module contains no Parcels code -- you
+run the advection yourself, between the two calls::
+
+    seed = NeighborSeed.from_axes(lon=lon, lat=lat)
+    lon0, lat0 = seed.to_parcels_pset()
+    # ... advect (lon0, lat0) from t0 to t1 ...
+    flowmap = seed.pset_to_flowmap(lon=lon1, lat=lat1, t0=t0, t1=t1)
+    ftle = flowmap.ftle()            # 1/s, on the (i, j) diagnostic grid
+    lcs = flowmap.hyperbolic_lcs()   # or straight to the LCS curves
+
+Pass ``t1`` before ``t0`` for backward integration (attracting LCS); a zero
+window is rejected. Two stencils for the deformation gradient are two pairs of
+classes: :class:`NeighborSeed` / :class:`NeighborFlowMap` difference against
+neighbouring grid points, :class:`AuxiliarySeed` / :class:`AuxiliaryFlowMap`
+against a four-arm stencil laid around each grid point.
+
+Every object wraps an ``xr.Dataset``, available as ``.ds``. Diagnostics are
+reported at the grid points ``lon_grid``/``lat_grid`` (degrees) and every
+returned array carries ``long_name`` and ``units``, so a vanilla plot labels
+itself. Lon/lat pairs are keyword-only throughout. Positions are differenced in
+metres, in an equirectangular frame with one standard parallel, so the package
+is valid for regional domains of modest latitude range that do not cross the
+dateline.
+
+Notation follows Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev.
+Fluid Mech. 47:137-162, doi:10.1146/annurev-fluid-010313-141322
 (https://doi.org/10.1146/annurev-fluid-010313-141322).
-
-Seed / flow-map split
----------------------
-Two sibling families of composition wrappers around an ``xr.Dataset`` (held in
-``.ds``; neither subclasses ``xr.Dataset``):
-
-- a :class:`Seed` is time-free: it holds the diagnostic grid-point locations
-  ``lon_grid``/``lat_grid`` and the reference release positions ``lon_0``/
-  ``lat_0`` (initial conditions ``x_0``, coordinates). No ``t0``, no ``T``, no
-  advected ``lon``/``lat``, no data variables. It emits a particle set
-  (:meth:`Seed.to_parcels_pset`) and ingests advected positions
-  (:meth:`Seed.pset_to_flowmap`).
-- a :class:`FlowMap` holds the reference positions *and* the advected positions
-  ``lon``/``lat`` (the flow map ``F_{t0}^{t1}(x_0)``, data variables), plus a
-  scalar release time ``t0`` and the signed window ``T = t1 - t0``. It computes
-  the diagnostics (deformation gradient, Cauchy-Green tensor, eigen-analysis,
-  FTLE).
-
-Each family has two concrete subclasses for the two finite-difference stencils
-(``Neighbor*`` and ``Auxiliary*``); the stencil is a distinct type, never
-inferred from the dataset dims.
-
-Timing convention
------------------
-Time enters only at ingest. :meth:`Seed.pset_to_flowmap` takes the release time
-``t0`` and end time ``t1``; the signed window ``T = t1 - t0`` is derived and
-stored as a scalar coordinate (``t1`` is recoverable as ``t0 + T``). Direction
-is ``sign(T)``: ``t1 < t0`` backward/attracting, ``t1 > t0`` forward/repelling.
-A zero window (``t1 == t0``) is rejected. See ``plans/seed-flowmap-design.md``.
-
-Position convention
--------------------
-Three coordinate pairs, all in degrees:
-
-- ``lon_grid``/``lat_grid`` on ``(i, j)``: the diagnostic grid-point locations,
-  where every diagnostic is reported. Carried explicitly by both stencils.
-- ``lon_0``/``lat_0``: the reference release positions ``x_0`` of the actual
-  particles -- what :meth:`Seed.to_parcels_pset` emits and what the deformation
-  gradient differences against. On ``(i, j)`` for :class:`NeighborSeed` /
-  :class:`NeighborFlowMap`, where they equal ``lon_grid``/``lat_grid``; on
-  ``(i, j, displacement)`` for :class:`AuxiliarySeed` /
-  :class:`AuxiliaryFlowMap`, one per stencil arm.
-- ``lon``/``lat``: the advected positions ``F_{t0}^{t1}(x_0)`` (data variables
-  on a :class:`FlowMap`), sharing the dims of ``lon_0``/``lat_0`` so
-  ``grad F = d(lon, lat) / d(lon_0, lat_0)`` is well-defined.
-
-Sphere metric convention
-------------------------
-Separations are formed in a single equirectangular meters frame whose standard
-parallel is the grid centroid ``lon_ref = lon_0.mean()``,
-``lat_ref = lat_0.mean()``. With ``R`` the Earth radius and ``deg = pi / 180``:
-``X = R cos(phi_ref) (lambda - lambda_ref) deg`` and
-``Y = R (phi - phi_ref) deg``. The cosine factor uses the one reference latitude
-``phi_ref`` for every point, not a per-point ``cos(phi)``. The metric only
-converts lon/lat separations to meters; advected separations come from the
-ingested positions, not from ``R`` and ``phi``. Both flow-map subclasses use the
-module-level :func:`_to_meters`.
 """
 
 from __future__ import annotations
@@ -89,11 +57,11 @@ _DEG = np.pi / 180.0
 I_ATTRS = {"long_name": "logical grid index along i"}
 J_ATTRS = {"long_name": "logical grid index along j"}
 LON_GRID_ATTRS = {
-    "long_name": "longitude of the diagnostic grid point",
+    "long_name": "longitude",
     "units": "degrees_east",
 }
 LAT_GRID_ATTRS = {
-    "long_name": "latitude of the diagnostic grid point",
+    "long_name": "latitude",
     "units": "degrees_north",
 }
 LON_0_ATTRS = {
@@ -454,9 +422,8 @@ class FlowMap(abc.ABC):
     def _direction(self) -> str:
         """``'forward/repelling'`` or ``'backward/attracting'``, from ``sign(T)``.
 
-        Output metadata only (:meth:`hyperbolic_lcs`); repelling versus
-        attracting is a property of the diagnostic, not of the flow map, so it
-        stays out of the repr.
+        Output metadata only (:meth:`hyperbolic_lcs`); the repr does not carry
+        it.
         """
         if self.ds["T"] > np.timedelta64(0, "s"):
             return "forward/repelling"
@@ -495,22 +462,13 @@ class FlowMap(abc.ABC):
         must be labelled ``lon_grid``/``lat_grid`` and not by a release
         position -- which for :class:`AuxiliaryFlowMap` is one stencil arm.
 
-        Projection error
-        ----------------
         Reference *and* advected positions are read in the *same* equirectangular
         frame (:func:`_to_meters`), one standard parallel ``lat_ref``; the frame
-        does not follow the particle. With ``c0``, ``c1``, ``c_ref`` the cosines
-        of the release latitude, the arrival latitude and ``lat_ref``, the true
-        gradient is::
-
-            grad F_true = diag(c1 / c_ref, 1) @ grad F_ours @ diag(c_ref / c0, 1)
-
-        So ``F_yy`` is exact, ``F_xx`` is off by ``c1 / c0`` -- driven by the
-        particle's meridional excursion, ``c_ref`` cancelling -- and the
-        off-diagonals by ``c1 / c_ref`` and ``c_ref / c0``. Measured median FTLE
-        error: 0.65% over a 5-degree domain, 3.0% over 20 degrees, 15% over 60
-        degrees. Tracked in issue #18; the related dateline/longitude arithmetic
-        is issue #13.
+        does not follow the particle, so ``grad F`` picks up a bias that grows
+        with the particle's meridional excursion away from ``lat_ref``. The
+        algebra of that bias and the scale of it are in ``docs/numerics.md``;
+        it is tracked in issue #18, and the related dateline/longitude
+        arithmetic in issue #13.
         """
         lon_0, lat_0 = self.ds["lon_0"], self.ds["lat_0"]
         release = ["lon_0", "lat_0"]
@@ -729,9 +687,8 @@ class FlowMap(abc.ABC):
         (:meth:`ftle`), pick seed points at its strong local maxima
         (:func:`~lcs_parcels.ftle_ridge_seeds`), and integrate the shrink lines
         through them (:func:`~lcs_parcels.shrink_lines`). The FTLE is computed
-        once and handed to the ridge finder, which keeps taking a field rather
-        than a flow map, so a caller who wants a smoothed or masked field still
-        drives the three steps directly.
+        once and handed to the ridge finder; to pick ridges from a smoothed or
+        masked field instead, drive the three steps yourself.
 
         A *forward* flow map (``T > 0``) yields repelling LCS, a *backward* one
         (``T < 0``) attracting LCS, by the forward-backward duality (Haller &
@@ -825,8 +782,7 @@ class NeighborSeed(Seed):
     to the diagnostic grid ``lon_grid``/``lat_grid``. The paired
     :class:`NeighborFlowMap` differences ``grad F`` against neighbouring grid
     points ``(i +/- 1, j +/- 1)``, coupling the diagnostic resolution to the seed
-    grid resolution. This is the SPASSO approach; see ``src/Diagnostics.py`` at
-    https://github.com/OceanCruises/SPASSO.
+    grid resolution.
     """
 
     @classmethod
@@ -871,18 +827,16 @@ class AuxiliarySeed(Seed):
 
     The reference release positions ``lon_0(i, j, displacement)`` /
     ``lat_0(i, j, displacement)`` (coordinates, degrees) are the explicit per-arm
-    positions -- exactly what :meth:`Seed.to_parcels_pset` emits, so the dataset
-    is self-sufficient. The diagnostic grid points ``lon_grid(i, j)`` /
-    ``lat_grid(i, j)`` (coordinates) -- the arm centres, on which the diagnostics
-    are reported -- are kept explicitly. There is no stored ``dx``/``dy``: the
-    stencil lives in the reference positions themselves.
+    positions -- exactly what :meth:`Seed.to_parcels_pset` emits. The diagnostic
+    grid points ``lon_grid(i, j)`` / ``lat_grid(i, j)`` (coordinates) are the arm
+    centres, on which the diagnostics are reported.
 
     Each grid point carries four arms ``east, north, west, south`` at offsets
     ``east = (+s, 0)``, ``north = (0, +s)``, ``west = (-s, 0)``,
     ``south = (0, -s)`` for ``s = aux_separation_m`` -- no centre point, no
     diagonals. The arms are placed in the single grid equirectangular meters frame
-    (see :func:`_to_meters`), decoupling the gradient step from the seed grid
-    resolution. The paired :class:`AuxiliaryFlowMap` differences ``grad F``
+    (see :func:`_to_meters`), so the gradient step is ``s`` rather than the seed
+    grid spacing. The paired :class:`AuxiliaryFlowMap` differences ``grad F``
     across the four arms (east-west, north-south).
     """
 

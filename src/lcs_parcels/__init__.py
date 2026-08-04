@@ -22,7 +22,6 @@ from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
 
 __version__ = "2026.07.17.1"
 
-# EARTH_RADIUS_M is an internal constant, not part of the public surface.
 __all__ = [
     "AuxiliaryFlowMap",
     "AuxiliarySeed",

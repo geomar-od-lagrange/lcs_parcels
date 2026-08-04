@@ -12,7 +12,7 @@ import pytest
 from lcs_parcels import AuxiliarySeed, NeighborSeed
 
 # Release time and integration end time supplied at ingest; the signed window
-# T = T1 - T0 is derived. See plans/seed-flowmap-design.md.
+# T = T1 - T0 is derived.
 T0 = np.datetime64("2020-01-01")
 T1 = np.datetime64("2020-01-02")
 

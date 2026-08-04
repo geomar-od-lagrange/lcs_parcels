@@ -10,9 +10,8 @@ backward :class:`~lcs_parcels.FlowMap` gives them.
 
 Two functions compose the workflow: :func:`ftle_ridge_seeds` picks start points,
 :func:`shrink_lines` integrates the tensor lines through them. Both take the
-gridded xarray outputs of a :class:`~lcs_parcels.FlowMap`; the tight ODE loop
-drops to NumPy/SciPy (a :class:`scipy.interpolate.RegularGridInterpolator` on the
-tensor field).
+gridded xarray outputs of a :class:`~lcs_parcels.FlowMap`, and
+:meth:`~lcs_parcels.FlowMap.hyperbolic_lcs` runs the pair in one call.
 
 Rectilinear grids only: like :class:`~lcs_parcels.NeighborFlowMap`, the tensor is
 interpolated on axis-aligned ``lon_grid``/``lat_grid`` axes (``lon_grid`` varying
