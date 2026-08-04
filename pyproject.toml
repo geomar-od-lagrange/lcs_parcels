@@ -102,7 +102,7 @@ parcels = { git = "https://github.com/OceanParcels/Parcels.git", rev = "5a0df965
 
 [tool.pixi.feature.examples.tasks]
 get-data = { cmd = "python examples/get_data.py", description = "Download the CMEMS subset to examples/data/ (needs CMEMS credentials)" }
-test-examples = { cmd = "pytest -m needs_creds", description = "The examples that need CMEMS credentials" }
+test-examples = { cmd = "pytest tests/test_examples.py", description = "Every example, including the one needing no credentials" }
 
 [tool.pixi.environments]
 # Both envs pin Python 3.13 (the newest Parcels v4 supports); the `examples` env
