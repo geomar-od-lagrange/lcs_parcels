@@ -41,7 +41,7 @@ from parcels import FieldSet, Particle, ParticleSet, StatusCode
 from parcels.convert import copernicusmarine_to_sgrid
 from parcels.kernels import AdvectionRK4
 
-from lcs_parcels import NeighborSeed, ftle_ridge_seeds, shrink_lines
+from lcs_parcels import NeighborSeed
 ```
 
 ## Currents
@@ -69,7 +69,7 @@ seed_lon, seed_lat = (-27.0, -21.0), (13.5, 18.5)
 
 lon_axis = np.arange(seed_lon[0], seed_lon[1] + 1e-9, resolution_deg)
 lat_axis = np.arange(seed_lat[0], seed_lat[1] + 1e-9, resolution_deg)
-seed = NeighborSeed.from_axes(lon_axis, lat_axis)
+seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
 ```
 
 ```python
@@ -105,7 +105,7 @@ def advect(signed_T):
         runtime=abs(signed_T),
         verbose_progress=False,
     )
-    return seed.pset_to_flowmap(pset.x, pset.y, t0=t0, t1=t0 + signed_T)
+    return seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t0 + signed_T)
 
 
 forward_maps = [advect(+lead) for lead in leads]
@@ -118,16 +118,15 @@ forward, backward = forward_maps[-1], backward_maps[-1]
 
 The ridges are sharpest at $T$, so we diagnose there: repelling LCS from the
 forward flow, attracting from the backward one (Haller–Sapsis duality), each
-seeded at the local maxima of its own FTLE.
-
+seeded at the local maxima of its own FTLE. `FlowMap.lcs` runs that chain —
+FTLE, ridge seeds, shrink lines — in one call and reads repelling or attracting
+off the sign of its own window; `cabo_verde_lcs` walks the same three steps by
+hand. It returns the curves as `lon`/`lat` on `(line, point)`, alongside the
+FTLE field they were seeded from.
 
 ```python
-def ftle_per_day(flowmap):
-    return (flowmap.ftle() * 86400.0).rename("FTLE")
-
-
-repelling = shrink_lines(forward, *ftle_ridge_seeds(ftle_per_day(forward)))
-attracting = shrink_lines(backward, *ftle_ridge_seeds(ftle_per_day(backward)))
+repelling = forward.lcs()
+attracting = backward.lcs()
 print(
     f"{repelling.sizes['line']} repelling, {attracting.sizes['line']} attracting lines"
 )
@@ -148,7 +147,7 @@ def evolve(curve, maps):
     frames = [curve[["lon", "lat"]]]
     lead_days = [0.0]
     for m in maps:
-        frames.append(m.image(curve["lon"], curve["lat"]))
+        frames.append(m.image(lon0=curve["lon"], lat0=curve["lat"]))
         lead_days.append(float(m.ds["T"] / np.timedelta64(1, "D")))
     return xr.concat(frames, dim="lead").assign_coords(lead=("lead", lead_days))
 

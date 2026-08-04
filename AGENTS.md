@@ -21,19 +21,29 @@ below are derivations of this model.
 
 Rules that fall out of it:
 
-- **Explain the non-obvious choice; do not re-teach the field.** The reader has
-  read the papers. Say why *this* window, *this* stencil, *this* termination
-  criterion — not what an FTLE is. Still, define a term properly where it is
-  ambiguous.
-- **Indirection is a tax in examples, an asset in library code.** An example is
-  consumed line by line with minimal scrolling, so prefer explicit and even
-  duplicated code over a helper. Library code is the opposite: factor freely.
-  This is a consequence of who reads what, not a blanket preference for
-  duplication.
+- **Explain the non-obvious choice; do not re-teach the field.** The inquisitive
+  user has read the papers. Say why *this* window, *this* stencil, *this*
+  termination criterion — not what an FTLE is. Still, define a term properly
+  where it is ambiguous.
+- **Indirection is a tax in examples, an asset in library code.** The inquisitive
+  user consumes an example line by line with minimal scrolling, so prefer
+  explicit and even duplicated code over a helper. Library code is read by the
+  developer instead, so factor freely there. This is a consequence of who reads
+  what, not a blanket preference for duplication.
 - **Reader-facing text carries no process narrative and no design rationale.**
   Module docstrings, `docs/api.md`, and examples address the trusting and
   inquisitive users; how we got here belongs in `docs/architecture.md` or a
   plan, and agent-addressed asides belong nowhere.
+- **A scope statement is not design rationale.** What the package *is and is
+  not* — that it contains no Parcels code, that it emits a particle set and
+  ingests advected positions, that you run the advection yourself — stays in the
+  README. The trusting user cannot use the tool without it. The cut runs between
+  the operational fact and its justification: *that* lon/lat pairs are
+  keyword-only, *that* returns carry `units`, *that* `flowmap.ds` is the dataset
+  are reader-facing; *why* the pairs are keyword-only, and that these classes
+  wrap rather than subclass `xr.Dataset`, are `docs/architecture.md`. Of each
+  sentence ask "could they use the package without this?", not "does this sound
+  like design?".
 
 ## Documentation & writing
 
@@ -76,8 +86,9 @@ that.
   source. After re-syncing from an edited `.py` (which regenerates a clean
   `.ipynb`), re-execute before committing.
 - **Notebooks are human-facing, not scripts.** Lay them out as a sequence of
-  small, well-scoped code cells, each doing one step, so a reader can run and
-  follow them top to bottom. Don't dump the whole example into one mega-cell.
+  small, well-scoped code cells, each doing one step, so the inquisitive user can
+  run and follow them top to bottom. Don't dump the whole example into one
+  mega-cell.
 - **Narrate in markdown cells, not comment blocks.** Use `# %% [markdown]` cells
   for prose between steps; don't explain the flow with long `#` comment blocks
   inside code cells. Keep the prose terse. A single one-line `#` heading atop a
@@ -91,12 +102,12 @@ that.
   inline a helper that is called once rather than defining it. Being inefficient
   or re-downloading on every run is acceptable in an example; being longer than
   the idea requires is not. This is the opposite of production code: minimize the
-  reader's effort, not the machine's.
+  inquisitive user's effort, not the machine's.
 - **Explicit over shared, even at the cost of duplication.** Write the same
   recovery kernel out in each notebook rather than importing it from a shared
-  helper module. A reader scrolling one notebook top to bottom should rarely
-  have to open a second file or scroll back and forth. (Library code takes the
-  opposite rule — see [Audience](#audience).)
+  helper module. The inquisitive user, scrolling one notebook top to bottom,
+  should rarely have to open a second file or scroll back and forth. (Library
+  code takes the opposite rule — see [Audience](#audience).)
 - **Prefer vanilla plots.** This governs the plot you *first write*: reach for
   `.plot()` / `.plot.pcolormesh()` and accept its defaults, which label axes,
   titles, and colorbars from the object's name, coords, and attrs — that is what
@@ -168,7 +179,8 @@ verified against the pinned v4 alpha:
   cell methods.
 - **Units are SI.** Return 1/s, metres, seconds; deviate only for a field with a
   strong convention of its own (Sverdrups and the like). Conversion for display
-  is the reader's call, made visible in the example, not baked into the package.
+  is the trusting user's call, made visible in the example for the inquisitive
+  one, never baked into the package.
 - **Let xarray do the work.** Rely on broadcasting (e.g. extra `t0`/`T` axes) and
   NaN propagation (e.g. lost particles) rather than writing special-case
   machinery for what xarray already handles. Don't plan around problems xarray
@@ -191,8 +203,8 @@ verified against the pinned v4 alpha:
   need appears, not before.
 - **Same-typed adjacent arguments are keyword-only.** A public entry point that
   takes a lon/lat pair (or any other run of interchangeable-looking arguments)
-  takes it by keyword, so a caller cannot silently transpose them: a swap must
-  be a `TypeError`, not a plausible answer off the coast of nowhere.
+  takes it by keyword, so the trusting user cannot silently transpose them: a
+  swap must be a `TypeError`, not a plausible answer off the coast of nowhere.
 
 ## Process & change discipline
 
@@ -214,7 +226,10 @@ verified against the pinned v4 alpha:
   no external user base and no compatibility contract. Change signatures, data
   layouts, dim names, and file formats freely when the design improves. Do not
   add deprecation shims, compatibility aliases, migration code, or "legacy"
-  branches — delete the old form outright and update all call sites.
+  branches — delete the old form outright and update all call sites. This governs
+  the compatibility contract, not what gets written where: the same person reads
+  as a trusting user on Monday and a developer on Friday, so the three-reader
+  model above still decides what belongs in which file.
 
 ## Releases
 

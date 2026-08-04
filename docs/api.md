@@ -1,9 +1,3 @@
-<!--
-API reference for the seed / flow-map diagnostic layer in
-src/lcs_parcels/grids.py. Kept in sync with the code; symbols are defined in
-docs/notation.md and the workflow/diagrams in docs/architecture.md.
--->
-
 # API reference: seeds and flow maps
 
 The public surface of `lcs_parcels` is two sibling families — a time-free
@@ -16,7 +10,13 @@ from lcs_parcels import Seed, NeighborSeed, AuxiliarySeed, FlowMap, NeighborFlow
 
 Plus two functions that turn a `FlowMap`'s strain field into hyperbolic-LCS
 curves — `ftle_ridge_seeds` and `shrink_lines` (see
-[Hyperbolic LCS: shrink lines](#hyperbolic-lcs-shrink-lines) below).
+[Hyperbolic LCS: shrink lines](#hyperbolic-lcs-shrink-lines) below), which
+`FlowMap.lcs()` runs in one call.
+
+Every adjacent same-typed argument pair on the public surface — every
+lon/lat pair — is **keyword-only**, so a transposed call raises `TypeError`
+instead of returning a plausible-looking field somewhere off the coast of
+nowhere.
 
 A `Seed` lays out reference positions and emits a particle set for Parcels; the
 advected positions are ingested back into a `FlowMap`, which computes the
@@ -24,7 +24,8 @@ deformation gradient $\nabla F$ and everything downstream (Cauchy–Green $C$, i
 eigen-decomposition, and the FTLE). The two families are **siblings, not an
 inheritance pair**: a `FlowMap` is not a kind of `Seed` (it emits nothing to
 Parcels) and a `Seed` is not a kind of `FlowMap` (it has no advected positions
-or window). Shared computation lives in module-level helpers, not a common base.
+or window). What the two families genuinely share — the local-tangent metric —
+lives in module-level helpers, not in a common base above both.
 Symbols and units are defined in [`notation.md`](notation.md); the class diagram
 and session flow are in [`architecture.md`](architecture.md). Naming follows
 Haller (2015),
@@ -37,27 +38,59 @@ ingests advected positions; Parcels (external) owns the integration.
 
 Each object wraps an `xr.Dataset` held in `.ds` (composition, *not* an
 `xr.Dataset` subclass), with logical grid dims `i, j`. A **`Seed` is time-free
-and all-coordinates** (no data variables): it holds only the reference release
-positions $x_0$, plus the auxiliary arm geometry and centres for
-`AuxiliarySeed`. A **`FlowMap` adds the advected positions** as its only data
-variables, plus scalar `t0`/`T` coordinates.
+and all-coordinates** (no data variables): it holds the diagnostic grid points
+and the reference release positions $x_0$. A **`FlowMap` adds the advected
+positions** as its only data variables, plus scalar `t0`/`T` coordinates.
 
 | Name | Role | Dims | Kind | On |
 |---|---|---|---|---|
-| `lon_0`, `lat_0` | reference *release* positions $x_0$ | `(i, j)` (see note) | coords | seed + flow map |
-| `lon_c`, `lat_c` | grid-point *centres* (diagnostics reported here) | `(i, j)` | coords | `Auxiliary*` only |
+| `lon_grid`, `lat_grid` | diagnostic grid points (every diagnostic is reported here) | `(i, j)` | coords | seed + flow map, **both stencils** |
+| `lon_0`, `lat_0` | reference *release* positions $x_0$ | `(i, j)`; `(i, j, displacement)` for `Auxiliary*` | coords | seed + flow map |
 | `lon`, `lat` | advected positions, the flow map $F_{t_0}^{t_1}(x_0)$ | same dims as `lon_0`/`lat_0` | data vars | flow map only |
+| `displacement` | auxiliary stencil arm, `['east', 'north', 'west', 'south']` | `(displacement,)` | coord | `Auxiliary*` only |
 | `t0` | release time | scalar | coord | flow map only |
 | `T` | signed integration window $T = t_1 - t_0$ (`timedelta64`) | scalar | coord | flow map only |
 
-Note: for the `Auxiliary*` classes the release positions are the four stencil
-arms, so `lon_0`/`lat_0` (and the advected `lon`/`lat` on a flow map) all carry
-the extra `displacement` dim, i.e. `(i, j, displacement)` — the arms are stored
+`lon_grid`/`lat_grid` is the one name that works for both stencils and the
+coordinate every downstream consumer reads — it labels every diagnostic and is
+what a plot is drawn against. For the `Neighbor*` classes the release position
+*is* the grid point, so `lon_grid` equals `lon_0` there; the value is stored
+rather than reconstructed. For the `Auxiliary*` classes the release positions
+are the four stencil arms, so `lon_0`/`lat_0` (and the advected `lon`/`lat` on a
+flow map) carry the extra `displacement` dim, and the arms are stored
 *explicitly*, so the dataset is self-sufficient (no metric needed to recover
-them). The grid-point centres on which diagnostics are reported are kept as a
-separate pair `lon_c`/`lat_c` on `(i, j)`. A single `FlowMap` carries `t0`/`T`
-as *scalar* coords; `t1` is not stored, being recoverable as `t0 + T`. See the
-*Position convention* in the module docstring.
+them).
+
+A single `FlowMap` carries `t0`/`T` as *scalar* coords; `t1` is not stored,
+being recoverable as `t0 + T`.
+
+Both families expose the diagnostic grid directly, so no consumer indexes `.ds`
+for it:
+
+```python
+Seed.lon_grid -> xr.DataArray        # property, (i, j), degrees east
+Seed.lat_grid -> xr.DataArray        # property, (i, j), degrees north
+FlowMap.lon_grid -> xr.DataArray     # same, on the flow map
+FlowMap.lat_grid -> xr.DataArray
+FlowMap.grid_image -> xr.Dataset     # abstract property (per-stencil)
+```
+
+- **`grid_image`** — the flow map image of the diagnostic grid points,
+  $F_{t_0}^{t_1}(x_{\mathrm{grid}})$: `lon`/`lat` (degrees) on `(i, j)`, one
+  advected position per grid point whatever stencil it was released with. For
+  `NeighborFlowMap` that is the advected positions unchanged; for
+  `AuxiliaryFlowMap` it is the centroid of the four advected arms, taken with
+  `skipna=False` so a single lost arm makes the whole grid point `NaN`.
+
+Both `Seed` and `FlowMap` have a terse one-line `repr`; `.ds` remains how the
+dataset itself is displayed.
+
+```pycon
+>>> seed
+<NeighborSeed 6x5 grid, lon -25.000..-20.000, lat 15.000..20.000>
+>>> flowmap
+<NeighborFlowMap 6x5 grid, lon -25.000..-20.000, lat 15.000..20.000, t0 2020-01-01T00:00:00, T +7.00 days (forward/repelling)>
+```
 
 ## Constructors and round-trip
 
@@ -66,26 +99,36 @@ back to a seed. The two families are connected by two crossings; neither holds a
 reference to the other.
 
 ```python
-Seed.from_axes(lon, lat) -> Self                          # classmethod (abstract)
+Seed.from_axes(*, lon, lat) -> Self                       # classmethod (abstract)
 Seed.to_parcels_pset() -> tuple[list, list]               # concrete (base)
-Seed.pset_to_flowmap(lon, lat, *, t0, t1) -> FlowMap      # concrete (base)
+Seed.pset_to_flowmap(*, lon, lat, t0, t1) -> FlowMap      # concrete (base)
 FlowMap.to_seed() -> Seed                                 # concrete (base)
 ```
 
-- **`from_axes(lon, lat)`** — build a time-free seed from 1-D lon/lat axes
-  (length `Ni`, `Nj`), broadcast into curvilinear 2-D reference fields on
-  `(i, j)`. No time is recorded — the seed is time-free; `t0` and the window `T`
-  enter only at `pset_to_flowmap`. `AuxiliarySeed.from_axes` also takes a
-  keyword-only `aux_separation_m` (the controlled arm separation $s$ in meters;
-  default `1000.0`), lays out the fixed four-arm
+- **`from_axes(*, lon, lat)`** — build a time-free seed from 1-D lon/lat axes
+  (length `Ni`, `Nj`), broadcast into 2-D fields on `(i, j)` (lon varying along
+  `i`, lat along `j`) and stored as the diagnostic grid `lon_grid`/`lat_grid`.
+  No time is recorded — the seed is time-free; `t0` and the window `T` enter
+  only at `pset_to_flowmap`. `NeighborSeed.from_axes` stores those same points
+  as the reference positions `lon_0`/`lat_0`. `AuxiliarySeed.from_axes` also
+  takes a keyword-only `aux_separation_m` (the controlled arm separation $s$ in
+  meters; default `1000.0`), lays out the fixed four-arm
   `displacement = ['east', 'north', 'west', 'south']` stencil at $\pm s$ about
-  each centre, and stores those arms explicitly as `lon_0`/`lat_0` on
-  `(i, j, displacement)` plus the centres `lon_c`/`lat_c` on `(i, j)`.
+  each grid point, and stores those arms explicitly as `lon_0`/`lat_0` on
+  `(i, j, displacement)`.
 - **`to_parcels_pset()`** — flatten the *reference* release positions to plain
   `(lon, lat)` lists (a 2-tuple) over the `particle` index (`('i', 'j')`, plus
   `'displacement'` for `AuxiliarySeed`). The auxiliary arms are emitted directly
-  from the explicit `lon_0`/`lat_0`.
-- **`pset_to_flowmap(lon, lat, *, t0, t1)`** — reattach the flat advected
+  from the explicit `lon_0`/`lat_0`. The 2-tuple is unpacked before it is fed
+  back in, since `pset_to_flowmap` is keyword-only:
+
+  ```python
+  lon0, lat0 = seed.to_parcels_pset()
+  # ... advect (lon0, lat0) with Parcels, collect (lon1, lat1) ...
+  flowmap = seed.pset_to_flowmap(lon=lon1, lat=lat1, t0=t0, t1=t1)
+  ```
+
+- **`pset_to_flowmap(*, lon, lat, t0, t1)`** — reattach the flat advected
   positions onto the seed's `particle` index as the advected `lon`/`lat`,
   leaving the reference `lon_0`/`lat_0` (and any auxiliary geometry) untouched,
   and produce the paired concrete `FlowMap`. It records the release time `t0`
@@ -102,8 +145,8 @@ FlowMap.to_seed() -> Seed                                 # concrete (base)
 
 The reusable-template workflow (same grid, sweep `t1`, or re-release at a new
 `t0`) is therefore `flowmap.to_seed()` then
-`seed.pset_to_flowmap(..., t0=..., t1=...)`, with no shared state: the seed is a
-spatial template and every release passes its own `(t0, t1)`.
+`seed.pset_to_flowmap(lon=..., lat=..., t0=..., t1=...)`, with no shared state:
+the seed is a spatial template and every release passes its own `(t0, t1)`.
 
 ## Operators
 
@@ -140,6 +183,11 @@ FlowMap.ftle() -> xr.DataArray                    # concrete (base)
   `(i, j)`, units 1/second. Only $|T|$ enters, so backward and forward
   integration of the same map give the same FTLE.
 
+All four are reported at the diagnostic grid points and carry
+`lon_grid`/`lat_grid` as their position coords — and only those. The release
+positions `lon_0`/`lat_0` are *not* carried through: on an `AuxiliaryFlowMap`
+they are one stencil arm, which would mislabel an `(i, j)` quantity.
+
 A single `NaN` (lost particle or missing stencil point) propagates
 `gradF -> C -> eigen -> ftle` with no special-casing.
 
@@ -152,8 +200,8 @@ Haller (2015) §5.1 / Table 1 ($n = 2$):
 ```python
 from lcs_parcels import ftle_ridge_seeds, shrink_lines
 
-seed_lon, seed_lat = ftle_ridge_seeds(flowmap.ftle())     # start points
-lines = shrink_lines(flowmap, seed_lon, seed_lat)          # xr.Dataset of curves
+seed_lon, seed_lat = ftle_ridge_seeds(flowmap.ftle())                    # start points
+lines = shrink_lines(flowmap, seed_lon=seed_lon, seed_lat=seed_lat)      # curves
 ```
 
 A repelling LCS is a **shrink line** — a curve tangent to the weak-stretch
@@ -164,29 +212,75 @@ of a **forward** `FlowMap` gives repelling LCS and of a **backward** one gives
 attracting LCS.
 
 ```python
-ftle_ridge_seeds(ftle, *, window=7, quantile=0.90) -> tuple[np.ndarray, np.ndarray]
-shrink_lines(flowmap, seed_lon, seed_lat, *, lambda_max_min=1.1,
-             step_m=3000.0, n_steps=250) -> xr.Dataset
+ftle_ridge_seeds(ftle, *, window_m=30_000.0,
+                 quantile=0.90) -> tuple[np.ndarray, np.ndarray]
+shrink_lines(flowmap, *, seed_lon, seed_lat, ftle_min_per_day=0.005,
+             step_m=3_000.0, line_length_m=1_500_000.0) -> xr.Dataset
 ```
 
-- **`ftle_ridge_seeds(ftle)`** — start points at strong local maxima of an FTLE
-  field: grid points that are the maximum over a `window x window` neighbourhood
-  (a windowed local maximum on the raw value) *and* at or above the `quantile`
-  magnitude floor. Returns `(lon, lat)` 1-D arrays. NaN cells never qualify.
-- **`shrink_lines(flowmap, seed_lon, seed_lat)`** — integrate the $\xi_1$ tensor
-  line through each seed, both directions, on the flow map's rectilinear grid.
-  It interpolates the tensor $C$ (via `scipy`'s `RegularGridInterpolator`) and
-  re-diagonalises at each step — robust to the eigenvector sign ambiguity — and
-  orients each step to the running heading. A line stops where $\lambda_2 <$
-  `lambda_max_min` (a low guard against the rare degenerate $\lambda_1 \approx
-  \lambda_2$ points, *not* an LCS selector), or where it leaves the grid / hits a
-  NaN cell; a seed that cannot be traced yields an all-NaN line. Returns an
-  `xr.Dataset` with `lon`/`lat` on dims `(line, point)` — one `line` per seed,
-  fixed `2 * n_steps + 1` points, NaN past termination.
+The three tuning parameters that used to be grid-relative are physical
+distances and rates, so the same call means the same thing at any resolution and
+over any window:
 
-This layer interpolates on the axis-aligned `lon_0`/`lat_0` grid, so (like
-`NeighborFlowMap`) it assumes a rectilinear flow map. The tight ODE loop is the
-one place the package leaves the label-based xarray API for NumPy/SciPy.
+- **`ftle_ridge_seeds(ftle)`** — start points at strong local maxima of an FTLE
+  field: grid points that are the maximum over a square neighbourhood of side
+  `window_m` **metres** (a windowed local maximum on the raw value) *and* at or
+  above the `quantile` magnitude floor. `window_m` is converted to an odd cell
+  count per dimension from the field's own `lon_grid`/`lat_grid` spacing (the
+  default 30 km is 7 cells on a $1/25^\circ$ grid at $20^\circ$N). The field must carry
+  `lon_grid`/`lat_grid`; `flowmap.ftle()` does. Returns `(lon, lat)` 1-D arrays.
+  NaN cells never qualify.
+- **`shrink_lines(flowmap, seed_lon=..., seed_lat=...)`** — integrate the
+  $\xi_1$ tensor line through each seed, both directions, on the flow map's
+  rectilinear grid. It interpolates the tensor $C$ (via `scipy`'s
+  `RegularGridInterpolator`) and re-diagonalises at each step — robust to the
+  eigenvector sign ambiguity — and orients each step to the running heading.
+  `line_length_m` is the **full** line length, traced half in each direction:
+  the step count per direction is $n = $ `line_length_m / (2 * step_m)` rounded,
+  at least 1, so every line has $2n + 1$ points. A line stops where the local FTLE
+  falls below `ftle_min_per_day` (in **1/day**, converted against the flow map's
+  own $|T|$ to the eigenvalue floor
+  $\lambda_{\min} = \exp(2\,|T|_{\mathrm{days}}\,\Lambda_{\min})$ — a low guard
+  against the rare degenerate $\lambda_1 \approx \lambda_2$ points, *not* an LCS
+  selector), or where it leaves the grid / hits a NaN cell; a seed that cannot
+  be traced yields an all-NaN line. Returns an `xr.Dataset` with `lon`/`lat` on
+  dims `(line, point)` — one `line` per seed, fixed length, NaN past
+  termination.
+
+This layer interpolates on the axis-aligned `lon_grid`/`lat_grid` axes, so (like
+`NeighborFlowMap`) it assumes a rectilinear flow map.
+
+### One call: `FlowMap.lcs()`
+
+```python
+FlowMap.lcs(*, window_m=None, quantile=None, ftle_min_per_day=None,
+            step_m=None, line_length_m=None) -> xr.Dataset
+```
+
+Runs the three steps — `ftle()`, `ftle_ridge_seeds`, `shrink_lines` — in one
+call, computing the FTLE exactly once. Every parameter is optional and only the
+ones actually passed are forwarded, so the defaults stay in
+`ftle_ridge_seeds`/`shrink_lines`. There is no direction argument: the flow map
+already carries $\operatorname{sign}(T)$, so a forward map yields repelling LCS
+and a backward one attracting LCS, and the returned dataset says which it holds.
+
+The result is the `shrink_lines` dataset — `lon`/`lat` on `(line, point)` —
+with the `ftle` field on `(i, j)` that the seeds were picked from riding along,
+so the curves can be plotted over it without recomputing an eigendecomposition:
+
+```python
+lcs = forward.lcs()
+lcs["ftle"].plot(x="lon_grid", y="lat_grid")
+plt.plot(lcs["lon"].T, lcs["lat"].T)
+```
+
+`lon_grid`/`lat_grid` are 2-D non-dimension coords (the layout that lets the
+grid be curvilinear), so a gridded field is drawn against them by naming them;
+`.plot()` on its own falls back to the logical `i`/`j` axes.
+
+Ridge-finding itself stays a free function taking a *field*, not a flow map, so
+a caller who wants to smooth or mask the FTLE first still drives the three steps
+by hand.
 
 ## Evolving a material curve
 
@@ -197,23 +291,69 @@ evolving a curve is just interpolating that map at the curve's vertices — no
 second advection.
 
 ```python
-FlowMap.image(lon0, lat0) -> xr.Dataset
+FlowMap.image(*, lon0, lat0) -> xr.Dataset
 ```
 
-- **`image(lon0, lat0)`** — interpolate the advected-position field `lon`/`lat`
-  at reference points `lon0`/`lat0` (`DataArray`s on any shared dims, e.g. the
-  `(line, point)` grid of `shrink_lines`), returning their advected positions
-  $F_{t_0}^{t_1}(x_0)$ as an `xr.Dataset` with `lon`/`lat` on the input dims —
-  the same structure a `shrink_lines` curve has, so an evolved curve is drop-in
-  plottable and can itself be re-fed. Points off the grid, in a NaN (land/edge)
-  cell, or NaN themselves map to NaN. Rectilinear grids only, like
-  `shrink_lines` (for `AuxiliaryFlowMap` the advected centre is the arm
-  centroid).
+- **`image(*, lon0, lat0)`** — interpolate `grid_image` (the advected positions
+  on the diagnostic grid) at reference points `lon0`/`lat0` (`DataArray`s on any
+  shared dims, e.g. the `(line, point)` grid of `shrink_lines`), returning their
+  advected positions $F_{t_0}^{t_1}(x_0)$ as an `xr.Dataset` with `lon`/`lat` on
+  the input dims — the same structure a `shrink_lines` curve has, so an evolved
+  curve is drop-in plottable and can itself be re-fed. The requested reference
+  positions ride along as `lon_grid`/`lat_grid` coords on the output, labelled
+  as the $x_0$ they are. Points off the grid, in a NaN (land/edge) cell, or NaN
+  themselves map to NaN. Rectilinear grids only, like `shrink_lines`.
 
 An LCS is evolved in its **coherent** direction, where perturbations decay: an
 attracting LCS forward in time, a repelling one backward. Advecting the grid to a
 few horizons and calling `image` at each carries the curve through them —
 see [`examples/cabo_verde_lcs_evolution.py`](../examples/cabo_verde_lcs_evolution.py).
+
+## Output metadata
+
+Every array the package returns carries `name`, `long_name`, and `units`, and no
+two quantities come back under the same `name`. That metadata *is* the axis
+label, the title, and the colorbar caption of a vanilla `.plot()`, so a returned
+field needs no hand-set labels to be readable — the only keyword a gridded
+diagnostic needs is `x="lon_grid", y="lat_grid"` to be drawn geographically
+rather than against the logical `i`/`j` axes.
+
+| Returned by | `name` | `long_name` | `units` |
+|---|---|---|---|
+| `deformation_gradient()` | `deformation_gradient` | deformation gradient grad F of the flow map | `1` |
+| `cauchy_green()` | `cauchy_green` | right Cauchy-Green strain tensor C = (grad F)^T grad F | `1` |
+| `cg_eigen()["lambda"]` | `lambda` | eigenvalue lambda of the Cauchy-Green tensor | `1` |
+| `cg_eigen()["xi"]` | `xi` | eigenvector xi of the Cauchy-Green tensor | `1` |
+| `ftle()` | `ftle` | finite-time Lyapunov exponent | `1/s` |
+| `image()`, `grid_image` | `lon` / `lat` | longitude/latitude of the advected position F(x_0) | `degrees_east` / `degrees_north` |
+| `shrink_lines()` | `lon` / `lat` | longitude/latitude along the shrink line | `degrees_east` / `degrees_north` |
+| `lcs()` | `lon` / `lat` | longitude/latitude along the repelling (or attracting) LCS | `degrees_east` / `degrees_north` |
+
+Units are SI: the FTLE is `1/s`, not 1/day. Converting for display is the
+reader's call and belongs in the plotting code, where it is visible; re-set
+`units` when you do.
+
+The coordinates carry the same treatment, set once at construction
+(`from_axes`, `pset_to_flowmap`) and riding unchanged through the diagnostics:
+
+| Coord | `long_name` | `units` |
+|---|---|---|
+| `i` / `j` | logical grid index along i / j | — |
+| `lon_grid` / `lat_grid` | longitude/latitude of the diagnostic grid point | `degrees_east` / `degrees_north` |
+| `lon_0` / `lat_0` | longitude/latitude of the reference release position x_0 | `degrees_east` / `degrees_north` |
+| `displacement` | auxiliary stencil arm | — |
+| `t0` | release time t0 | — |
+| `T` | signed integration window T = t1 - t0 | — |
+| `row` / `col` | tensor row / column index | — |
+| `comp` | eigenvector component | — |
+| `eig` | Cauchy-Green eigenpair, ascending: 0 is the weak-stretch lambda_1, 1 is lambda_max = lambda_2 | — |
+| `line` | shrink line index, one per seed point | — |
+| `point` | point index along the shrink line | — |
+
+The index and label coords (`i`, `j`, `displacement`, `row`, `col`, `comp`,
+`eig`, `line`, `point`) carry no `units`: their values are logical indices or
+string labels, so a unit would be a fiction. `t0` and `T` carry none either —
+they are `datetime64`/`timedelta64`, so the dtype already holds the unit.
 
 ## Reference
 

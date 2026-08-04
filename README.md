@@ -37,8 +37,23 @@ lon0, lat0 = seed.to_parcels_pset()
 #    package -- and collect the final positions (lon1, lat1).
 
 # 3. Ingest the advected positions into a flow map and diagnose it.
-flowmap = seed.pset_to_flowmap(lon1, lat1, t0=t0, t1=t1)
-ftle = flowmap.ftle()  # xr.DataArray of the FTLE on the (i, j) grid
+flowmap = seed.pset_to_flowmap(lon=lon1, lat=lat1, t0=t0, t1=t1)
+ftle = flowmap.ftle()  # xr.DataArray of the FTLE (1/s) on the (i, j) grid
+
+# 4. Or go straight to the hyperbolic LCS curves, FTLE field included.
+lcs = flowmap.lcs()
+```
+
+Lon/lat pairs are keyword-only throughout, so a transposed call raises instead of
+quietly diagnosing the wrong ocean. Every returned array carries `long_name` and
+`units`, so `ftle.plot(x="lon_grid", y="lat_grid")` labels itself.
+
+`print(flowmap)` gives a one-line summary and `flowmap.ds` gives the dataset
+itself — these objects *wrap* an `xr.Dataset` rather than subclass one:
+
+```pycon
+>>> print(flowmap)
+<NeighborFlowMap 6x5 grid, lon -25.000..-20.000, lat 15.000..20.000, t0 2020-01-01T00:00:00, T +7.00 days (forward/repelling)>
 ```
 
 Examples live under [`examples/`](examples/). Each is a jupytext triplet
