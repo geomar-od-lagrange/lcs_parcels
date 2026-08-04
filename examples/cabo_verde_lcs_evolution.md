@@ -107,34 +107,38 @@ def set_lost_to_nan(particles, fieldset):
 
 ## Advect to each horizon
 
-Each horizon is its own integration from $t_0$, in each direction. Carrying a
-single integration through all five horizons and reading the positions off
-along the way would be cheaper, but a particle lost partway through then
-re-enters the next leg with a stale clock, which perturbs the values its
-surviving neighbours are interpolated from.
+The horizons are reached one leg at a time, so the five-day run is five days of
+integration rather than $1 + 2 + 3 + 4 + 5$.
+
+Each leg starts a **new** `ParticleSet` from the positions the previous leg
+ended at, released at that leg's start time. Reusing one set across legs would
+not do: a particle that beaches stops advancing, so its clock stays behind, and
+Parcels interpolates a particle set on the assumption that every particle
+shares one clock.
 
 ```python
 forward_maps, backward_maps = [], []
 for direction, maps in ((1, forward_maps), (-1, backward_maps)):
+    lon, lat = (np.asarray(a) for a in seed.to_parcels_pset())
+    start = np.timedelta64(0, "s")
     for horizon in horizons:
-        lon0, lat0 = seed.to_parcels_pset()
         pset = ParticleSet(
             fieldset,
             pclass=Particle,
-            x=lon0,
-            y=lat0,
-            z=np.full(len(lon0), z_surface),
-            t=t0,
+            x=lon,
+            y=lat,
+            z=np.full(lon.size, z_surface),
+            t=t0 + direction * start,
         )
         pset.execute(
             [AdvectionRK4, set_lost_to_nan],
             dt=direction * np.timedelta64(1, "h"),
-            runtime=horizon,
+            runtime=horizon - start,
         )
+        lon, lat = np.asarray(pset.x).copy(), np.asarray(pset.y).copy()
+        start = horizon
         maps.append(
-            seed.pset_to_flowmap(
-                lon=pset.x, lat=pset.y, t0=t0, t1=t0 + direction * horizon
-            )
+            seed.pset_to_flowmap(lon=lon, lat=lat, t0=t0, t1=t0 + direction * horizon)
         )
 ```
 
