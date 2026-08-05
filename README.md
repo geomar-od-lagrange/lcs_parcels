@@ -1,5 +1,6 @@
 # LCS-Parcels
 
+[![PyPI](https://img.shields.io/pypi/v/lcs_parcels.svg)](https://pypi.org/project/lcs_parcels/)
 [![CI](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml/badge.svg)](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/LICENSE)
 
@@ -36,10 +37,14 @@ and [`docs/api.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/
 Python 3.12 or newer:
 
 ```console
-$ pip install git+https://github.com/geomar-od-lagrange/lcs_parcels.git
+$ pip install lcs_parcels
 ```
 
-That gets the current `main`. There is no release on PyPI yet.
+For unreleased `main`:
+
+```console
+$ pip install git+https://github.com/geomar-od-lagrange/lcs_parcels.git
+```
 
 To work on the package code instead, or to run the examples, use
 [pixi](https://pixi.sh):

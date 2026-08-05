@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lcs_parcels"
-version = "2026.8.4.1"
+version = "2026.8.5.1"
 description = "Lagrangian coherent structures with Parcels."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -59,6 +59,7 @@ dependencies = ["numpy>=2.1", "xarray>=2024.9", "scipy>=1.15"]
 Homepage = "https://github.com/geomar-od-lagrange/lcs_parcels"
 Repository = "https://github.com/geomar-od-lagrange/lcs_parcels"
 Issues = "https://github.com/geomar-od-lagrange/lcs_parcels/issues"
+Changelog = "https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lcs_parcels"]
