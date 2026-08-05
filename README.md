@@ -13,6 +13,7 @@ finite-time Lyapunov exponent (FTLE), following Haller (2015),
 and *ingests* the advected positions to diagnose. You run Parcels (or anything
 else) in between.
 
+<!-- TODO: Condense to 1-2 sentences. This is a fair warning. But we don't need to include the whole justification and details here. -->
 ## Scope: rectilinear grids, away from the poles
 
 Longitude differences and means wrap, so a domain crossing the antimeridian is
@@ -51,13 +52,14 @@ finite-difference truncation of that same span is the larger error.
 
 Python 3.12 or newer:
 
+<!-- TODO: Explicit @main? -->
 ```console
 $ pip install git+https://github.com/geomar-od-lagrange/lcs_parcels.git
 ```
 
 That gets the current `main`. There is no release on PyPI yet.
 
-To work on the package instead, or to run the examples, use
+To work on the package code instead, or to run the examples, use
 [pixi](https://pixi.sh):
 
 ```console
@@ -73,6 +75,7 @@ $ pixi run -e examples test-examples  # execute every example against the curren
 import numpy as np
 from lcs_parcels import NeighborSeed
 
+# TODO: Drop the time-free (here and whereever it's not absolutely necessary.)
 # 1. Lay out a time-free seed grid and emit a particle set.
 seed = NeighborSeed.from_axes(
     lon=np.linspace(-25.0, -20.0, 6),
@@ -102,6 +105,8 @@ itself:
 >>> print(flowmap)
 <NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00, t0 2020-01-01T00:00:00, T +7.0 days>
 ```
+
+## Examples
 
 Examples live under [`examples/`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/). Each is a jupytext triplet
 (`.py`/`.md`/`.ipynb`) sharing one source; the rendered `.ipynb` is the one to

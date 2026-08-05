@@ -3,7 +3,7 @@
 A :class:`Seed` lays out a time-free grid of release positions and emits a
 particle set; the advected positions are ingested back into a :class:`FlowMap`,
 which computes the deformation gradient, the Cauchy-Green tensor, its
-eigen-decomposition and the FTLE. This module contains no Parcels code: it
+eigen-decomposition and the FTLE. This module contains no Parcels code but it  # TODO: Drop these call out colons and use prepositions
 provides the data needed to construct a particle set and ingests the particle
 positions after advection::
 
@@ -15,7 +15,9 @@ positions after advection::
     lcs = flowmap.hyperbolic_lcs()   # or straight to the LCS curves
 
 Pass ``t1`` before ``t0`` for backward integration; a zero window is rejected.
+# TODO: Rephrase to "Derivatives in the tangent space have two stencils..." ? Push back if I'm wrong.
 The deformation gradient has two stencils, one pair of classes each:
+# TODO: Turn into bullet list? What does, e.g., the python stdlib math module do in overview docstrings? Inline or bullets?
 :class:`NeighborSeed` / :class:`NeighborFlowMap` difference against neighbouring
 grid points, :class:`AuxiliarySeed` / :class:`AuxiliaryFlowMap` against a
 four-arm stencil laid around each grid point.
@@ -26,9 +28,10 @@ returned array carries ``long_name`` and ``units``. Lon/lat pairs are
 keyword-only throughout. Positions are differenced in metres, each pair in its
 own local east/north frame, so the accuracy of a separation is set by the
 distance between the two points rather than by the size or the position of the
+# TODO: General comment: While the antimeridian readiness was a big chunk of work, it should not be very prominent here. That the tool just works irrespective of where it's applied is the norm. The fact that all external lon conventions are supported is worth a mention though.
 domain. Longitude differences are wrapped, which covers the antimeridian
 without a separate code path. Longitudes are stored in whatever convention they
-arrive in; only differences and means are wrapped.
+arrive in and only differences and means are wrapped.  # TODO: Drop these semicola and use a conjunction?
 
 Notation follows Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev.
 Fluid Mech. 47:137-162, doi:10.1146/annurev-fluid-010313-141322
@@ -46,17 +49,15 @@ import xarray as xr
 EARTH_RADIUS_M = 6_371_000.0
 """Mean Earth radius in metres. All distances are taken on a sphere of this radius."""
 
+# TODO: use np.rad2deg and np.deg2rad
 _DEG = np.pi / 180.0
 """Degrees-to-radians factor."""
 
 # --- output metadata -------------------------------------------------------
 #
-# Attribute sets attached to every coordinate and every returned field, so a
-# displayed dataset describes itself and a vanilla plot takes its labels from
-# the object. A set becomes a constant here when it is attached to more than one
-# object (the coordinates, the lon/lat pairs); a set attached to one returned
-# field only (`cauchy_green`, `ftle`, ...) is written inline where that field is
-# built.
+# TODO: CF attrs have many benefits. Using them in vanilla plots triggered the request to include them but does not need a mention here. Just state that there are CF attrs and stop. (General remark again: Make sure you distinguish between how we noticed we'd implement a feature and what's needed documentation wise.)
+# Attribute sets attached to every coordinate and every returned field.
+# Repeated attributes are defined here. Attrs which only are used once appear inline.  # TODO: Note the reduced over-specificity which gains conciseness and readability and (!) maintainability
 
 I_ATTRS = {"long_name": "logical grid index along i"}
 J_ATTRS = {"long_name": "logical grid index along j"}
@@ -101,6 +102,7 @@ EIG_ATTRS = {
 def _wrap_lon(dlon):
     """Wrap a longitude *difference* (degrees) into ``[-180, 180]``.
 
+    # TODO: No need to talk about what the package does here. Just state that we wrap diffs. Go 2-3 lines max.
     Applied to differences only, never to a stored position: the package keeps
     longitudes in whatever convention the caller supplied. Subtracting the nearest
     multiple of 360 rather than shifting by 180 and taking a modulo leaves a
@@ -114,12 +116,14 @@ def _wrap_lon(dlon):
 def _separation_m(*, lon_a, lat_a, lon_b, lat_b):
     """East/north separation of point ``b`` from point ``a``, in metres.
 
+    # TODO: Shorten para to 2 lines. 5 lines for "we reference to the mid-point cos(lat)" is way too much. Again. Concise and focused.
     The pair is differenced in its own local frame: the longitude difference is
     wrapped and scaled by the cosine of the pair's mid-latitude, the latitude
     difference by the Earth radius alone. There is no shared projection and no
     standard parallel: each pair defines its own frame, and the wrapped longitude
     difference covers the antimeridian without a separate code path.
 
+    # TODO: Not sure we need ot report the accuracy considerations here. They are part of the overarching consideration and should be included (briefly!!1!) in the grid.py module docstring. Bring this para down to 0-2 lines.
     The mid-latitude cosine is a midpoint rule, so it is second-order accurate in
     the *separation of the pair* rather than in the size of the domain. For a
     zonal pair the relative error against the great-circle distance is
@@ -129,6 +133,8 @@ def _separation_m(*, lon_a, lat_a, lon_b, lat_b):
     that at its default 1 km arms. A neighbour stencil differences over two grid
     cells and can sit outside it; on a coarse grid the finite-difference
     truncation over that same span is the larger term.
+
+    # TODO: Mention this works on xr DataArrays?
 
     Returns
     -------
@@ -148,6 +154,7 @@ def _separation_m(*, lon_a, lat_a, lon_b, lat_b):
 def _circular_mean_lon(lon: xr.DataArray, dim: str) -> xr.DataArray:
     """Mean longitude over ``dim``, taken on the circle.
 
+    # TODO: Why do we want one invalid to nullify the result? 
     Anchored on the first element along ``dim`` and averaged over wrapped offsets
     from it, so a set straddling the antimeridian averages between its members
     and the result stays on the anchor's branch. ``skipna=False``, so a NaN
@@ -220,14 +227,16 @@ def _extent(values: xr.DataArray) -> str:
     return f"{float(values.min()):.2f}..{float(values.max()):.2f}"
 
 
+# TODO: I'm not sure DRY is the right way to go here. What about just having explicit __repr__ in the classes? There's no automatic enforcement of the contract here anyway. Current version needs to reconcile three places (this func and the two reprs). Alternative needs to reconcile style of two places but doesn't break anything in case of drift.
 def _grid_summary(obj: Seed | FlowMap) -> str:
     """Opening of the one-line repr: class, grid shape, lon/lat extent.
 
-    Shared by :meth:`Seed.__repr__` and :meth:`FlowMap.__repr__`, which close it
-    (the flow map after appending its timing). Reads the diagnostic grid via the
+    # TODO: Drop bound-to-be-stale over-specificity:
+    Shared by :meth:`Seed.__repr__` and :meth:`FlowMap.__repr__`, which close it. Reads the diagnostic grid via the
     ``lon_grid``/``lat_grid`` accessors, so it is stencil-agnostic; ``min``/``max``
     skip NaN.
     """
+    # TODO: Is obj really the Seed / FlowMap or the included ds?
     lon_grid, lat_grid = obj.lon_grid, obj.lat_grid
     shape = f"{lon_grid.sizes['i']}x{lon_grid.sizes['j']}"
     return (
@@ -235,7 +244,8 @@ def _grid_summary(obj: Seed | FlowMap) -> str:
         f"lon {_extent(lon_grid)}, lat {_extent(lat_grid)}"
     )
 
-
+# TODO: Drop "time-free" (it's also temperature-free :D ) where it's not _absolutely_ needed (may be nowhere!) and state what this _is_: A spatial grid of seed positions.  Then condense the docstring accordingly. And: Is it common to refer to children in the base class docstring? Bound to go stale as well ? 
+# TODO: Naming: Would Seeds (plural) be clearer? Parses a little easier to "many particle positions" than singular but makes referring to the object awkward
 class Seed(abc.ABC):
     """Time-free wrapper around an ``xr.Dataset`` of seed positions.
 
@@ -304,6 +314,7 @@ class Seed(abc.ABC):
         Parameters
         ----------
         lon : np.ndarray
+            # TODO: is Ni used anywhere? Necessary?
             1-D array of longitudes (degrees), length ``Ni``, mapped to dim ``i``.
         lat : np.ndarray
             1-D array of latitudes (degrees), length ``Nj``, mapped to dim ``j``.
@@ -330,6 +341,7 @@ class Seed(abc.ABC):
         tuple[list[float], list[float]]
             ``(lon, lat)`` as flat lists of degrees, one entry per particle.
         """
+        # TODO: use underscore (lon_0) for varnames as well? 
         lon0 = self.ds["lon_0"].reset_coords(drop=True)
         lat0 = self.ds["lat_0"].reset_coords(drop=True)
         dims = lon0.dims
@@ -374,6 +386,7 @@ class Seed(abc.ABC):
             zero.
         """
         dims = self.ds["lon_0"].dims
+        # TODO: Why exactly do we call this _arm? Honest question. May be obvious.
         lon_arm = (
             self.ds["lon_0"]
             .reset_coords(drop=True)
@@ -404,8 +417,10 @@ class Seed(abc.ABC):
         return self._flowmap_cls(ds)
 
 
+# TODO: Dropped the colon for a preposition.
+# TODO: And find a better opening sentence. This one is as unspecific (and as redundant w/ the following text) as it gets. What _is_ the flowmap?
 class FlowMap(abc.ABC):
-    """Wrapper around an advected ``xr.Dataset``; computes the diagnostics.
+    """Wrapper around an advected ``xr.Dataset`` which computes the diagnostics.
 
     Holds the reference release positions ``lon_0``/``lat_0`` (``x_0``,
     coordinates) *and* the advected positions ``lon``/``lat`` (the flow map
@@ -413,11 +428,9 @@ class FlowMap(abc.ABC):
     the signed window ``T = t1 - t0`` (``timedelta64``). Produced by
     :meth:`Seed.pset_to_flowmap`; the dataset is held in :attr:`ds`.
 
+    # TODO: Shortened the following.
     Both position pairs share the same dims so ``grad F = d(lon, lat) /
-    d(lon_0, lat_0)`` is well-defined: ``(i, j)`` for :class:`NeighborFlowMap`,
-    ``(i, j, displacement)`` for :class:`AuxiliaryFlowMap`. Both carry the
-    diagnostic grid points ``lon_grid``/``lat_grid`` on ``(i, j)``, which is
-    where the diagnostics are reported. Concrete subclasses differ only in how
+    d(lon_0, lat_0)`` is well-defined. Concrete subclasses differ only in how
     ``grad F`` is finite-differenced and how the advected positions collapse
     onto the diagnostic grid (:attr:`grid_image`).
 
@@ -435,6 +448,8 @@ class FlowMap(abc.ABC):
 
     def __init__(self, ds: xr.Dataset) -> None:
         """Wrap an existing advected dataset.
+
+        The rest is done by derived properties.
 
         Parameters
         ----------
@@ -476,6 +491,7 @@ class FlowMap(abc.ABC):
             return "forward"
         return "backward"
 
+    # TODO: Is this a pseudo float or real non-integer?
     def _window_days(self) -> float:
         """The signed window ``T`` in days."""
         return float(self.ds["T"] / np.timedelta64(1, "D"))
@@ -502,13 +518,16 @@ class FlowMap(abc.ABC):
 
     def _positions(self) -> tuple[xr.DataArray, ...]:
         """Reference and advected positions in degrees, as
+        # TODO: As we're now going t_0 and t_1, would lon_1, lat_1 be better? I know it's a slight deviation from Haller but more self-consistent.
         ``(lon_0, lat_0, lon, lat)``.
 
+        # TODO: Don't refer to children
         The ``lon_0``/``lat_0`` release-position coords are dropped: everything
         differenced from these is reported at the diagnostic grid point, so it
         must be labelled ``lon_grid``/``lat_grid`` and not by a release
         position -- which for :class:`AuxiliaryFlowMap` is one stencil arm.
 
+        # TODO: This paragraph answers questions nobody would ask?!?
         The positions are returned in degrees rather than metres because a
         separation is only in metres once a pair of points is chosen, and it is
         then taken in the local frame of that pair (:func:`_separation_m`). The
@@ -532,6 +551,7 @@ class FlowMap(abc.ABC):
         each separation taken in metres in its own local east/north frame
         (:func:`_separation_m`): the denominator from the reference
         ``lon_0``/``lat_0``, the numerator from the advected
+        # TODO: Drop refs to specific subclasses
         ``lon``/``lat``. Subclasses define the stencil: neighbouring grid points
         (:class:`NeighborFlowMap`) or the fixed four-arm auxiliary stencil
         (:class:`AuxiliaryFlowMap`). Cells with a missing stencil point yield NaN.
@@ -562,9 +582,8 @@ class FlowMap(abc.ABC):
         gradF = self.deformation_gradient()
         # C_{a,b} = sum_k gradF_{k,a} gradF_{k,b}: contract over the shared output
         # index `row` by label, then relabel the two surviving `col` axes back to
-        # (row, col). Pure label-based arithmetic; no positional indexing.
+        # (row, col). Pure label-based arithmetic instead of positional indexing.
         C = xr.dot(gradF, gradF.rename(col="col_b"), dim="row")
-        C = C.rename(col="row", col_b="col").rename("cauchy_green")
         # Before xarray 2025.11, `xr.dot` strips the attrs off every coordinate it
         # carries through. Restore them from the operand.
         C = C.assign_coords(
@@ -574,7 +593,8 @@ class FlowMap(abc.ABC):
                 if name in gradF.coords and name not in ("row", "col")
             }
         )
-        # Separate call: `row` and `col` are new axes here, not restored ones.
+        # Attach non-inherited tensor coords.
+        C = C.rename(col="row", col_b="col").rename("cauchy_green")
         C = C.assign_coords(
             row=xr.DataArray(["x", "y"], dims="row", attrs=ROW_ATTRS),
             col=xr.DataArray(["x", "y"], dims="col", attrs=COL_ATTRS),
@@ -604,12 +624,14 @@ class FlowMap(abc.ABC):
         # `w[..., k]` with eigenvector `v[..., :, k]`; apply_ufunc moves the
         # (row, col) core dims last so the first output axis of `v` is the vector
         # component and the second selects which eigenpair.
+        # TODO: Does this work w/o apply_ufunc as xarray now is array-like?
         lam, vec = xr.apply_ufunc(
             np.linalg.eigh,
             C,
             input_core_dims=[["row", "col"]],
             output_core_dims=[["eig"], ["comp", "eig"]],
         )
+        # Can we trust the ascending order?
         eig = xr.DataArray([0, 1], dims="eig", attrs=EIG_ATTRS)
         comp = xr.DataArray(["x", "y"], dims="comp", attrs=COMP_ATTRS)
         lam = lam.assign_coords(eig=eig).assign_attrs(
@@ -625,6 +647,7 @@ class FlowMap(abc.ABC):
     def ftle(self) -> xr.DataArray:
         """Finite-time Lyapunov exponent (FTLE). Haller (2015) Sec. 4.1.
 
+        # TODO: Factor 2 missing?!!
         Computes ``Lambda = (1 / |T|) * log(sqrt(lambda_max))`` using the
         *largest* eigenvalue of ``C`` from :meth:`cg_eigen` and ``|T|`` in
         seconds from the recorded signed window.
@@ -645,6 +668,7 @@ class FlowMap(abc.ABC):
             units="1/s",
         )
 
+    # TODO: Shorten. drop the Agentic hyphens. And is all the antimeridian talk really necessary? (See comment above on relevance.) Maybe leave antimeridian discussion in comment but not in docstring.
     def image(self, *, lon0: xr.DataArray, lat0: xr.DataArray) -> xr.Dataset:
         """Advected positions ``F_{t0}^{t1}(x_0)`` at arbitrary reference points.
 
@@ -689,6 +713,8 @@ class FlowMap(abc.ABC):
             method. The requested reference positions ride along as the
             ``lon_0``/``lat_0`` coords.
         """
+        # TODO: COndense all these comments to their essence.
+        # TODO: Avoid the colon.
         # Interpolation is arithmetic on the advected longitudes, so they have to
         # be on one branch first: an advection that hands positions back wrapped
         # to [-180, 180) tears from 179.9 to -179.9 between two adjacent grid
@@ -756,7 +782,7 @@ class FlowMap(abc.ABC):
     ) -> xr.Dataset:
         """Hyperbolic LCS of this flow map: FTLE, ridge seeds, and shrink lines.
 
-        Runs the three-step workflow in one call: compute the FTLE field
+        Runs a three-step workflow in one call: compute the FTLE field
         (:meth:`ftle`), pick seed points at its strong local maxima
         (:func:`~lcs_parcels.ftle_ridge_seeds`), and integrate the shrink lines
         through them (:func:`~lcs_parcels.shrink_lines`).
@@ -767,6 +793,7 @@ class FlowMap(abc.ABC):
         window decides which family is returned, and the returned dataset records
         that family in its ``long_name``.
 
+        # TODO: Lead with the recomputation issue and shorten this paragraph.
         Within one call the FTLE is computed once and handed to the ridge finder,
         but every call recomputes it, and that is the expensive step. To pick
         ridges from a smoothed or masked field, or to re-tune the ridge or
@@ -790,20 +817,24 @@ class FlowMap(abc.ABC):
             ``lon``/``lat`` (degrees) on dims ``(line, point)`` -- the LCS curves,
             NaN past termination -- together with the ``ftle`` field (1/s) on
             ``(i, j)`` that the seeds were picked from, so the curves can be
+            # TODO: Less poetic. Say how and not that the attrs ride along. What about just "The ridge-selection parameters ``min_...`` ... are included as attrs.
             plotted over it without recomputing. The ridge-selection attributes
             of :func:`~lcs_parcels.ftle_ridge_seeds` ride along, so the implied
             ``min_seed_separation_m`` is readable off the result.
         """
+        # TODO: Make this one line. You defended that against the human already. No need to carry the lore through every comment.
         # This method is a layering inversion: `grids` is the lower layer, and
         # here it reaches up into `tensorlines`, which imports from it. The
         # deferred import is the standard remedy for that, accepted so this
         # method can run the whole workflow in one call.
         from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
 
+        # TODO: Shorten this comment to 1 line
         # Forwarding a None would push the sentinel into the public signatures of
         # ftle_ridge_seeds and shrink_lines, which would each then have to
         # resolve it; dropping the unset arguments here leaves each default
         # defined in exactly one place.
+        # TODO: And is it really true that passing explicit = None overrides default value? 
         def _filter_kwargs(**kwargs) -> dict[str, float]:
             return {k: v for k, v in kwargs.items() if v is not None}
 
@@ -858,6 +889,7 @@ class FlowMap(abc.ABC):
         return self._seed_cls(ds)
 
 
+# TODO: Drop the agentic hyphens (everywhere. Not only here!)
 class NeighborSeed(Seed):
     """Time-free seed whose stencil is the neighbouring grid points.
 
@@ -894,10 +926,11 @@ class NeighborSeed(Seed):
                 "j": xr.DataArray(
                     np.arange(lat_axis.sizes["j"]), dims="j", attrs=J_ATTRS
                 ),
-                # Diagnostic grid points; stored rather than reconstructed from
+                # Diagnostic grid points are stored rather than reconstructed from
                 # lon_0/lat_0, which happen to coincide for this stencil.
                 "lon_grid": lon2d.assign_attrs(LON_GRID_ATTRS),
                 "lat_grid": lat2d.assign_attrs(LAT_GRID_ATTRS),
+                # TODO: Drop the colon! (here and everywhere if _any_ possible)
                 # Reference initial positions x_0: the grid points themselves.
                 "lon_0": lon2d.assign_attrs(LON_0_ATTRS),
                 "lat_0": lat2d.assign_attrs(LAT_0_ATTRS),
@@ -931,7 +964,7 @@ class AuxiliarySeed(Seed):
         *,
         lon: np.ndarray,
         lat: np.ndarray,
-        aux_separation_m: float = 1_000.0,
+        aux_separation_m: float = 1_000.0,  # TODO: Mention default value in docstring or bad practice as the signature usually rides along anyway?
     ) -> Self:
         """Build an auxiliary-stencil seed from 1-D lon/lat axes.
 
@@ -980,6 +1013,7 @@ class AuxiliarySeed(Seed):
             coords={"displacement": displacement},
         )
 
+        # TODO: Condense these long comments. (Here and everywhere. 5 line comments for deg/meters def is more than excessive!)
         # Place the arms in each grid point's own local east/north frame, so the
         # east-west and north-south spans are exactly 2s at every latitude.
         # lon_grid (i, j) broadcasts with the (displacement,) offset into the arm
@@ -1084,13 +1118,14 @@ class AuxiliaryFlowMap(FlowMap):
     ``(i, j, displacement)`` plus the diagnostic grid points
     ``lon_grid``/``lat_grid`` on ``(i, j)``. The per-point stencil makes
     ``grad F`` well-defined at every grid point, including the boundary. See
-    Haller (2015) Eq. 9 and the paired :class:`AuxiliarySeed`.
+    Haller (2015) Eq. 9 and the paired :class:`AuxiliarySeed`.  # TODO: Should we pair the class explicitly or only necessary if acutally used. Above, we explicitly paired the Seed class on FlowMap? Why?
     """
 
     @property
     def grid_image(self) -> xr.Dataset:
         """The centroid of the four advected arms.
 
+        # TODO: Consider which into to put into docstring and which into a comment. (GEnerally)
         The arms were released a stencil separation apart, which is small against
         the flow scale, so their advected centroid is the flow map image of the
         grid point. The longitudes are averaged on the circle
@@ -1141,6 +1176,7 @@ class AuxiliaryFlowMap(FlowMap):
 #
 # Each concrete seed knows the flow map it produces, and each flow map knows the
 # seed it collapses back to; explicit class attributes, not inheritance.
+# TODO: Ah for the implementer classes this is done here. NVM then.
 NeighborSeed._flowmap_cls = NeighborFlowMap
 AuxiliarySeed._flowmap_cls = AuxiliaryFlowMap
 NeighborFlowMap._seed_cls = NeighborSeed

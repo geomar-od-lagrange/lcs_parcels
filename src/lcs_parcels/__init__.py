@@ -13,7 +13,7 @@ from __future__ import annotations
 from lcs_parcels.grids import (
     AuxiliaryFlowMap,
     AuxiliarySeed,
-    FlowMap,
+    FlowMap,  # TODO: Do we need / want to expose the ABC's here?
     NeighborFlowMap,
     NeighborSeed,
     Seed,

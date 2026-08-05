@@ -3,6 +3,7 @@
 Haller (2015) §5.1 / Table 1 (n=2), doi:10.1146/annurev-fluid-010313-141322
 (https://doi.org/10.1146/annurev-fluid-010313-141322).
 
+# TODO: One of the rare emdashes / hyphens that I accept.
 A repelling LCS is a *shrink line* -- a curve tangent to the weak-stretch
 eigenvector ``xi_1`` of the Cauchy-Green tensor ``C`` (equivalently, normal to
 the strong-stretch ``xi_2`` that the FTLE ridge marks). It solves the tensor-line
@@ -16,6 +17,8 @@ Two functions compose the workflow: :func:`ftle_ridge_seeds` picks seed points,
 gridded xarray outputs of a :class:`~lcs_parcels.FlowMap`, and
 :meth:`~lcs_parcels.FlowMap.hyperbolic_lcs` runs the pair in one call.
 
+# TODO: Why refer to the interpolation of NeighborFlowMap? Just because the logic is used somewhere else, it's not warranted to mention here. Focus of what's important for _this_ module.
+# TODO: And again: try getting rid of the antimeridian rambling except where unexpected and absolutely necessary. This feels like we're pointing out we're able to have T cross new year's eve without crashing ...
 Rectilinear grids only: like :class:`~lcs_parcels.NeighborFlowMap`, the tensor is
 interpolated on axis-aligned ``lon_grid``/``lat_grid`` axes (``lon_grid`` varying
 along ``i``, ``lat_grid`` along ``j``). The ``lon_grid`` axis must also be
@@ -35,6 +38,8 @@ from scipy.interpolate import RegularGridInterpolator
 from lcs_parcels.grids import _DEG, EARTH_RADIUS_M, _separation_m
 
 
+# TODO: I'm unable to parse this docstring. Rewrite explanation from scratch.
+# TODO: And I'm not sure if the "we only look at odd-centered windows" isn't wrong. Aren't we losing resolution this way?
 def _odd_cells(window_m: float, spacing_m: float) -> int:
     """Cells spanning ``window_m`` at grid spacing ``spacing_m``, odd and at least 1.
 
@@ -47,6 +52,8 @@ def _odd_cells(window_m: float, spacing_m: float) -> int:
     return max(1, cells)
 
 
+# TODO: Opener should be a statement with some meaning. Something like "construct distance aware window stencil" or similar.
+# TODO: Completely rewrite the docstring to approx 50% of current volume and scoped for what's really important and in a language that is as straightforward and clear as possible.
 def _window_geometry(ftle: xr.DataArray, window_m: float) -> dict[str, float]:
     """What ``window_m`` actually becomes on this field's grid.
 
@@ -138,6 +145,7 @@ def ftle_ridge_seeds(
         grid resolution. On a 1/25-degree grid at 20 N (about 4.2 km cells) the
         default is 7 cells.
 
+        # TODO: Put this explainer into the main part? Not sure. What's best place for this info?
         A window of side ``window_m`` reaches ``window_m / 2`` to either side of
         its own grid point, so **the closest two seeds can be is about
         ``window_m / 2``**, not ``window_m``. The returned
@@ -148,12 +156,14 @@ def ftle_ridge_seeds(
         maxima: a plateau of exactly equal values makes every one of its cells a
         windowed maximum, and those can be adjacent.
     quantile : float, optional
+        # TODO: Say this is quantile of complete field.
         Magnitude floor as a quantile of this field, in ``[0, 1]``. Defaults to
         0.90 (the top decile) when neither selector is given.
     ftle_min : float, optional
         Magnitude floor as an absolute value, in the units of ``ftle`` (1/s for
         :meth:`FlowMap.ftle`). Mutually exclusive with ``quantile``.
 
+        # TODO: Important point. But condense to 2-3 lines max.
         The default selector is the quantile, because a quantile means the same
         thing on any field, while a given rate marks a ridge in a fast flow and
         nothing in a slow one. Use ``ftle_min`` when several windows or regions
@@ -174,8 +184,7 @@ def ftle_ridge_seeds(
     """
     if quantile is not None and ftle_min is not None:
         raise ValueError(
-            "give either quantile or ftle_min, not both: they are two ways of "
-            "setting the same magnitude floor"
+            "give either quantile or ftle_min, not both"  # TODO: Period at end? 
         )
     if quantile is None and ftle_min is None:
         quantile = 0.90
@@ -190,7 +199,7 @@ def ftle_ridge_seeds(
             f"({geometry['grid_spacing_i_m']:.0f} x "
             f"{geometry['grid_spacing_j_m']:.0f} m). A window under three cells "
             "makes every point a windowed maximum in that dimension, so the "
-            "local-maximum test stops selecting. Widen window_m or seed a finer "
+            "local-maximum test stops selecting. Consider wider window_m or finer "
             "grid.",
             UserWarning,
             stacklevel=2,
@@ -198,6 +207,7 @@ def ftle_ridge_seeds(
 
     peak = ftle.rolling(i=cells_i, j=cells_j, center=True, min_periods=1).max()
     is_seed = (ftle >= peak) & (ftle >= threshold)
+    # TODO: This is an abuse of xarray API. Use where or say in comment why the obvs where isn't used.
     mask = is_seed.transpose("i", "j").values
     lon = ftle["lon_grid"].transpose("i", "j").values[mask]
     lat = ftle["lat_grid"].transpose("i", "j").values[mask]
@@ -228,6 +238,7 @@ def ftle_ridge_seeds(
             )
         },
         attrs={
+            # TODO: Emit window_m as well? Or did I overlook this?
             "long_name": "seed points at strong local maxima of the FTLE field",
             "selector": "quantile" if ftle_min is None else "ftle_min",
             "ftle_threshold": threshold,
@@ -246,11 +257,12 @@ def _shrink_line_tangent(
 ) -> np.ndarray:
     """Unit ``xi_1`` at each ``(lon, lat)``, oriented to ``heading``.
 
+    # TODO: Shure about the direction of the shrinking?
     ``xi_1`` is the direction material line elements *shrink* along, and the
     shrink line is the curve tangent to it everywhere.
 
-    Returns ``NaN`` wherever the tangent is **not well defined**, which is one
-    condition with three causes: the point is off-grid, it sits in a NaN cell, or
+    Returns ``NaN`` wherever the tangent is **not well defined** because it 
+    either is off-grid, sits in a NaN cell, or at a point where
     the tensor is too close to isotropic for its eigenvectors to be resolved
     (``min_anisotropy``). Callers read a NaN row as "the line ends here" and do
     not need to know which of the three fired.
@@ -276,6 +288,7 @@ def _shrink_line_tangent(
         Shape ``(n, 2)`` unit ``(east, north)`` vectors; ``NaN`` rows wherever
         the tangent is not well defined.
     """
+    # TODO: Try condensing the comments. They are valid and important but feel too long.
     cauchy_green = tensor_interp(np.column_stack([lon, lat]))
     terminated = ~np.isfinite(cauchy_green).all(axis=(1, 2))
     # eigh returns eigenvalues ascending: eigenvalues[:, 0] = lambda_1 (the
@@ -298,6 +311,7 @@ def _shrink_line_tangent(
     )
     direction = eigenvectors[:, :, 0]
     # An eigenvector has no intrinsic sign, so eigh's choice flips arbitrarily
+    # TODO: what's the acute side?
     # between neighbouring points. Flipping each one to the acute side of the
     # running heading keeps the marched sequence a continuous curve instead of a
     # zig-zag.
@@ -306,6 +320,7 @@ def _shrink_line_tangent(
     return direction
 
 
+# TODO: Good docstring! Condense a little though?
 def _step_lonlat_by_meters(
     lon: np.ndarray,
     lat: np.ndarray,
@@ -439,7 +454,6 @@ def _trace_half_line(
             min_anisotropy=min_anisotropy,
         )
         lon, lat = _step_lonlat_by_meters(lon, lat, mid_direction, step_m=step_m)
-        heading = mid_direction
         # Every line runs the full n_steps and is NaN-filled past termination,
         # rather than breaking out: the whole seed population marches together in
         # one array, so there is nothing to break out of, and the result is a
@@ -449,6 +463,8 @@ def _trace_half_line(
     return track
 
 
+# TODO: Is this all vectorized already? Or do we loop over seed_lon, seed_lat point pairs? 
+# TODO: try condensing the comments
 def shrink_lines(
     flowmap,
     *,
