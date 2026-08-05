@@ -1,0 +1,98 @@
+name: Publish
+
+# Tag-driven. Pushing `vYYYY.M.D.N` publishes that commit; nothing else does.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      # Full history and tags: hatch-vcs derives the version from the tag being
+      # built, and a shallow checkout has no tags to derive it from.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build
+        run: uv build
+
+      # hatch-vcs derives the version from the tag, so bookkeeping can no longer
+      # put them out of step. This guards the ways the derivation itself can:
+      # missing tags fall back, and a dirty tree adds a `.dYYYYMMDD` suffix and
+      # guesses the *next* version. PyPI takes a version exactly once, so this
+      # runs before the upload rather than after.
+      - name: Check the build picked up the tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test -f "dist/lcs_parcels-${version}.tar.gz" || {
+            echo "::error::no dist/lcs_parcels-${version}.tar.gz; built $(ls dist/*.tar.gz)"
+            exit 1
+          }
+
+      - name: Check the distributions
+        run: uvx twine check --strict dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+  publish:
+    name: publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # Trusted Publishing: PyPI trusts this repository, workflow and environment
+    # over OIDC, so there is no API token in the repository secrets to leak or
+    # rotate. The environment also gives a place to require an approval.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/lcs_parcels
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  release:
+    name: GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+      # The notes are `CHANGELOG.md`'s section for this version, so the GitHub
+      # release and the file cannot drift.
+      - name: Extract this version's changelog section
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## " v "$" {found=1; next}
+            found && /^## / {exit}
+            found {print}
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md || {
+            echo "::error::CHANGELOG.md has no section for $version"
+            exit 1
+          }
+          cat release-notes.md
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --notes-file release-notes.md

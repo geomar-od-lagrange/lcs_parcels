@@ -3,12 +3,25 @@
 # need Metadata 2.4, which older hatchling does not emit. Without the floor a
 # constrained build environment produces wrong license metadata rather than
 # failing.
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.27", "hatch-vcs>=0.4"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+# A shallow checkout has no tags, and the test and docs jobs install the package
+# without needing a truthful version. Without a fallback hatch-vcs would fail the
+# install outright there; the publish workflow fetches full history, so a release
+# never sees this value.
+[tool.hatch.version.raw-options]
+fallback_version = "0.0.0"
 
 [project]
 name = "lcs_parcels"
-version = "2026.8.4.1"
+# Derived from the git tag by hatch-vcs, so the tag is the only place a version
+# is written. A build off a tag is that version; a build between tags carries a
+# `.devN+g<sha>` suffix naming the commit.
+dynamic = ["version"]
 description = "Lagrangian coherent structures with Parcels."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -59,6 +72,7 @@ dependencies = ["numpy>=2.1", "xarray>=2024.9", "scipy>=1.15"]
 Homepage = "https://github.com/geomar-od-lagrange/lcs_parcels"
 Repository = "https://github.com/geomar-od-lagrange/lcs_parcels"
 Issues = "https://github.com/geomar-od-lagrange/lcs_parcels/issues"
+Changelog = "https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lcs_parcels"]

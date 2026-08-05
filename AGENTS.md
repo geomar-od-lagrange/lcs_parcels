@@ -354,18 +354,22 @@ verified against the pinned v4 alpha:
   counter `N` (start at `1`, bump only for a second release on the same day). No
   semantic version, because there is no compatibility contract to signal.
   Write the month and day without a leading zero, because that is the form PEP
-  440 normalises to: a padded `2026.08.04.1` reaches PyPI as `2026.8.4.1`, and
-  the git tag, `__version__` and the published version then disagree. The two
-  tags predating this rule, `v2026.07.17.1` and `v2026.08.04.1`, stay as they
-  are.
-- **The version lives in two places that must stay identical:** `[project]`
-  `version` in `pyproject.toml` and `__version__` in
-  `src/lcs_parcels/__init__.py`. A release is a single **"Release vYYYY.M.D.N"**
-  commit that bumps *both*, so the package metadata is self-consistent.
-- **Tag the released commit** `vYYYY.M.D.N` and push the tag; cut a GitHub
-  release from it. The bump commit may ride in the feature PR it releases, so no
-  separate release PR is needed. The tag is the release of record.
+  440 normalises to, and a padded `v2026.08.04.1` would therefore be published
+  as `2026.8.4.1` and disagree with its own tag. The two tags predating this
+  rule, `v2026.07.17.1` and `v2026.08.04.1`, stay as they are.
+- **The tag is the only place a version is written.** `hatch-vcs` derives
+  `[project] version` from the git tag at build time, and `__version__` reads it
+  back off the installed distribution. Nothing in the source tree carries a
+  version literal, so there is no bump commit and nothing to keep in sync.
+- **Releasing is tagging.** Tag the commit `vYYYY.M.D.N` and push the tag.
+  `publish.yml` builds it, waits for an approval on the `pypi` environment, then
+  publishes over Trusted Publishing and cuts the GitHub release from this
+  version's `CHANGELOG.md` section. Only `v*` tags can deploy that environment.
+- **A build between tags is a dev version**, `2026.8.5.1.dev4+g1a2b3c4`, naming
+  the commit. A checkout with no tags at all falls back to `0.0.0`, which the
+  publish workflow rejects rather than uploading.
 - **A release that breaks a documented call says so in its release notes**, per
   the compatibility rule above: what broke and what to write instead.
 - **Never pin the version value in a test.** `test_version` asserts a version
-  string exists, not what it is, so a bump needs no test edit.
+  string exists and `test_version_is_pep440` that it parses, neither of which a
+  release touches.

@@ -10,6 +10,8 @@ Parcels code. It only emits particle sets and ingests their advected positions.
 
 from __future__ import annotations
 
+import importlib.metadata
+
 from lcs_parcels.grids import (
     AuxiliaryFlowMap,
     AuxiliarySeedGrid,
@@ -20,7 +22,9 @@ from lcs_parcels.grids import (
 )
 from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
 
-__version__ = "2026.8.4.1"
+#: Read from the installed distribution, whose version hatch-vcs derived from the
+#: git tag at build time. Nothing in the source tree carries a version literal.
+__version__ = importlib.metadata.version("lcs_parcels")
 
 __all__ = [
     "AuxiliaryFlowMap",
