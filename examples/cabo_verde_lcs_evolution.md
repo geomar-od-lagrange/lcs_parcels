@@ -14,7 +14,7 @@ jupyter:
     name: python3
 ---
 
-# Evolving an LCS curve
+# Cabo Verde LCS evolution
 
 An extracted hyperbolic LCS (see `cabo_verde_lcs`) is a **material** curve:
 given its vertices at $t_0$ — the `lon`/`lat` that `shrink_lines` returns —

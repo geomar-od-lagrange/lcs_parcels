@@ -18,8 +18,10 @@ gridded xarray outputs of a :class:`~lcs_parcels.FlowMap`, and
 
 Rectilinear grids only. The tensor is interpolated on axis-aligned
 ``lon_grid``/``lat_grid`` axes (``lon_grid`` varying along ``i``, ``lat_grid``
-along ``j``), and the ``lon_grid`` axis must be monotonic. Only the axis is
-constrained, and a traced line may run anywhere.
+along ``j``), and the ``lon_grid`` axis must be monotonic, so a domain crossing
+the antimeridian is seeded on ``170, 175, 180, 185`` rather than ``170, 175,
+180, -175``. Only the axis is constrained. A traced line may cross the
+antimeridian, though it terminates where it leaves the grid.
 """
 
 from __future__ import annotations
@@ -37,8 +39,9 @@ def _odd_cells(window_m: float, spacing_m: float) -> int:
     """Number of cells covering ``window_m`` at spacing ``spacing_m``, made odd.
 
     An odd count has a middle cell, which is what lets the rolling window sit
-    centred on its own grid point. Rounding down to odd shortens the window by at
-    most one cell and changes nothing about the grid.
+    centred on its own grid point. The count is rounded to nearest and then
+    dropped by one if even, so the window it spans is within a cell of
+    ``window_m`` except where the floor of one cell raises it.
     """
     cells = round(window_m / spacing_m)
     if cells % 2 == 0:
@@ -113,7 +116,8 @@ def ftle_ridge_seeds(
     A window of side ``window_m`` reaches only ``window_m / 2`` to either side of
     its own grid point, so two seeds can sit about ``window_m / 2`` apart, not
     ``window_m``. The returned ``min_seed_separation_m`` attribute is that floor
-    computed on this grid.
+    computed on this grid. It bounds *strict* maxima only, so a plateau of
+    exactly equal values ties and can return adjacent seeds.
 
     Warns when ``window_m`` spans fewer than three cells in either dimension,
     because a one-cell window makes every point a windowed maximum, so the
@@ -428,9 +432,9 @@ def shrink_lines(
       ``min_anisotropy``, running off the grid, or a NaN cell.
 
     All seeds march together as one array with a midpoint (arc-length) step.
-    ``line_length_m`` is a cap, so a line that terminates early is shorter and
-    the returned block is NaN-filled past termination to keep every row the same
-    length.
+    ``line_length_m`` is a budget rather than an achieved length, so a line that
+    terminates early is shorter and the returned block is NaN-filled past
+    termination to keep every row the same length.
 
     Parameters
     ----------
@@ -448,10 +452,11 @@ def shrink_lines(
     step_m : float, optional
         Arc-length step in metres (default 3000).
     line_length_m : float, optional
-        Maximum length of each line in metres (default 1500 km), traced half in
+        Length budget for each line in metres (default 1500 km), traced half in
         each direction from the seed. The step count per direction is
-        ``line_length_m / (2 * step_m)``, at least 1. Lines that terminate early
-        are shorter.
+        ``line_length_m / (2 * step_m)`` rounded, at least 1, so the traced
+        length can overshoot the budget by up to a step. Lines that terminate
+        early are shorter.
 
     Returns
     -------

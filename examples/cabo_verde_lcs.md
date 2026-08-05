@@ -14,7 +14,7 @@ jupyter:
     name: python3
 ---
 
-# Repelling and attracting LCS
+# Cabo Verde hyperbolic LCS
 
 The FTLE map (see `cabo_verde_ftle`) shows where the flow stretches. It does
 not give the material curves along which the stretching happens. Those curves

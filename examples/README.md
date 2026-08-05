@@ -1,6 +1,8 @@
 # Examples
 
-The notebooks are listed in increasing scope and are read in that order.
+The notebooks are listed in increasing scope and are read in that order. The
+three Cabo Verde ones build on each other; `example_grid_pset` stands on its own
+and can be read at any point.
 
 - [`get_data`](get_data.ipynb) downloads the CMEMS subset the three Cabo Verde
   notebooks read. Run it once, before them.

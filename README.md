@@ -17,10 +17,19 @@ else) in between.
 
 Longitudes are taken in whatever convention you hand in and are never
 renormalised, so what comes back sits on the branch that went in. Most of the
-package needs a rectilinear grid with a monotonic `lon_grid` axis, and the poles
-are excluded, which `AuxiliarySeedGrid.from_axes` enforces with a `ValueError`.
-The limits, and the accuracy of a separation, are set out in
-[`docs/numerics.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/docs/numerics.md).
+package needs a rectilinear grid whose `lon_grid` axis is monotonic, so seed a
+domain crossing the antimeridian on `170, 175, 180, 185` rather than on
+`170, 175, 180, -175`. On a wrapped axis `shrink_lines` and `hyperbolic_lcs`
+raise, and `image` reads the axis as if it were sorted and returns `NaN` or the
+wrong cell.
+
+The poles are excluded. `AuxiliarySeedGrid.from_axes` raises `ValueError` when
+`aux_separation_m` would span 90 degrees of longitude or more, and latitude is
+never folded at 90 degrees, so a tensor line stepped past the pole leaves the
+domain instead of continuing across it. The accuracy of a separation, and the
+rest of the limits, are set out in
+[`docs/numerics.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/docs/numerics.md)
+and [`docs/api.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/docs/api.md).
 
 ## Install
 

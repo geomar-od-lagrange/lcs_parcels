@@ -19,7 +19,7 @@ license-files = ["LICENSE"]
 # entry's address. Both names in one field keep the attribution right; the
 # address goes on `maintainers`, which has its own line.
 authors = [
-    { name = "Henry Adjei" },
+    { name = "Henry Owusu Adjei" },
     { name = "Willi Rath" },
 ]
 maintainers = [{ name = "Willi Rath", email = "wrath@geomar.de" }]

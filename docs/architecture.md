@@ -34,8 +34,8 @@ families would share in one. The separation helpers are module-level functions
 called only from the `FlowMap` side (`AuxiliarySeedGrid.from_axes` inverts the same
 relation inline to place its arms). The two families share `__init__`, which
 stores the dataset on `.ds`, and the `lon_grid`/`lat_grid` accessors, which read
-it back; each is one line, written identically on `SeedGrid` and on `FlowMap`. The
-repr's grid summary is a module-level function that both reprs call.
+it back; each is one line, written identically on `SeedGrid` and on `FlowMap`.
+Each base class also carries its own complete `__repr__`.
 
 A `SeedGrid` holds coordinates only: the diagnostic grid points
 `lon_grid`/`lat_grid` and the reference release positions `lon_0`/`lat_0`
@@ -388,9 +388,12 @@ both raises a `ValueError` rather than following a precedence rule: "quantile
 
 ## Reprs
 
-`SeedGrid` and `FlowMap` carry terse one-line reprs, defined on the base classes and
-reading the `lon_grid`/`lat_grid` accessors, so neither concrete class overrides
-anything and a future stencil gets a correct repr for free:
+`SeedGrid` and `FlowMap` carry terse one-line reprs, defined on the base classes
+and reading the `lon_grid`/`lat_grid` accessors, so neither concrete class
+overrides anything and a future stencil gets a correct repr for free. Each base
+class writes its own string out rather than sharing a helper: the two differ
+only by the flow map's trailing `t0`/`T`, and a shared opener would have to hand
+each caller an unclosed `<...` to finish.
 
 ```text
 <NeighborSeedGrid 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00>

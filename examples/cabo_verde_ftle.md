@@ -14,7 +14,7 @@ jupyter:
     name: python3
 ---
 
-# FTLE over Cabo Verde
+# Cabo Verde FTLE
 
 The minimal wiring between `lcs_parcels` and Parcels v4: seed a grid, advect it
 through CMEMS surface currents, ingest the final positions, map the forward

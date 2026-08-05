@@ -82,7 +82,7 @@ Work:
   lon/lat pairs, longitude difference wrapped to $[-180, 180]$ and the east
   component scaled by the cosine of the pair's mid-latitude. Both
   `deformation_gradient` implementations difference through it.
-- Lay the `AuxiliarySeed` arms with each grid point's own $\cos\phi$, so the arm
+- Lay the `AuxiliarySeedGrid` arms with each grid point's own $\cos\phi$, so the arm
   span is exactly $2s$ everywhere instead of only at the grid centroid.
 - Circular mean for the auxiliary centroid (`AuxiliaryFlowMap.grid_image`),
   anchored on the first arm so the result keeps the input's branch.

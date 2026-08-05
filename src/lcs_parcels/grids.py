@@ -31,10 +31,14 @@ reported at the grid points ``lon_grid``/``lat_grid`` (degrees) and every
 returned array carries ``long_name`` and ``units``. Lon/lat pairs are
 keyword-only throughout.
 
-Longitudes are stored in whatever convention they arrive in, so any input
-convention works. Positions are differenced in metres, each pair in its own
-local east/north frame, so the accuracy of a separation is set by the distance
-between the two points rather than by the size or the position of the domain.
+Longitudes are stored in whatever convention they arrive in, and only
+differences and means are wrapped. The ``lon_grid`` axis itself must still be
+monotonic, so a domain crossing the antimeridian is seeded on ``170, 175, 180,
+185`` rather than ``170, 175, 180, -175``.
+
+Positions are differenced in metres, each pair in its own local east/north
+frame, so the accuracy of a separation is set by the distance between the two
+points rather than by the size or the position of the domain.
 
 Notation follows Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev.
 Fluid Mech. 47:137-162, doi:10.1146/annurev-fluid-010313-141322
@@ -52,7 +56,7 @@ import xarray as xr
 EARTH_RADIUS_M = 6_371_000.0
 """Mean Earth radius in metres. All distances are taken on a sphere of this radius."""
 
-_M_PER_DEG = EARTH_RADIUS_M * np.pi / 180.0
+_M_PER_DEG = EARTH_RADIUS_M * (np.pi / 180.0)
 """Metres per degree of latitude, and of longitude at the equator."""
 
 # --- output metadata -------------------------------------------------------
@@ -406,7 +410,8 @@ class FlowMap(abc.ABC):
     def __init__(self, ds: xr.Dataset) -> None:
         """Wrap an existing advected dataset.
 
-        The rest is done by derived properties.
+        Stores the dataset and nothing else. Every diagnostic is computed on
+        demand from it.
 
         Parameters
         ----------
@@ -537,8 +542,8 @@ class FlowMap(abc.ABC):
                 if name in gradF.coords and name not in ("row", "col")
             }
         )
-        # Attach non-inherited tensor coords.
         C = C.rename(col="row", col_b="col").rename("cauchy_green")
+        # `row` and `col` are new axes here, not coords inherited from gradF.
         C = C.assign_coords(
             row=xr.DataArray(["x", "y"], dims="row", attrs=ROW_ATTRS),
             col=xr.DataArray(["x", "y"], dims="col", attrs=COL_ATTRS),
@@ -1016,7 +1021,7 @@ class AuxiliaryFlowMap(FlowMap):
 
         The arms were released a stencil separation apart, small against the flow
         scale, so their advected centroid is the flow map image of the grid
-        point. A lost (NaN) arm makes the whole grid point NaN. See
+        point. A lost (NaN) arm makes that coordinate NaN at the grid point. See
         :attr:`FlowMap.grid_image`.
         """
         # Longitudes are averaged on the circle so the mean stays on the arms'
