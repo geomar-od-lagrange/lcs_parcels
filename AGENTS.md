@@ -56,6 +56,43 @@ Rules that fall out of it:
   test: if it sounds like it could be from *The Road Not Taken*, it is wrong.
   This applies to prose everywhere — docstrings, docs, examples, commit
   messages — and is the rule most often broken in a first draft.
+- **A length budget, and it is a number.** A docstring paragraph explains one
+  thing in at most three lines. A code comment is at most two. Over budget means
+  the material belongs in `docs/numerics.md` or `docs/architecture.md`, or does
+  not need writing at all. "It is all true and all relevant" is not a defence:
+  the budget is what keeps a docstring usable as reference, and a first draft
+  overruns it almost every time. A `# --- section ---` banner is structure
+  rather than prose and does not count against the two lines that follow it.
+- **Place a sentence about *why* before writing it.** The destinations are
+  `docs/numerics.md` (why the numbers are right), `docs/architecture.md` (why
+  the types are shaped this way), a test name (what we measured), or nowhere. A
+  docstring says what the function does, what it returns, and what would
+  surprise the caller. A comment says why *this line* is not the obvious one.
+  Neither carries the history of the decision, the alternative that lost, or the
+  observation that prompted the feature. This extends the reader-facing rule in
+  [Audience](#audience) to every docstring and every comment, which is where the
+  rationale actually accumulates.
+- **Working correctly is not a feature.** Document behaviour a reader would
+  otherwise be surprised by. Do not document that a case any reader assumes is
+  handled is in fact handled. The antimeridian is the running example: *that*
+  longitudes may arrive in any convention is a fact the caller needs, and *that*
+  differences are wrapped to achieve it is one comment at the wrapping site, not
+  a paragraph in four docstrings.
+- **Punctuation carries its own tics.** No call-out colon introducing a reason
+  (`no shared frame: each pair defines its own`) — use a preposition or a
+  conjunction. No `--` or em-dash as an aside. A semicolon joining two
+  independent clauses becomes a conjunction. The one dash that stays is the one
+  introducing a definition on first use, as in `tensorlines.py`'s "A repelling
+  LCS is a *shrink line* -- a curve tangent to ...".
+- **No downward or lateral references.** A docstring may name what it depends
+  on, never what depends on it. A base class does not name its subclasses, a
+  helper does not enumerate its call sites, and a module does not explain itself
+  through a sibling module. Those references go stale silently, because nothing
+  checks them. Naming the other half of a documented 1:1 pair is fine —
+  `AuxiliaryFlowMap` and `AuxiliarySeedGrid` may point at each other.
+- **Local names match the data names they hold.** `lon_0`, not `lon0`;
+  `lon_advected`, not `lon_arm`. A variable holding a named data variable takes
+  that name, so the reader does not have to hold a second vocabulary.
 - **Math in Markdown uses LaTeX, not unicode.** Write `$\nabla F$`, `$\xi_i$`,
   `$\lambda_{\max}$`, `$(\nabla F)^\top \nabla F$` with `$...$` (inline) and
   `$$...$$` (display). Do not use unicode math glyphs (`∇ ξ λ ² ᵀ → ±`) in prose
@@ -255,11 +292,11 @@ verified against the pinned v4 alpha:
   concepts as distinct types. Don't branch on `"displacement" in ds.dims` or
   similar sniffing to decide behavior.
 - **Keep external dependencies at the boundary.** This package contains no
-  Parcels code. A `Seed` is **time-free** and *emits* a particle set via
-  `Seed.to_parcels_pset()` (a 2-tuple `(lon, lat)`); ingest is
-  `Seed.pset_to_flowmap(*, lon, lat, t0, t1) -> FlowMap`, which takes **both**
+  Parcels code. A `SeedGrid` carries no time and *emits* a particle set via
+  `SeedGrid.to_parcels_pset()` (a 2-tuple `(lon, lat)`); ingest is
+  `SeedGrid.pset_to_flowmap(*, lon, lat, t0, t1) -> FlowMap`, which takes **both**
   `t0` and `t1` and derives the signed window $T = t_1 - t_0$ (so direction is
-  `sign(T)`). A `FlowMap` collapses back to a time-free seed via
+  `sign(T)`). A `FlowMap` collapses back to a seed grid via
   `FlowMap.to_seed()`. The package neither imports nor drives Parcels.
 - **Avoid over-engineering.** Favor a small, concrete API — a few well-named
   methods — over layered adapters and indirection. Add structure when a concrete

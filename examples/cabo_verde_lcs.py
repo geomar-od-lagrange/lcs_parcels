@@ -43,7 +43,7 @@ from parcels import FieldSet, Particle, ParticleSet, StatusCode
 from parcels.convert import copernicusmarine_to_sgrid
 from parcels.kernels import AdvectionRK4
 
-from lcs_parcels import NeighborSeed, ftle_ridge_seeds, shrink_lines
+from lcs_parcels import NeighborSeedGrid, ftle_ridge_seeds, shrink_lines
 
 # %% [markdown]
 # ## Currents
@@ -70,7 +70,7 @@ z_surface = float(currents["depth"].values[0])
 #
 # $t_0$ sits at the middle of the window the local file covers, and the runs are
 # $\pm 5$ d, so the forward and the backward advection both stay inside the
-# data. A rectilinear `NeighborSeed` puts one particle on every diagnostic grid
+# data. A rectilinear `NeighborSeedGrid` puts one particle on every diagnostic grid
 # point; $\nabla F$ is then differenced against the grid neighbours.
 
 # %%
@@ -81,7 +81,7 @@ seed_lon, seed_lat = (-27.0, -21.0), (13.5, 18.5)
 
 lon_axis = np.arange(seed_lon[0], seed_lon[1] + 1e-9, resolution_deg)
 lat_axis = np.arange(seed_lat[0], seed_lat[1] + 1e-9, resolution_deg)
-seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
 seed
 
 
@@ -118,6 +118,7 @@ pset.execute(
     [AdvectionRK4, set_lost_to_nan],
     dt=np.timedelta64(1, "h"),
     runtime=T,
+    verbose_progress=False,
 )
 forward = seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t0 + T)
 forward
@@ -136,6 +137,7 @@ pset.execute(
     [AdvectionRK4, set_lost_to_nan],
     dt=-np.timedelta64(1, "h"),
     runtime=T,
+    verbose_progress=False,
 )
 backward = seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t0 - T)
 backward
@@ -254,7 +256,7 @@ ax.plot(
     lw=0.8,
 )
 ax.scatter(repelling_seeds["lon"], repelling_seeds["lat"], s=8, color="tab:red")
-
+plt.show()
 # %% [markdown]
 # ## Attracting LCS over the backward FTLE
 #
@@ -270,7 +272,7 @@ ax.plot(
     color="tab:blue",
     lw=0.8,
 )
-
+plt.show()
 # %% [markdown]
 # ## Both families together
 #
@@ -292,3 +294,4 @@ ax.plot(
     color="tab:blue",
     lw=0.8,
 )
+plt.show()

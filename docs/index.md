@@ -7,24 +7,14 @@ sd_hide_title: true
 
 ```{toctree}
 :hidden:
-:caption: General docs
-
-api
-notation
-numerics
-architecture
-```
-
-```{toctree}
-:hidden:
 :caption: Examples
 
 examples/README
 examples/get_data
+examples/example_grid_pset
 examples/cabo_verde_ftle
 examples/cabo_verde_lcs
 examples/cabo_verde_lcs_evolution
-examples/example_grid_pset
 ```
 
 ```{toctree}
@@ -32,4 +22,14 @@ examples/example_grid_pset
 :caption: API reference
 
 reference
+```
+
+```{toctree}
+:hidden:
+:caption: General docs
+
+api
+notation
+numerics
+architecture
 ```

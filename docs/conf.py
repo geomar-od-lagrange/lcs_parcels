@@ -13,8 +13,8 @@ import pathlib
 import shutil
 
 project = "LCS-Parcels"
-author = "Henry Adjei, Willi Rath"
-copyright = "2026, GEOMAR Ocean Dynamics"
+author = "Henry Owusu Adjei, Willi Rath"
+copyright = "2026, GEOMAR"
 release = importlib.metadata.version("lcs_parcels")
 version = release
 

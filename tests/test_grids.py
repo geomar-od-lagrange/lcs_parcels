@@ -1,6 +1,6 @@
-"""Shape / dim / coord contracts for the Seed and FlowMap families.
+"""Shape / dim / coord contracts for the SeedGrid and FlowMap families.
 
-A ``Seed`` is time-free: ``from_axes`` takes no ``t0``, and the dataset is
+A ``SeedGrid`` carries no time: ``from_axes`` takes no ``t0``, and the dataset is
 all-coordinates (no ``t0``/``T``, no advected ``lon``/``lat``). Time and the
 advected positions enter at ingest, ``seed.pset_to_flowmap(lon=..., lat=...,
 t0=..., t1=...)``, which returns a ``FlowMap`` carrying scalar ``t0``/``T``
@@ -12,10 +12,10 @@ import pytest
 import xarray as xr
 from conftest import advected_flowmap
 
-from lcs_parcels import AuxiliarySeed, NeighborFlowMap, NeighborSeed
+from lcs_parcels import AuxiliarySeedGrid, NeighborFlowMap, NeighborSeedGrid
 from lcs_parcels.grids import _separation_m
 
-# Release/end times supplied only at ingest (the seed itself is time-free).
+# Release/end times supplied only at ingest (the seed grid carries no time).
 RELEASE_TIME = np.datetime64("2020-01-01")
 END_TIME = np.datetime64("2020-01-02")
 
@@ -27,7 +27,7 @@ M = np.array([[2.0, 0.5], [0.0, 3.0]])
 
 
 def test_neighbor_seed_from_axes_dims(lon_axis, lat_axis):
-    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+    seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     ds = seed.ds
 
     # curvilinear reference lon_0/lat_0 and diagnostic grid lon_grid/lat_grid on
@@ -39,7 +39,7 @@ def test_neighbor_seed_from_axes_dims(lon_axis, lat_axis):
     assert ds.sizes["i"] == lon_axis.size
     assert ds.sizes["j"] == lat_axis.size
 
-    # A seed is time-free and carries no advected positions: no t0, no T, and no
+    # A seed grid carries no time and no advected positions: no t0, no T, and no
     # lon/lat data vars (only the reference coords).
     assert "t0" not in ds.coords
     assert "T" not in ds.coords
@@ -47,12 +47,12 @@ def test_neighbor_seed_from_axes_dims(lon_axis, lat_axis):
     assert "lat" not in ds.variables
     assert len(ds.data_vars) == 0
 
-    # NeighborSeed carries no displacement stencil dim
+    # NeighborSeedGrid carries no displacement stencil dim
     assert "displacement" not in ds.dims
 
 
 def test_neighbor_seed_lon_lat_values(lon_axis, lat_axis):
-    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+    seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     ds = seed.ds
 
     # 2D reference lon_0/lat_0 broadcast from the 1D axes (label-based access).
@@ -66,13 +66,13 @@ def test_neighbor_seed_lon_lat_values(lon_axis, lat_axis):
 
 
 def test_auxiliary_seed_from_axes_dims(lon_axis, lat_axis):
-    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
+    seed = AuxiliarySeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     ds = seed.ds
 
     assert ds.sizes["i"] == lon_axis.size
     assert ds.sizes["j"] == lat_axis.size
 
-    # AuxiliarySeed adds a four-arm stencil on the `displacement` dim (no centre,
+    # AuxiliarySeedGrid adds a four-arm stencil on the `displacement` dim (no centre,
     # no diagonals).
     assert ds.sizes["displacement"] == 4
     assert list(ds["displacement"].values) == ["east", "north", "west", "south"]
@@ -86,7 +86,7 @@ def test_auxiliary_seed_from_axes_dims(lon_axis, lat_axis):
     assert set(ds["lon_grid"].dims) == {"i", "j"}
     assert set(ds["lat_grid"].dims) == {"i", "j"}
 
-    # A seed is time-free and carries no advected positions: no t0, no T, and no
+    # A seed grid carries no time and no advected positions: no t0, no T, and no
     # lon/lat data vars (only the reference + grid coords).
     assert "t0" not in ds.coords
     assert "T" not in ds.coords
@@ -96,15 +96,15 @@ def test_auxiliary_seed_from_axes_dims(lon_axis, lat_axis):
 
 
 def test_only_auxiliary_has_stencil(lon_axis, lat_axis):
-    ns = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
-    aus = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
+    ns = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
+    aus = AuxiliarySeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
 
-    # NeighborSeed has no auxiliary stencil: no displacement dim, and its
+    # NeighborSeedGrid has no auxiliary stencil: no displacement dim, and its
     # reference positions are the grid points themselves on (i, j).
     assert "displacement" not in ns.ds.dims
     assert set(ns.ds["lon_0"].dims) == {"i", "j"}
 
-    # AuxiliarySeed carries the four-arm displacement stencil, so its reference
+    # AuxiliarySeedGrid carries the four-arm displacement stencil, so its reference
     # positions are per-arm and distinct from the grid points.
     assert aus.ds.sizes["displacement"] == 4
     assert set(aus.ds["lon_0"].dims) == {"i", "j", "displacement"}
@@ -114,8 +114,8 @@ def test_grid_coords_are_canonical_across_stencils(lon_axis, lat_axis):
     """Both stencils carry the diagnostic grid under one name, on (i, j), and both
     expose it as .lon_grid/.lat_grid. For the neighbour stencil it equals the
     reference release positions -- stored, not reconstructed."""
-    ns = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
-    aus = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
+    ns = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
+    aus = AuxiliarySeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
 
     for seed in (ns, aus):
         assert set(seed.lon_grid.dims) == {"i", "j"}
@@ -133,7 +133,7 @@ def test_grid_coords_are_canonical_across_stencils(lon_axis, lat_axis):
 
 
 def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
-    """AuxiliarySeed places its four arms at exactly +/- ``aux_separation_m``.
+    """AuxiliarySeedGrid places its four arms at exactly +/- ``aux_separation_m``.
 
     Every arm is laid down in the local east/north frame of its own grid point,
     so each arm sits ``s`` meters from that point in its labelled direction and
@@ -142,8 +142,8 @@ def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
     the same per-pair local frame the diagnostics measure in.
     """
     s = 2_500.0  # non-default aux_separation_m
-    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis, aux_separation_m=s)
-    lon0, lat0 = seed.ds["lon_0"], seed.ds["lat_0"]
+    seed = AuxiliarySeedGrid.from_axes(lon=lon_axis, lat=lat_axis, aux_separation_m=s)
+    lon_0, lat_0 = seed.ds["lon_0"], seed.ds["lat_0"]
     lon_grid, lat_grid = seed.ds["lon_grid"], seed.ds["lat_grid"]
 
     # Each arm relative to its own grid point: s along the labelled direction, 0
@@ -158,8 +158,8 @@ def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
         dx, dy = _separation_m(
             lon_a=lon_grid,
             lat_a=lat_grid,
-            lon_b=lon0.sel(displacement=arm, drop=True),
-            lat_b=lat0.sel(displacement=arm, drop=True),
+            lon_b=lon_0.sel(displacement=arm, drop=True),
+            lat_b=lat_0.sel(displacement=arm, drop=True),
         )
         assert float(abs(dx - dx_expected).max()) < 1e-6
         assert float(abs(dy - dy_expected).max()) < 1e-6
@@ -167,16 +167,16 @@ def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
     # Opposing arms span exactly 2s along their axis and share the centre on the
     # other one -- again at every grid point.
     ew_dx, ew_dy = _separation_m(
-        lon_a=lon0.sel(displacement="west", drop=True),
-        lat_a=lat0.sel(displacement="west", drop=True),
-        lon_b=lon0.sel(displacement="east", drop=True),
-        lat_b=lat0.sel(displacement="east", drop=True),
+        lon_a=lon_0.sel(displacement="west", drop=True),
+        lat_a=lat_0.sel(displacement="west", drop=True),
+        lon_b=lon_0.sel(displacement="east", drop=True),
+        lat_b=lat_0.sel(displacement="east", drop=True),
     )
     ns_dx, ns_dy = _separation_m(
-        lon_a=lon0.sel(displacement="south", drop=True),
-        lat_a=lat0.sel(displacement="south", drop=True),
-        lon_b=lon0.sel(displacement="north", drop=True),
-        lat_b=lat0.sel(displacement="north", drop=True),
+        lon_a=lon_0.sel(displacement="south", drop=True),
+        lat_a=lat_0.sel(displacement="south", drop=True),
+        lon_b=lon_0.sel(displacement="north", drop=True),
+        lat_b=lat_0.sel(displacement="north", drop=True),
     )
     assert float(abs(ew_dx - 2 * s).max()) < 1e-6
     assert float(abs(ew_dy).max()) < 1e-6
@@ -188,7 +188,7 @@ def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
 
 
 def test_neighbor_flowmap_shape(lon_axis, lat_axis):
-    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+    seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
     fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
     ds = fm.ds
@@ -211,7 +211,7 @@ def test_neighbor_flowmap_shape(lon_axis, lat_axis):
 
 
 def test_auxiliary_flowmap_shape(lon_axis, lat_axis):
-    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
+    seed = AuxiliarySeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
     fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
     ds = fm.ds
@@ -237,7 +237,7 @@ def test_auxiliary_flowmap_shape(lon_axis, lat_axis):
 def test_grid_image_is_on_the_diagnostic_grid(lon_axis, lat_axis):
     """Both stencils reduce their advected positions onto (i, j); the auxiliary
     one as the centroid of its four arms."""
-    for seed_cls in (NeighborSeed, AuxiliarySeed):
+    for seed_cls in (NeighborSeedGrid, AuxiliarySeedGrid):
         seed = seed_cls.from_axes(lon=lon_axis, lat=lat_axis)
         lon, lat = seed.to_parcels_pset()
         fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
@@ -254,7 +254,7 @@ def test_grid_image_is_on_the_diagnostic_grid(lon_axis, lat_axis):
 # --- the wrapped dataset is the caller's -----------------------------------
 
 
-@pytest.mark.parametrize("seed_cls", (NeighborSeed, AuxiliarySeed))
+@pytest.mark.parametrize("seed_cls", (NeighborSeedGrid, AuxiliarySeedGrid))
 def test_diagnostics_leave_the_flowmap_dataset_untouched(seed_cls, lon_axis, lat_axis):
     """Running the diagnostics writes nothing back into ``.ds``.
 
@@ -272,7 +272,7 @@ def test_diagnostics_leave_the_flowmap_dataset_untouched(seed_cls, lon_axis, lat
     fm.cg_eigen()
     fm.ftle()
     _ = fm.grid_image
-    fm.image(lon0=fm.ds["lon_grid"], lat0=fm.ds["lat_grid"])
+    fm.image(lon_0=fm.ds["lon_grid"], lat_0=fm.ds["lat_grid"])
     # window_m is sized to the fixture grid, whose cells run 30-110 km: the
     # default 30 km would be a single cell and the call would rightly warn.
     fm.hyperbolic_lcs(window_m=700_000.0, step_m=1_000.0, line_length_m=6_000.0)
@@ -286,7 +286,7 @@ def test_diagnostics_leave_the_flowmap_dataset_untouched(seed_cls, lon_axis, lat
 
 def test_seed_repr_is_a_one_line_summary(lon_axis, lat_axis):
     """Class, grid shape and lon/lat extent on one line -- not the dataset."""
-    for seed_cls in (NeighborSeed, AuxiliarySeed):
+    for seed_cls in (NeighborSeedGrid, AuxiliarySeedGrid):
         text = repr(seed_cls.from_axes(lon=lon_axis, lat=lat_axis))
 
         assert "\n" not in text
@@ -303,7 +303,7 @@ def test_flowmap_repr_adds_the_release_time_and_signed_window(lon_axis, lat_axis
     a property of the diagnostic, not of the flow map, so the repr names no
     direction -- the sign of T already says which way the map runs.
     """
-    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+    seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
 
     forward = repr(seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME))
@@ -325,7 +325,7 @@ def test_flowmap_repr_adds_the_release_time_and_signed_window(lon_axis, lat_axis
 def test_repr_survives_an_all_nan_grid(lon_axis, lat_axis):
     """An all-NaN dataset still reprs: every particle lost, and even the grid
     coords NaN, prints rather than raising or warning."""
-    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+    seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     lon, _ = seed.to_parcels_pset()
     lost = [np.nan] * len(lon)
     fm = seed.pset_to_flowmap(lon=lost, lat=lost, t0=RELEASE_TIME, t1=END_TIME)
@@ -348,11 +348,11 @@ def test_repr_survives_an_all_nan_grid(lon_axis, lat_axis):
 def test_lonlat_pairs_are_keyword_only(lon_axis, lat_axis):
     """Passing a lon/lat pair positionally raises, so a swap cannot pass silently."""
     with pytest.raises(TypeError):
-        NeighborSeed.from_axes(lon_axis, lat_axis)
+        NeighborSeedGrid.from_axes(lon_axis, lat_axis)
     with pytest.raises(TypeError):
-        AuxiliarySeed.from_axes(lon_axis, lat_axis)
+        AuxiliarySeedGrid.from_axes(lon_axis, lat_axis)
 
-    seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+    seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
     with pytest.raises(TypeError):
         seed.pset_to_flowmap(lon, lat, t0=RELEASE_TIME, t1=END_TIME)

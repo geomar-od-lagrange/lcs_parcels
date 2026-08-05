@@ -1,4 +1,4 @@
-# Numerics: why the numbers come out right
+# Numerics
 
 The quantitative half of the design record: the frame separations are measured
 in, the longitude arithmetic that goes with it, the units the tuning parameters
@@ -156,7 +156,7 @@ $$\lambda_{\mathrm{grid}} +
 
 which is a difference operation again and so has no branch to choose. It is
 correct whenever the displacement over the window is under 180 degrees. The
-interpolated result therefore comes back on the branch `lon0` was given in.
+interpolated result therefore comes back on the branch `lon_0` was given in.
 
 ## Stepping a tensor line
 

@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from lcs_parcels import AuxiliarySeed, NeighborSeed
+from lcs_parcels import AuxiliarySeedGrid, NeighborSeedGrid
 from lcs_parcels.grids import (
     _circular_mean_lon,
     _wrap_lon,
@@ -61,7 +61,9 @@ def _translated_flowmap(*, lon, lat, dlon, dlat, aux_separation_m=AUX_S):
     is a rigid motion on the sphere's coordinates and carries no frame of its
     own. Returns the ingested ``AuxiliaryFlowMap``.
     """
-    seed = AuxiliarySeed.from_axes(lon=lon, lat=lat, aux_separation_m=aux_separation_m)
+    seed = AuxiliarySeedGrid.from_axes(
+        lon=lon, lat=lat, aux_separation_m=aux_separation_m
+    )
     lon_0, lat_0 = seed.to_parcels_pset()
     return seed.pset_to_flowmap(
         lon=np.asarray(lon_0) + dlon,
@@ -89,7 +91,7 @@ def test_rigid_meridional_translation_stretches_zonally(lon_axis, lat_start, dla
 
     Each case is equatorward (``d < 0``), so the ratio exceeds 1 and the FTLE is
     positive and equal to ``(1 / |T|) * log`` of that ratio, the larger singular
-    value. ``AuxiliarySeed`` keeps the field free of NaN edges.
+    value. ``AuxiliarySeedGrid`` keeps the field free of NaN edges.
 
     The single-standard-parallel frame this replaced returned ``gradF == I`` and
     a zero FTLE here; the last two assertions pin how large the missing signal
@@ -154,7 +156,7 @@ def test_longitudes_above_180_are_stored_unchanged(lat_axis):
     differences and means are wrapped -- so a seed and an advected position set
     beyond 180 stay beyond 180 in ``flowmap.ds``.
     """
-    seed = AuxiliarySeed.from_axes(lon=np.linspace(175.0, 185.0, 5), lat=lat_axis)
+    seed = AuxiliarySeedGrid.from_axes(lon=np.linspace(175.0, 185.0, 5), lat=lat_axis)
     lon_0, lat_0 = seed.to_parcels_pset()
     lon_advected = np.asarray(lon_0) + 0.5
 
@@ -185,7 +187,7 @@ def test_grid_image_and_circular_mean_straddle_the_antimeridian():
     # What a plain mean would have said, i.e. the failure being guarded against.
     assert abs(float(lon.mean("displacement"))) < 1e-9
 
-    seed = AuxiliarySeed.from_axes(lon=np.array([180.0]), lat=np.array([10.0]))
+    seed = AuxiliarySeedGrid.from_axes(lon=np.array([180.0]), lat=np.array([10.0]))
     lon_0, lat_0 = seed.to_parcels_pset()
     # Identity flow, with the advected arms reported on the [-180, 180) branch.
     wrapped = ((np.asarray(lon_0) + 180.0) % 360.0) - 180.0
@@ -235,7 +237,7 @@ def _wrapped_and_plain_flowmaps(seed_cls):
     )
 
 
-@pytest.mark.parametrize("seed_cls", [AuxiliarySeed, NeighborSeed])
+@pytest.mark.parametrize("seed_cls", [AuxiliarySeedGrid, NeighborSeedGrid])
 def test_wrapped_advected_positions_match_unwrapped_ones(seed_cls):
     """Advected longitudes returned on the ``[-180, 180)`` branch give the same
     gradF and FTLE as the same positions on the seed's own branch.
@@ -267,7 +269,7 @@ def test_wrapped_advected_positions_match_unwrapped_ones(seed_cls):
         np.testing.assert_allclose(a.values, b.values, rtol=1e-11, atol=0.0)
 
 
-@pytest.mark.parametrize("seed_cls", [AuxiliarySeed, NeighborSeed])
+@pytest.mark.parametrize("seed_cls", [AuxiliarySeedGrid, NeighborSeedGrid])
 def test_image_reads_wrapped_advected_positions(seed_cls):
     """``image()`` interpolates the advected field across the branch cut.
 
@@ -288,8 +290,8 @@ def test_image_reads_wrapped_advected_positions(seed_cls):
 
     query_lon = xr.DataArray([176.3, 179.4, 182.7], dims="p")
     query_lat = xr.DataArray([11.1, 12.5, 13.2], dims="p")
-    image_plain = plain.image(lon0=query_lon, lat0=query_lat)
-    image_folded = folded.image(lon0=query_lon, lat0=query_lat)
+    image_plain = plain.image(lon_0=query_lon, lat_0=query_lat)
+    image_folded = folded.image(lon_0=query_lon, lat_0=query_lat)
 
     # Read across the cut and on the seed's branch, not folded back into it.
     assert float(image_folded["lon"].max()) > 180.0
@@ -303,7 +305,7 @@ def test_image_reads_wrapped_advected_positions(seed_cls):
 def test_arm_spans_are_2s_by_an_independent_geodesic(lon_axis, lat_axis):
     """The auxiliary arms span ``2s``, measured by a geodesic of our own.
 
-    ``AuxiliarySeed.from_axes`` places the arms by inverting exactly the relation
+    ``AuxiliarySeedGrid.from_axes`` places the arms by inverting exactly the relation
     :func:`~lcs_parcels.grids._arm_separation_m` reads them back with, so
     checking one against the other cancels both the Earth radius and the cosine
     convention out of the answer. :func:`_haversine_m` is written out in this
@@ -317,7 +319,9 @@ def test_arm_spans_are_2s_by_an_independent_geodesic(lon_axis, lat_axis):
     north and south arms lie on a meridian, which is itself a geodesic, so their
     span is exact to round-off.
     """
-    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis, aux_separation_m=AUX_S)
+    seed = AuxiliarySeedGrid.from_axes(
+        lon=lon_axis, lat=lat_axis, aux_separation_m=AUX_S
+    )
     lon_0 = seed.ds["lon_0"].reset_coords(drop=True)
     lat_0 = seed.ds["lat_0"].reset_coords(drop=True)
 
@@ -352,18 +356,18 @@ def test_arms_spanning_90_degrees_of_longitude_are_rejected():
     # 2 s / pi is 637 m from the pole at s = 1 km, so 89.999 N (111 m) is inside
     # the guard and 89.9 N (11 km) is outside it.
     with pytest.raises(ValueError, match="90 degrees"):
-        AuxiliarySeed.from_axes(
+        AuxiliarySeedGrid.from_axes(
             lon=np.array([0.0]), lat=np.array([89.999]), aux_separation_m=AUX_S
         )
-    AuxiliarySeed.from_axes(
+    AuxiliarySeedGrid.from_axes(
         lon=np.array([0.0]), lat=np.array([89.9]), aux_separation_m=AUX_S
     )
     # Same latitudes, s scaled by 1e-3 and 1e3: the threshold moves with s, so
     # 89.999 N now passes and 89.9 N now raises.
-    AuxiliarySeed.from_axes(
+    AuxiliarySeedGrid.from_axes(
         lon=np.array([0.0]), lat=np.array([89.999]), aux_separation_m=AUX_S / 1e3
     )
     with pytest.raises(ValueError, match="90 degrees"):
-        AuxiliarySeed.from_axes(
+        AuxiliarySeedGrid.from_axes(
             lon=np.array([0.0]), lat=np.array([89.9]), aux_separation_m=AUX_S * 1e3
         )

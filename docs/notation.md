@@ -46,7 +46,7 @@ in degrees. They are defined here and nowhere else.
   $x_{\mathrm{grid}}$: the locations at which $\nabla F$, $C$, its eigenpairs
   and the FTLE are reported, and the coordinate a diagnostic is plotted or
   selected against. Carried explicitly by both stencils and by both families
-  (`Seed` and `FlowMap`), and reachable as the properties `obj.lon_grid` /
+  (`SeedGrid` and `FlowMap`), and reachable as the properties `obj.lon_grid` /
   `obj.lat_grid`.
 - **`lon_0` / `lat_0`** — the **reference release positions** $x_0$: where
   actual particles are put into the water. `(i, j)` for the `Neighbor*` classes,
@@ -76,7 +76,7 @@ These are two distinct objects and the code keeps the names apart:
   are stored as the advected positions `lon` / `lat` (the only data variables on
   a `FlowMap`; the particle's actual position, as in Parcels), alongside the
   reference positions $x_0$ = `lon_0` / `lat_0` (coordinates, carried by both the
-  seed and the flow map). A time-free `Seed` has no advected positions at all;
+  seed and the flow map). A `SeedGrid` has no advected positions at all;
   they enter only at ingest. The symbol `F` / `flow_map` denotes the map as a
   whole.
 - $\nabla F_{t_0}^{t_1}(x_0)$ (Eq. 4) is the **gradient** of that map — a
@@ -146,7 +146,7 @@ the plotting code; the package does not convert.
 
 ### Integration time $T$
 
-$T = t_1 - t_0$ (Eq. 3), **signed**. The `Seed` is time-free: it owns no $t_0$.
+$T = t_1 - t_0$ (Eq. 3), **signed**. A `SeedGrid` owns no $t_0$.
 Both ends of the window enter at ingest — `pset_to_flowmap(*, lon, lat, t0, t1)`
 takes the release time $t_0$ and the end time $t_1$, derives $T = t_1 - t_0$,
 and stores $t_0$ and $T$ as scalar coords on the `FlowMap` ($t_1$ is recoverable
@@ -191,7 +191,7 @@ longitude, so it comes back with $F_{xx} \ne 1$ rather than as a null
 deformation.
 
 Both `NeighborFlowMap` and `AuxiliaryFlowMap` difference through the same
-`_separation_m`, and `AuxiliarySeed` places its arms by inverting the same
+`_separation_m`, and `AuxiliarySeedGrid` places its arms by inverting the same
 relation at each grid point's own latitude, so an arm span is $2s$ metres
 wherever the grid point sits. No separation carries a domain-size limit, and
 none treats the antimeridian as a special case. The `lon_grid` **axis** is a
@@ -209,11 +209,11 @@ is in [the local east-north frame](numerics.md#the-local-east-north-frame),
 together with the numerical checks.
 
 The poles are excluded. Going the other way, from metres to degrees, is what
-`AuxiliarySeed.from_axes` does to place an arm: a fixed eastward offset needs
+`AuxiliarySeedGrid.from_axes` does to place an arm: a fixed eastward offset needs
 $\Delta\lambda = \Delta x / (R\cos\phi)$, which grows without bound as
 $\cos\phi \to 0$. Past $180^\circ$ it aliases through the wrap into an arm on
 the far side of the pole, which is a wrong gradient rather than a NaN, so
-`AuxiliarySeed.from_axes` raises `ValueError` once the offset reaches
+`AuxiliarySeedGrid.from_axes` raises `ValueError` once the offset reaches
 $90^\circ$ of longitude. `_step_lonlat_by_meters` divides by the same cosine and
 does not fold latitude at $\pm 90^\circ$: a line stepped past the pole continues
 to latitudes outside $[-90^\circ, 90^\circ]$ instead of folding over the pole.

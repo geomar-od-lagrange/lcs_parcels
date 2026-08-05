@@ -1,11 +1,11 @@
-# API guide: seeds and flow maps
+# API guide
 
-The public surface of `lcs_parcels` is two sibling families — a time-free
-`Seed` family and a `FlowMap` family — each with a shared abstract base and two
+The public surface of `lcs_parcels` is two sibling families — a
+`SeedGrid` family and a `FlowMap` family — each with a shared abstract base and two
 concrete stencils, exported from the package root:
 
 ```python
-from lcs_parcels import Seed, NeighborSeed, AuxiliarySeed, FlowMap, NeighborFlowMap, AuxiliaryFlowMap
+from lcs_parcels import SeedGrid, NeighborSeedGrid, AuxiliarySeedGrid, FlowMap, NeighborFlowMap, AuxiliaryFlowMap
 ```
 
 Two further functions turn a `FlowMap`'s strain field into hyperbolic-LCS
@@ -16,11 +16,11 @@ curves: `ftle_ridge_seeds` and `shrink_lines` (see
 Every adjacent same-typed argument pair on the public surface — every
 lon/lat pair — is **keyword-only**, so a transposed call raises `TypeError`.
 
-A `Seed` lays out reference positions and emits a particle set for Parcels; the
+A `SeedGrid` lays out reference positions and emits a particle set for Parcels; the
 advected positions are ingested back into a `FlowMap`, which computes the
 deformation gradient $\nabla F$ and everything downstream (Cauchy–Green $C$, its
 eigen-decomposition, and the FTLE). The two families are **siblings**: neither
-class is a subclass of the other, so a `Seed` has no diagnostics and a `FlowMap`
+class is a subclass of the other, so a `SeedGrid` has no diagnostics and a `FlowMap`
 emits no particle set.
 Symbols and units are defined in [`notation.md`](notation.md). The type
 structure and the session walkthrough are in
@@ -30,14 +30,14 @@ separations are measured in, and the tuning parameters, are in
 Haller (2015),
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
 
-The package contains **no Parcels code**: a `Seed` emits particle sets and
+The package contains **no Parcels code**: a `SeedGrid` emits particle sets and
 ingests advected positions; Parcels (external) owns the integration.
 
 ## Data model
 
 Each object wraps an `xr.Dataset`, held in `.ds`; these are not `xr.Dataset`
 subclasses, so xarray calls go through `.ds`. Logical grid dims are `i, j`. A
-**`Seed` is time-free and all-coordinates** (no data variables): it holds the
+**`SeedGrid` is all-coordinates** (no data variables) and carries no time: it holds the
 diagnostic grid points and the reference release positions $x_0$. A **`FlowMap`
 adds the advected positions** as its only data variables, plus scalar `t0`/`T`
 coordinates.
@@ -81,8 +81,8 @@ Both families expose the diagnostic grid directly, so no consumer indexes `.ds`
 for it:
 
 ```text
-Seed.lon_grid -> xr.DataArray        # property, (i, j), degrees east
-Seed.lat_grid -> xr.DataArray        # property, (i, j), degrees north
+SeedGrid.lon_grid -> xr.DataArray        # property, (i, j), degrees east
+SeedGrid.lat_grid -> xr.DataArray        # property, (i, j), degrees north
 FlowMap.lon_grid -> xr.DataArray     # same, on the flow map
 FlowMap.lat_grid -> xr.DataArray
 FlowMap.grid_image -> xr.Dataset     # abstract property (per-stencil)
@@ -97,12 +97,12 @@ FlowMap.grid_image -> xr.Dataset     # abstract property (per-stencil)
   average to a position between them — taken with `skipna=False` so a single
   lost arm makes the whole grid point `NaN`.
 
-Both `Seed` and `FlowMap` have a terse one-line `repr`; display `.ds` to see the
+Both `SeedGrid` and `FlowMap` have a terse one-line `repr`; display `.ds` to see the
 dataset itself.
 
 ```pycon
 >>> seed
-<NeighborSeed 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00>
+<NeighborSeedGrid 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00>
 >>> flowmap
 <NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00, t0 2020-01-01T00:00:00, T +7.0 days>
 ```
@@ -114,18 +114,18 @@ back to a seed. Two calls cross between the families, and neither object holds a
 reference to the other.
 
 ```text
-Seed.from_axes(*, lon, lat) -> Self                       # classmethod (abstract)
-Seed.to_parcels_pset() -> tuple[list, list]               # concrete (base)
-Seed.pset_to_flowmap(*, lon, lat, t0, t1) -> FlowMap      # concrete (base)
-FlowMap.to_seed() -> Seed                                 # concrete (base)
+SeedGrid.from_axes(*, lon, lat) -> Self                       # classmethod (abstract)
+SeedGrid.to_parcels_pset() -> tuple[list, list]               # concrete (base)
+SeedGrid.pset_to_flowmap(*, lon, lat, t0, t1) -> FlowMap      # concrete (base)
+FlowMap.to_seed() -> SeedGrid                                 # concrete (base)
 ```
 
-- **`from_axes(*, lon, lat)`** — build a time-free seed from 1-D lon/lat axes
-  (length `Ni`, `Nj`), broadcast into 2-D fields on `(i, j)` (lon varying along
+- **`from_axes(*, lon, lat)`** — build a seed grid from 1-D lon/lat axes,
+  broadcast into 2-D fields on `(i, j)` (lon varying along
   `i`, lat along `j`) and stored as the diagnostic grid `lon_grid`/`lat_grid`.
   No time is recorded: `t0` and the window `T` enter only at
-  `pset_to_flowmap`. `NeighborSeed.from_axes` stores those same points as the
-  reference positions `lon_0`/`lat_0`. `AuxiliarySeed.from_axes` also
+  `pset_to_flowmap`. `NeighborSeedGrid.from_axes` stores those same points as the
+  reference positions `lon_0`/`lat_0`. `AuxiliarySeedGrid.from_axes` also
   takes a keyword-only `aux_separation_m` (the controlled arm separation $s$ in
   metres; default `1000.0`), lays out the fixed four-arm
   `displacement = ['east', 'north', 'west', 'south']` stencil at $\pm s$ about
@@ -139,13 +139,13 @@ FlowMap.to_seed() -> Seed                                 # concrete (base)
   east–west arms are rejected rather than approximated.
 - **`to_parcels_pset()`** — flatten the *reference* release positions to plain
   `(lon, lat)` lists (a 2-tuple) over the `particle` index (`('i', 'j')`, plus
-  `'displacement'` for `AuxiliarySeed`). The auxiliary arms are emitted directly
+  `'displacement'` for `AuxiliarySeedGrid`). The auxiliary arms are emitted directly
   from the explicit `lon_0`/`lat_0`. The 2-tuple is unpacked before it is fed
   back in, since `pset_to_flowmap` is keyword-only:
 
   ```python
-  lon0, lat0 = seed.to_parcels_pset()
-  # ... advect (lon0, lat0) with Parcels, collect (lon1, lat1) ...
+  lon_0, lat_0 = seed.to_parcels_pset()
+  # ... advect (lon_0, lat_0) with Parcels, collect (lon1, lat1) ...
   flowmap = seed.pset_to_flowmap(lon=lon1, lat=lat1, t0=t0, t1=t1)
   ```
 
@@ -160,7 +160,7 @@ FlowMap.to_seed() -> Seed                                 # concrete (base)
   window** (`t1 == t0`) is rejected with `ValueError`, since the FTLE's $1/|T|$
   would divide by zero.
 - **`to_seed()`** — drop the advected `lon`/`lat` and the scalar `t0`/`T`
-  coords, recovering the paired time-free `Seed`; the lossless inverse of
+  coords, recovering the paired `SeedGrid`; the lossless inverse of
   `pset_to_flowmap`. Re-emitting reproduces the same flat particle set. For
   `Auxiliary*` this rebuilds from the carried arms, needing neither the original
   axes nor `aux_separation_m`.
@@ -172,7 +172,7 @@ the seed is a spatial template and every release passes its own `(t0, t1)`.
 
 ## Operators
 
-The diagnostics live on `FlowMap`; a time-free `Seed` has none (it carries no
+The diagnostics live on `FlowMap`; a `SeedGrid` has none (it carries no
 advected positions or window).
 
 ```text
@@ -371,11 +371,11 @@ curve is evolved by interpolating that map at the curve's vertices, with no
 second advection.
 
 ```text
-FlowMap.image(*, lon0, lat0) -> xr.Dataset
+FlowMap.image(*, lon_0, lat_0) -> xr.Dataset
 ```
 
-- **`image(*, lon0, lat0)`** — interpolate `grid_image` (the advected positions
-  on the diagnostic grid) at reference points `lon0`/`lat0` (`DataArray`s on any
+- **`image(*, lon_0, lat_0)`** — interpolate `grid_image` (the advected positions
+  on the diagnostic grid) at reference points `lon_0`/`lat_0` (`DataArray`s on any
   shared dims, e.g., the `(line, point)` grid of `shrink_lines`), returning their
   advected positions $F_{t_0}^{t_1}(x_0)$ as an `xr.Dataset` with `lon`/`lat` on
   the input dims — the same structure a `shrink_lines` curve has, so an evolved
@@ -387,7 +387,7 @@ FlowMap.image(*, lon0, lat0) -> xr.Dataset
   The advected longitudes may arrive on any branch. Each is re-anchored on the
   branch of the grid point it came from before the interpolation, so an
   advection that hands positions back wrapped to $[-180, 180)$ is read
-  correctly. The returned longitudes are on the branch `lon0` was given in.
+  correctly. The returned longitudes are on the branch `lon_0` was given in.
 
 An LCS is evolved in its **coherent** direction, where perturbations decay: an
 attracting LCS forward in time, a repelling one backward. Advect the grid to a

@@ -6,16 +6,16 @@ symbols they are written in, [the notation](notation.md).
 
 ## Seeds
 
-A `Seed` is time-free: it lays out release positions and emits a particle set.
+A `SeedGrid` lays out release positions and emits a particle set.
 
 ```{eval-rst}
 .. autosummary::
    :toctree: generated
    :nosignatures:
 
-   lcs_parcels.Seed
-   lcs_parcels.NeighborSeed
-   lcs_parcels.AuxiliarySeed
+   lcs_parcels.SeedGrid
+   lcs_parcels.NeighborSeedGrid
+   lcs_parcels.AuxiliarySeedGrid
 ```
 
 ## Flow maps

@@ -10,13 +10,18 @@ import numpy as np
 import pytest
 from conftest import advected_flowmap
 
-from lcs_parcels import AuxiliarySeed, NeighborSeed, ftle_ridge_seeds, shrink_lines
+from lcs_parcels import (
+    AuxiliarySeedGrid,
+    NeighborSeedGrid,
+    ftle_ridge_seeds,
+    shrink_lines,
+)
 
 RELEASE_TIME = np.datetime64("2020-01-01")
 END_TIME = np.datetime64("2020-01-02")
 M = np.array([[2.0, 0.5], [0.0, 3.0]])  # generic (sheared) linear map
 
-SEED_CLASSES = [NeighborSeed, AuxiliarySeed]
+SEED_CLASSES = [NeighborSeedGrid, AuxiliarySeedGrid]
 
 # Coordinates whose values are labels or indices, for which a unit is
 # meaningless; they carry a long_name only.
@@ -137,20 +142,26 @@ def test_distinct_quantities_have_distinct_names(seed_cls, lon_axis, lat_axis):
 
 
 def test_eig_coord_says_which_eigenvalue_is_which(lon_axis, lat_axis):
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
+    fm = advected_flowmap(
+        AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
     long_name = fm.cg_eigen()["eig"].attrs["long_name"]
     assert "lambda_1" in long_name
     assert "lambda_max" in long_name
 
 
 def test_image_output_is_labelled(lon_axis, lat_axis):
-    fm = advected_flowmap(NeighborSeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
-    out = fm.image(lon0=fm.ds["lon_0"], lat0=fm.ds["lat_0"])
+    fm = advected_flowmap(
+        NeighborSeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
+    out = fm.image(lon_0=fm.ds["lon_0"], lat_0=fm.ds["lat_0"])
     assert_labelled(out, expected_units={"lon": "degrees_east", "lat": "degrees_north"})
 
 
 def test_shrink_lines_output_is_labelled(lon_axis, lat_axis):
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
+    fm = advected_flowmap(
+        AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
     lines = shrink_lines(
         fm,
         seed_lon=lon_axis[1:3],
@@ -166,7 +177,9 @@ def test_shrink_lines_output_is_labelled(lon_axis, lat_axis):
 def test_ftle_ridge_seeds_output_is_labelled(lon_axis, lat_axis):
     """The seed points come back as a dataset, so they carry the same metadata as
     every other return: labelled ``lon``/``lat`` and a labelled ``seed`` index."""
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
+    fm = advected_flowmap(
+        AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
     seeds = ftle_ridge_seeds(fm.ftle(), window_m=RIDGE_WINDOW_M)
 
     assert seeds.sizes["seed"] > 0
@@ -184,7 +197,9 @@ def test_hyperbolic_lcs_carries_the_ridge_selection_attrs(lon_axis, lat_axis):
     The seeds' own ``long_name`` stays behind: it describes the seed points, and
     this dataset holds the curves and the field.
     """
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
+    fm = advected_flowmap(
+        AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
     lcs = fm.hyperbolic_lcs(
         window_m=RIDGE_WINDOW_M, step_m=1_000.0, line_length_m=6_000.0
     )
@@ -201,7 +216,9 @@ def test_hyperbolic_lcs_output_is_labelled(lon_axis, lat_axis):
     """The one-call method returns curves and the FTLE field in one dataset, so
     both halves -- and the grid coords the FTLE brings with it -- must be
     labelled, and the dataset itself must say which kind of LCS it holds."""
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
+    fm = advected_flowmap(
+        AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
     lcs = fm.hyperbolic_lcs(
         window_m=RIDGE_WINDOW_M, step_m=1_000.0, line_length_m=6_000.0
     )

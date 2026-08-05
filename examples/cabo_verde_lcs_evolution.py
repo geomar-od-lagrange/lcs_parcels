@@ -42,7 +42,7 @@ from parcels import FieldSet, Particle, ParticleSet, StatusCode
 from parcels.convert import copernicusmarine_to_sgrid
 from parcels.kernels import AdvectionRK4
 
-from lcs_parcels import NeighborSeed
+from lcs_parcels import NeighborSeedGrid
 
 # %% [markdown]
 # ## Currents
@@ -65,9 +65,9 @@ fieldset = FieldSet.from_sgrid_conventions(sgrid, mesh="spherical")
 z_surface = float(currents["depth"].values[0])
 
 # %% [markdown]
-# ## Seed and horizons
+# ## Seed grid and horizons
 #
-# A rectilinear `NeighborSeed` over the release box, anchored at the middle of
+# A rectilinear `NeighborSeedGrid` over the release box, anchored at the middle of
 # the window the local file covers so five days fit either side of $t_0$.
 #
 # The horizons are **daily**, out to five days. At that cadence this flow moves
@@ -84,7 +84,7 @@ seed_lon, seed_lat = (-27.0, -21.0), (13.5, 18.5)
 # %%
 lon_axis = np.arange(seed_lon[0], seed_lon[1] + 1e-9, resolution_deg)
 lat_axis = np.arange(seed_lat[0], seed_lat[1] + 1e-9, resolution_deg)
-seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
 seed.ds
 
 
@@ -136,6 +136,7 @@ for direction, maps in ((1, forward_maps), (-1, backward_maps)):
             [AdvectionRK4, set_lost_to_nan],
             dt=direction * np.timedelta64(1, "h"),
             runtime=horizon - start,
+            verbose_progress=False,
         )
         lon, lat = np.asarray(pset.x).copy(), np.asarray(pset.y).copy()
         start = horizon
@@ -192,7 +193,7 @@ attracting_evo = xr.concat(
     [
         attracting_lcs[["lon", "lat"]],
         *(
-            m.image(lon0=attracting_lcs["lon"], lat0=attracting_lcs["lat"])
+            m.image(lon_0=attracting_lcs["lon"], lat_0=attracting_lcs["lat"])
             for m in forward_maps
         ),
     ],
@@ -206,7 +207,7 @@ repelling_evo = xr.concat(
     [
         repelling_lcs[["lon", "lat"]],
         *(
-            m.image(lon0=repelling_lcs["lon"], lat0=repelling_lcs["lat"])
+            m.image(lon_0=repelling_lcs["lon"], lat_0=repelling_lcs["lat"])
             for m in backward_maps
         ),
     ],
