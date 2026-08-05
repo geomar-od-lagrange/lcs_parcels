@@ -110,6 +110,22 @@ jobs:
       - name: Run tests
         run: .venv/bin/python -m pytest -m "not needs_creds"
 
+  # Sphinx runs with `-W`, so a broken cross-reference or a page missing from a
+  # toctree fails the build, catching it here rather than on Read the Docs.
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.10.0
+        with:
+          locked: true
+          environments: docs
+
+      - name: Build the documentation site
+        run: pixi run -e docs docs-build
+
   # Everything this repository publishes is built here, so a broken sdist
   # exclude list, a metadata field PyPI rejects, or a README that stops
   # rendering fails in CI rather than at `twine upload`.

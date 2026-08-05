@@ -15,37 +15,21 @@ else) in between.
 
 ## Scope: rectilinear grids, away from the poles
 
-Longitude differences and means wrap, so a domain crossing the antimeridian is
-fine. Longitudes are never normalised on ingest: they come back in the
-convention you handed in, and advected positions may arrive on any branch.
+Longitudes are taken in whatever convention you hand in and are never
+renormalised, so what comes back sits on the branch that went in. Most of the
+package needs a rectilinear grid whose `lon_grid` axis is monotonic, so seed a
+domain crossing the antimeridian on `170, 175, 180, 185` rather than on
+`170, 175, 180, -175`. On a wrapped axis `shrink_lines` and `hyperbolic_lcs`
+raise, and `image` reads the axis as if it were sorted and returns `NaN` or the
+wrong cell.
 
-`NeighborSeed`, `FlowMap.image` and the tensor-line functions need a rectilinear
-grid — `lon_grid` varying along `i`, `lat_grid` along `j` — with a monotonic
-`lon_grid` axis, so a domain crossing the antimeridian is seeded on `170, 175,
-180, 185` rather than `170, 175, 180, -175`. On a wrapped axis `shrink_lines`
-and `hyperbolic_lcs` raise, and `image` reads the axis as if it were sorted.
-The traced tensor lines carry no such requirement and cross the antimeridian
-freely. `AuxiliaryFlowMap.deformation_gradient` differences a stencil laid
-around each grid point, so it also takes a curvilinear grid.
-
-The poles are excluded. `AuxiliarySeed.from_axes` raises `ValueError` when
-`aux_separation_m` would span 90 degrees of longitude or more, which happens
-closer to a pole than about 0.64 times the arm separation: 640 m for the
-default 1 km arms, 32 km for 50 km arms. Latitude is not folded at 90 degrees
-either, so a tensor line stepped past the pole leaves the domain instead of
-continuing across it.
-
-Separations are measured in metres, and the accuracy of a separation is set by
-how far apart the two points are and at what latitude, not by the size or
-placement of the domain. Measured against the great-circle distance, a zonal
-pair is off by 1e-6 at a separation of 54 km at 30 N, 18 km at 60 N and
-5.5 km at 80 N; the full series is in [`docs/numerics.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/docs/numerics.md). On
-the equator the error vanishes at every separation. The default 1 km auxiliary
-arms sit far inside those thresholds away from the pole; the zonal threshold
-falls to 1 km itself only above about 88 N. A neighbour stencil differences over
-two
-grid cells, so read the series at twice the grid spacing; on a coarse grid the
-finite-difference truncation of that same span is the larger error.
+The poles are excluded. `AuxiliarySeedGrid.from_axes` raises `ValueError` when
+`aux_separation_m` would span 90 degrees of longitude or more, and latitude is
+never folded at 90 degrees, so a tensor line stepped past the pole leaves the
+domain instead of continuing across it. The accuracy of a separation, and the
+rest of the limits, are set out in
+[`docs/numerics.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/docs/numerics.md)
+and [`docs/api.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/docs/api.md).
 
 ## Install
 
@@ -57,7 +41,7 @@ $ pip install git+https://github.com/geomar-od-lagrange/lcs_parcels.git
 
 That gets the current `main`. There is no release on PyPI yet.
 
-To work on the package instead, or to run the examples, use
+To work on the package code instead, or to run the examples, use
 [pixi](https://pixi.sh):
 
 ```console
@@ -71,20 +55,22 @@ $ pixi run -e examples test-examples  # execute every example against the curren
 
 ```python
 import numpy as np
-from lcs_parcels import NeighborSeed
+from lcs_parcels import NeighborSeedGrid
 
-# 1. Lay out a time-free seed grid and emit a particle set.
-seed = NeighborSeed.from_axes(
+# 1. Lay out a seed grid and emit a particle set.
+seed = NeighborSeedGrid.from_axes(
     lon=np.linspace(-25.0, -20.0, 6),
     lat=np.linspace(15.0, 20.0, 5),
 )
-lon0, lat0 = seed.to_parcels_pset()
+lon_0, lat_0 = seed.to_parcels_pset()
 
-# 2. Advect (lon0, lat0) from t0 to t1 with Parcels -- not part of this
-#    package -- and collect the final positions (lon1, lat1).
+# 2. Advect (lon_0, lat_0) from t0 to t1 with Parcels, which is not part of
+#    this package, and collect the final positions.
 
 # 3. Ingest the advected positions into a flow map and diagnose it.
-flowmap = seed.pset_to_flowmap(lon=lon1, lat=lat1, t0=t0, t1=t1)
+flowmap = seed.pset_to_flowmap(
+    lon=lon_advected, lat=lat_advected, t0=t0, t1=t1
+)
 ftle = flowmap.ftle()  # xr.DataArray of the FTLE (1/s) on the (i, j) grid
 
 # 4. Or go straight to the hyperbolic LCS curves, FTLE field included.
@@ -103,21 +89,25 @@ itself:
 <NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00, t0 2020-01-01T00:00:00, T +7.0 days>
 ```
 
-Examples live under [`examples/`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/). Each is a jupytext triplet
-(`.py`/`.md`/`.ipynb`) sharing one source; the rendered `.ipynb` is the one to
-read:
+## Examples
 
-- [`cabo_verde_ftle`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_ftle.ipynb) — the Parcels v4 wiring:
-  the FTLE from CMEMS currents. Needs CMEMS credentials.
-- [`cabo_verde_lcs`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs.ipynb) — repelling and attracting
+Examples live under [`examples/`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/). Each is a jupytext triplet
+(`.py`/`.md`/`.ipynb`) sharing one source, and the rendered `.ipynb` is the one
+to read. They are listed in increasing scope:
+
+- [`get_data`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/get_data.ipynb) downloads the CMEMS subset the
+  Cabo Verde notebooks read. Run once, before them. Needs CMEMS credentials.
+- [`example_grid_pset`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/example_grid_pset.ipynb) exercises the package API
+  on its own, without Parcels.
+- [`cabo_verde_ftle`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_ftle.ipynb) shows the Parcels v4 wiring
+  and the FTLE from CMEMS currents.
+- [`cabo_verde_lcs`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs.ipynb) builds repelling and attracting
   LCS as strain tensor lines.
-- [`cabo_verde_lcs_evolution`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs_evolution.ipynb) — an
-  extracted LCS evolved as a material curve.
-- [`example_grid_pset`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/example_grid_pset.ipynb) — the package API
-  exercised on its own, without Parcels.
+- [`cabo_verde_lcs_evolution`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs_evolution.ipynb) evolves an
+  extracted LCS as a material curve.
 
 The Parcels examples need the `examples` pixi environment (`pixi install -e
-examples`) and a CMEMS currents file you save yourself; see
+examples`) and a CMEMS currents file you save yourself. See
 [`examples/README.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/README.md) for the reading order and the data.
 
 ## License

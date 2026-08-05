@@ -1,7 +1,7 @@
 """Metric tests: separations are taken in the local frame of each pair of points.
 
 The package measures every separation in the local east/north frame of the two
-points it connects -- the longitude difference wrapped and scaled by the cosine
+points it connects, with the longitude difference wrapped and scaled by the cosine
 of the pair's mid-latitude, the latitude difference by the Earth radius alone.
 There is no shared projection and no standard parallel, which is what these
 tests pin down:
@@ -10,8 +10,8 @@ tests pin down:
   (issue #18), because a parallel is shorter at higher latitude;
 * a seed straddling the antimeridian behaves exactly like the same seed placed
   away from it, and longitudes above 180 survive ingest unchanged (issue #13);
-* advected positions handed back wrapped to ``[-180, 180)`` -- what Parcels and
-  CMEMS produce -- give the same gradF, FTLE and ``image()`` as the same
+* advected positions handed back wrapped to ``[-180, 180)``, which is what
+  Parcels and CMEMS produce, give the same gradF, FTLE and ``image()`` as the same
   positions on the seed's own branch;
 * the auxiliary arms span ``2s`` at every latitude, measured by a geodesic
   written out here rather than by the package's own separation.
@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from lcs_parcels import AuxiliarySeed, NeighborSeed
+from lcs_parcels import AuxiliarySeedGrid, NeighborSeedGrid
 from lcs_parcels.grids import (
     _circular_mean_lon,
     _wrap_lon,
@@ -61,7 +61,9 @@ def _translated_flowmap(*, lon, lat, dlon, dlat, aux_separation_m=AUX_S):
     is a rigid motion on the sphere's coordinates and carries no frame of its
     own. Returns the ingested ``AuxiliaryFlowMap``.
     """
-    seed = AuxiliarySeed.from_axes(lon=lon, lat=lat, aux_separation_m=aux_separation_m)
+    seed = AuxiliarySeedGrid.from_axes(
+        lon=lon, lat=lat, aux_separation_m=aux_separation_m
+    )
     lon_0, lat_0 = seed.to_parcels_pset()
     return seed.pset_to_flowmap(
         lon=np.asarray(lon_0) + dlon,
@@ -84,12 +86,12 @@ def test_rigid_meridional_translation_stretches_zonally(lon_axis, lat_start, dla
     Moving every particle the same number of degrees north or south leaves each
     zonal separation spanning the same longitude difference, but a parallel is
     shorter at higher latitude, so that separation is stretched by
-    ``cos(phi + d) / cos(phi)`` -- exactly what the local frames measure. The
+    ``cos(phi + d) / cos(phi)``, exactly what the local frames measure. The
     meridional separation is untouched, so the tensor is diagonal.
 
     Each case is equatorward (``d < 0``), so the ratio exceeds 1 and the FTLE is
     positive and equal to ``(1 / |T|) * log`` of that ratio, the larger singular
-    value. ``AuxiliarySeed`` keeps the field free of NaN edges.
+    value. ``AuxiliarySeedGrid`` keeps the field free of NaN edges.
 
     The single-standard-parallel frame this replaced returned ``gradF == I`` and
     a zero FTLE here; the last two assertions pin how large the missing signal
@@ -127,7 +129,7 @@ def test_rigid_meridional_translation_stretches_zonally(lon_axis, lat_start, dla
 def test_antimeridian_seed_matches_shifted_seed(lat_axis):
     """A seed crossing 180 gives the same diagnostics as one that does not.
 
-    The axis runs 175..185 monotonically -- a wrapped axis (175, 180, -175) is
+    The axis runs 175..185 monotonically, since a wrapped axis (175, 180, -175) is
     not supported, since the interpolation axis would be non-monotonic. Both
     seeds are pushed through the same rigid translation, whose deformation
     depends on latitude alone, so the two fields must agree value for value:
@@ -150,11 +152,11 @@ def test_antimeridian_seed_matches_shifted_seed(lat_axis):
 def test_longitudes_above_180_are_stored_unchanged(lat_axis):
     """Ingest normalises nothing: what the user hands in comes back out.
 
-    Longitudes are kept in whatever convention they arrive in -- only
-    differences and means are wrapped -- so a seed and an advected position set
+    Longitudes are kept in whatever convention they arrive in, and only
+    differences and means are wrapped, so a seed and an advected position set
     beyond 180 stay beyond 180 in ``flowmap.ds``.
     """
-    seed = AuxiliarySeed.from_axes(lon=np.linspace(175.0, 185.0, 5), lat=lat_axis)
+    seed = AuxiliarySeedGrid.from_axes(lon=np.linspace(175.0, 185.0, 5), lat=lat_axis)
     lon_0, lat_0 = seed.to_parcels_pset()
     lon_advected = np.asarray(lon_0) + 0.5
 
@@ -185,7 +187,7 @@ def test_grid_image_and_circular_mean_straddle_the_antimeridian():
     # What a plain mean would have said, i.e. the failure being guarded against.
     assert abs(float(lon.mean("displacement"))) < 1e-9
 
-    seed = AuxiliarySeed.from_axes(lon=np.array([180.0]), lat=np.array([10.0]))
+    seed = AuxiliarySeedGrid.from_axes(lon=np.array([180.0]), lat=np.array([10.0]))
     lon_0, lat_0 = seed.to_parcels_pset()
     # Identity flow, with the advected arms reported on the [-180, 180) branch.
     wrapped = ((np.asarray(lon_0) + 180.0) % 360.0) - 180.0
@@ -204,7 +206,7 @@ def test_grid_image_and_circular_mean_straddle_the_antimeridian():
 
 #: A monotonic seed axis around the antimeridian. 179.5 is on it deliberately:
 #: the advection below carries that grid point's image onto 180 exactly, so its
-#: four auxiliary arms -- a kilometre apart -- land on opposite branches once the
+#: four auxiliary arms, a kilometre apart, land on opposite branches once the
 #: positions are folded. Without such a point the auxiliary stencil never
 #: straddles, because a stencil only reaches 0.01 degrees.
 WRAP_LON_AXIS = np.array([175.0, 177.0, 179.5, 182.0, 185.0])
@@ -235,22 +237,22 @@ def _wrapped_and_plain_flowmaps(seed_cls):
     )
 
 
-@pytest.mark.parametrize("seed_cls", [AuxiliarySeed, NeighborSeed])
+@pytest.mark.parametrize("seed_cls", [AuxiliarySeedGrid, NeighborSeedGrid])
 def test_wrapped_advected_positions_match_unwrapped_ones(seed_cls):
     """Advected longitudes returned on the ``[-180, 180)`` branch give the same
     gradF and FTLE as the same positions on the seed's own branch.
 
     This is the case the antimeridian actually arrives in (issue #13): the seed
     axis is monotonic 175..185, but the advection hands the positions back folded
-    into ``[-180, 180)`` -- what Parcels and CMEMS do -- so the pair of points a
+    into ``[-180, 180)``, which is what Parcels and CMEMS do, so the pair of points a
     stencil differences lands on opposite branches and their raw difference is
     off by 360. Both stencils meet it: the neighbour stencil straddles wherever
     the cut falls between two grid points, the auxiliary one only where a grid
     point's image lands within metres of 180, which ``WRAP_LON_AXIS`` arranges.
 
     What is left over is the fold, not the wrap. Wrapping a difference costs
-    nothing -- it subtracts the nearest multiple of 360 and is bit-for-bit the
-    identity on a difference already in range -- but folding a position near 180
+    nothing, since it subtracts the nearest multiple of 360 and is bit-for-bit the
+    identity on a difference already in range, but folding a position near 180
     onto the far branch is a subtraction that keeps 15 digits of a 3-digit
     number, so the folded input is itself a slightly different position: 3e-14
     degrees, which is 3 nanometres. gradF inherits exactly that and no more.
@@ -267,14 +269,14 @@ def test_wrapped_advected_positions_match_unwrapped_ones(seed_cls):
         np.testing.assert_allclose(a.values, b.values, rtol=1e-11, atol=0.0)
 
 
-@pytest.mark.parametrize("seed_cls", [AuxiliarySeed, NeighborSeed])
+@pytest.mark.parametrize("seed_cls", [AuxiliarySeedGrid, NeighborSeedGrid])
 def test_image_reads_wrapped_advected_positions(seed_cls):
     """``image()`` interpolates the advected field across the branch cut.
 
     The advected longitudes are arithmetic once they reach the interpolant, so a
     field folded into ``[-180, 180)`` tears from 179.9 to -179.9 between two
     adjacent grid points and a linear interpolant reads the tear as a 40 000 km
-    jump -- the whole grid image, not just the two cells at the cut, comes back
+    jump, and the whole grid image, not just the two cells at the cut, comes back
     wrong. Re-anchoring each image on the branch of its own grid point removes
     the tear, and the folded field then maps the same reference points to the
     same places the unfolded one does, to round-off in a longitude of order 180.
@@ -288,8 +290,8 @@ def test_image_reads_wrapped_advected_positions(seed_cls):
 
     query_lon = xr.DataArray([176.3, 179.4, 182.7], dims="p")
     query_lat = xr.DataArray([11.1, 12.5, 13.2], dims="p")
-    image_plain = plain.image(lon0=query_lon, lat0=query_lat)
-    image_folded = folded.image(lon0=query_lon, lat0=query_lat)
+    image_plain = plain.image(lon_0=query_lon, lat_0=query_lat)
+    image_folded = folded.image(lon_0=query_lon, lat_0=query_lat)
 
     # Read across the cut and on the seed's branch, not folded back into it.
     assert float(image_folded["lon"].max()) > 180.0
@@ -303,7 +305,7 @@ def test_image_reads_wrapped_advected_positions(seed_cls):
 def test_arm_spans_are_2s_by_an_independent_geodesic(lon_axis, lat_axis):
     """The auxiliary arms span ``2s``, measured by a geodesic of our own.
 
-    ``AuxiliarySeed.from_axes`` places the arms by inverting exactly the relation
+    ``AuxiliarySeedGrid.from_axes`` places the arms by inverting exactly the relation
     :func:`~lcs_parcels.grids._arm_separation_m` reads them back with, so
     checking one against the other cancels both the Earth radius and the cosine
     convention out of the answer. :func:`_haversine_m` is written out in this
@@ -317,7 +319,9 @@ def test_arm_spans_are_2s_by_an_independent_geodesic(lon_axis, lat_axis):
     north and south arms lie on a meridian, which is itself a geodesic, so their
     span is exact to round-off.
     """
-    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis, aux_separation_m=AUX_S)
+    seed = AuxiliarySeedGrid.from_axes(
+        lon=lon_axis, lat=lat_axis, aux_separation_m=AUX_S
+    )
     lon_0 = seed.ds["lon_0"].reset_coords(drop=True)
     lat_0 = seed.ds["lat_0"].reset_coords(drop=True)
 
@@ -341,7 +345,7 @@ def test_arm_spans_are_2s_by_an_independent_geodesic(lon_axis, lat_axis):
 
 def test_arms_spanning_90_degrees_of_longitude_are_rejected():
     """Near a pole ``s`` is more than 90 degrees of longitude, and an arm placed
-    there aliases through the wrap onto the far side of the pole -- a wrong
+    there aliases through the wrap onto the far side of the pole, a wrong
     gradient rather than a NaN. That is refused, not approximated.
 
     The guard is on the *placement*, not on the latitude: it trips wherever
@@ -352,18 +356,18 @@ def test_arms_spanning_90_degrees_of_longitude_are_rejected():
     # 2 s / pi is 637 m from the pole at s = 1 km, so 89.999 N (111 m) is inside
     # the guard and 89.9 N (11 km) is outside it.
     with pytest.raises(ValueError, match="90 degrees"):
-        AuxiliarySeed.from_axes(
+        AuxiliarySeedGrid.from_axes(
             lon=np.array([0.0]), lat=np.array([89.999]), aux_separation_m=AUX_S
         )
-    AuxiliarySeed.from_axes(
+    AuxiliarySeedGrid.from_axes(
         lon=np.array([0.0]), lat=np.array([89.9]), aux_separation_m=AUX_S
     )
     # Same latitudes, s scaled by 1e-3 and 1e3: the threshold moves with s, so
     # 89.999 N now passes and 89.9 N now raises.
-    AuxiliarySeed.from_axes(
+    AuxiliarySeedGrid.from_axes(
         lon=np.array([0.0]), lat=np.array([89.999]), aux_separation_m=AUX_S / 1e3
     )
     with pytest.raises(ValueError, match="90 degrees"):
-        AuxiliarySeed.from_axes(
+        AuxiliarySeedGrid.from_axes(
             lon=np.array([0.0]), lat=np.array([89.9]), aux_separation_m=AUX_S * 1e3
         )

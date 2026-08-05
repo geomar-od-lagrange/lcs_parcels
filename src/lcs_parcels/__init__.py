@@ -5,18 +5,18 @@ FTLE) and the geometric layer (hyperbolic LCS as shrink lines, ``shrink_lines`` 
 ``ftle_ridge_seeds``) follow Haller (2015),
 doi:10.1146/annurev-fluid-010313-141322
 (https://doi.org/10.1146/annurev-fluid-010313-141322). This package contains no
-Parcels code: it only emits particle sets and ingests their advected positions.
+Parcels code. It only emits particle sets and ingests their advected positions.
 """
 
 from __future__ import annotations
 
 from lcs_parcels.grids import (
     AuxiliaryFlowMap,
-    AuxiliarySeed,
+    AuxiliarySeedGrid,
     FlowMap,
     NeighborFlowMap,
-    NeighborSeed,
-    Seed,
+    NeighborSeedGrid,
+    SeedGrid,
 )
 from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
 
@@ -24,11 +24,11 @@ __version__ = "2026.8.4.1"
 
 __all__ = [
     "AuxiliaryFlowMap",
-    "AuxiliarySeed",
+    "AuxiliarySeedGrid",
     "FlowMap",
     "NeighborFlowMap",
-    "NeighborSeed",
-    "Seed",
+    "NeighborSeedGrid",
+    "SeedGrid",
     "ftle_ridge_seeds",
     "shrink_lines",
 ]

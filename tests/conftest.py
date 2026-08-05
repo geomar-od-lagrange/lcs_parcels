@@ -51,8 +51,8 @@ def apply_map_to_pset(lon, lat, f, origin):
     """Advect a flat (lon, lat) particle set through a general map ``f``.
 
     The map acts in a local meters tangent frame: ``f(dx, dy) -> (dx_out,
-    dy_out)`` transforms the seed separations ``(dx, dy)`` -- measured in meters
-    from ``origin = (lon0, lat0)`` -- into advected separations, converted back
+    dy_out)`` transforms the seed separations ``(dx, dy)``, measured in meters
+    from ``origin = (lon_0, lat_0)``, into advected separations, converted back
     to lon/lat. The advected positions are returned as flat lon/lat lists in the
     same order as the input. ``f`` need not be linear.
     """
@@ -73,17 +73,17 @@ def apply_map_to_lonlat(lon, lat, f, origin):
     """
     lon = np.asarray(lon, dtype=float)
     lat = np.asarray(lat, dtype=float)
-    lon0, lat0 = origin
-    coslat = np.cos(lat0 * DEG)
+    lon_0, lat_0 = origin
+    coslat = np.cos(lat_0 * DEG)
 
     # seed separations from origin, in meters (flat-tangent convention)
-    dx = EARTH_RADIUS_M * coslat * (lon - lon0) * DEG
-    dy = EARTH_RADIUS_M * (lat - lat0) * DEG
+    dx = EARTH_RADIUS_M * coslat * (lon - lon_0) * DEG
+    dy = EARTH_RADIUS_M * (lat - lat_0) * DEG
 
     dxo, dyo = f(dx, dy)  # apply the (possibly nonlinear) map
 
-    lon_out = lon0 + dxo / (EARTH_RADIUS_M * coslat * DEG)
-    lat_out = lat0 + dyo / (EARTH_RADIUS_M * DEG)
+    lon_out = lon_0 + dxo / (EARTH_RADIUS_M * coslat * DEG)
+    lat_out = lat_0 + dyo / (EARTH_RADIUS_M * DEG)
     return (lon_out + 180.0) % 360.0 - 180.0, lat_out
 
 
@@ -173,7 +173,7 @@ def apply_linear_map_to_pset(lon, lat, M, origin):
 
     Thin wrapper over :func:`apply_map_to_pset` that builds the linear callable
     ``displacement_out = M @ displacement_in`` from the matrix ``M`` (acting on
-    the seed separation in meters from ``origin = (lon0, lat0)``). The
+    the seed separation in meters from ``origin = (lon_0, lat_0)``). The
     deformation gradient the package then measures is
     :func:`analytic_gradient`, not ``M`` itself.
     """
@@ -189,7 +189,7 @@ def advected_flowmap_f(seed_cls, lon_axis, lat_axis, f, t0, t1):
     and return the ``FlowMap``. The advection ``origin`` is the seed centroid
     (:func:`seed_origin`); ``f``'s Jacobian is in that one tangent frame, so the
     deformation gradient the package recovers is that Jacobian rescaled into the
-    local frames -- see :func:`local_frame_gradient`.
+    local frames; see :func:`local_frame_gradient`.
     """
     seed = seed_cls.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()

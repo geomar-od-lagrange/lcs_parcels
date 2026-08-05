@@ -1,0 +1,19 @@
+version: 2
+
+# Read the Docs builds through pixi, so the site is built from the same manifest
+# and lockfile as everything else. The `docs` environment carries Sphinx, MyST
+# and myst-nb, and `--locked` makes a stale lock a build failure rather than a
+# silent resolve. `-W` matches the `docs` CI job, so a warning fails here too.
+# Notebooks are not executed (`nb_execution_mode = "off"`), so the build needs
+# neither CMEMS credentials nor the gitignored `examples/data/`.
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.13"
+  jobs:
+    install:
+      - curl -fsSL https://pixi.sh/install.sh | bash
+      - ~/.pixi/bin/pixi install --locked --environment docs
+    build:
+      html:
+        - ~/.pixi/bin/pixi run --environment docs sphinx-build -b html -W --keep-going docs $READTHEDOCS_OUTPUT/html

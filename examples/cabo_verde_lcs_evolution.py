@@ -15,10 +15,10 @@
 # ---
 
 # %% [markdown]
-# # Evolving a hyperbolic LCS as a material curve
+# # Cabo Verde LCS evolution
 #
 # An extracted hyperbolic LCS (see `cabo_verde_lcs`) is a **material** curve:
-# given its vertices at $t_0$ — the `lon`/`lat` that `shrink_lines` returns —
+# given its vertices at $t_0$, the `lon`/`lat` that `shrink_lines` returns,
 # its position at any other time is fixed by the flow map,
 # $\mathcal{M}(t) = F_{t_0}^{t}(\mathcal{M}(t_0))$ (Haller 2015, Eq. 5,
 # [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322)).
@@ -42,7 +42,7 @@ from parcels import FieldSet, Particle, ParticleSet, StatusCode
 from parcels.convert import copernicusmarine_to_sgrid
 from parcels.kernels import AdvectionRK4
 
-from lcs_parcels import NeighborSeed
+from lcs_parcels import NeighborSeedGrid
 
 # %% [markdown]
 # ## Currents
@@ -65,9 +65,9 @@ fieldset = FieldSet.from_sgrid_conventions(sgrid, mesh="spherical")
 z_surface = float(currents["depth"].values[0])
 
 # %% [markdown]
-# ## Seed and horizons
+# ## Seed grid and horizons
 #
-# A rectilinear `NeighborSeed` over the release box, anchored at the middle of
+# A rectilinear `NeighborSeedGrid` over the release box, anchored at the middle of
 # the window the local file covers so five days fit either side of $t_0$.
 #
 # The horizons are **daily**, out to five days. At that cadence this flow moves
@@ -84,7 +84,7 @@ seed_lon, seed_lat = (-27.0, -21.0), (13.5, 18.5)
 # %%
 lon_axis = np.arange(seed_lon[0], seed_lon[1] + 1e-9, resolution_deg)
 lat_axis = np.arange(seed_lat[0], seed_lat[1] + 1e-9, resolution_deg)
-seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
 seed.ds
 
 
@@ -136,6 +136,7 @@ for direction, maps in ((1, forward_maps), (-1, backward_maps)):
             [AdvectionRK4, set_lost_to_nan],
             dt=direction * np.timedelta64(1, "h"),
             runtime=horizon - start,
+            verbose_progress=False,
         )
         lon, lat = np.asarray(pset.x).copy(), np.asarray(pset.y).copy()
         start = horizon
@@ -153,8 +154,8 @@ forward_maps[-1].ds
 # there: repelling LCS from the forward flow, attracting LCS from the backward
 # one (forward–backward duality, Haller & Sapsis 2011,
 # [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)), each seeded at
-# the local maxima of its own FTLE. `FlowMap.hyperbolic_lcs` runs that chain —
-# FTLE, ridge seeds, shrink lines — in one call and reads repelling or
+# the local maxima of its own FTLE. `FlowMap.hyperbolic_lcs` runs that whole
+# chain (FTLE, ridge seeds, shrink lines) in one call and reads repelling or
 # attracting off the sign of its own window. *Hyperbolic* because elliptic LCS
 # are a different family.
 
@@ -192,7 +193,7 @@ attracting_evo = xr.concat(
     [
         attracting_lcs[["lon", "lat"]],
         *(
-            m.image(lon0=attracting_lcs["lon"], lat0=attracting_lcs["lat"])
+            m.image(lon_0=attracting_lcs["lon"], lat_0=attracting_lcs["lat"])
             for m in forward_maps
         ),
     ],
@@ -206,7 +207,7 @@ repelling_evo = xr.concat(
     [
         repelling_lcs[["lon", "lat"]],
         *(
-            m.image(lon0=repelling_lcs["lon"], lat0=repelling_lcs["lat"])
+            m.image(lon_0=repelling_lcs["lon"], lat_0=repelling_lcs["lat"])
             for m in backward_maps
         ),
     ],

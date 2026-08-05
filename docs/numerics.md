@@ -1,11 +1,11 @@
-# Numerics: why the numbers come out right
+# Numerics
 
 The quantitative half of the design record: the frame separations are measured
 in, the longitude arithmetic that goes with it, the units the tuning parameters
 are stated in, and the guard that decides when $\xi_1$ is a direction rather
 than noise. The companion document
 [`docs/architecture.md`](architecture.md) covers the other
-half — what the types are and how they compose. Symbols and the definitions of
+half, what the types are and how they compose. Symbols and the definitions of
 every quantity used below live in [`docs/notation.md`](notation.md); notation
 follows Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech.
 47:137–162,
@@ -28,8 +28,8 @@ of the next section. The cosine is the pair's own **mid-latitude** cosine. No
 other latitude enters, so no point in the domain is measured against a parallel
 outside its own pair.
 
-$\nabla F$ is a ratio of two such separations — the advected pair over the
-reference pair — and each is taken with its own cosine: the denominator with the
+$\nabla F$ is a ratio of two such separations, the advected pair over the
+reference pair, and each is taken with its own cosine: the denominator with the
 mid-latitude of the two release points, the numerator with the mid-latitude of
 the two arrival points. That is what makes the result the tangent-space Jacobian
 of the flow map, written in the orthonormal east/north basis at $x_0$ on the
@@ -39,8 +39,8 @@ eigenvalues and the FTLE are the geometric quantities Haller's equations refer
 to, at any latitude and across the antimeridian.
 
 Against the naive degrees-space Jacobian
-$\partial(\Lambda, \Phi) / \partial(\lambda, \phi)$ — arrival lon/lat
-differentiated with respect to release lon/lat, both in degrees — the same
+$\partial(\Lambda, \Phi) / \partial(\lambda, \phi)$, arrival lon/lat
+differentiated with respect to release lon/lat, both in degrees, the same
 statement reads
 
 $$\nabla F = \mathrm{diag}(\cos\Phi,\, 1)\;
@@ -55,8 +55,8 @@ latitude enters, and so no property of the domain enters.
 
 The rigid meridional translation is the case that makes the difference concrete.
 Shift every particle north by a fixed number of degrees: the degrees-space
-Jacobian is the identity, but the physical map is not an isometry — a zonal
-separation held at fixed $\Delta\lambda$ contracts by $\cos\Phi / \cos\phi$ — and
+Jacobian is the identity, but the physical map is not an isometry, since a zonal
+separation held at fixed $\Delta\lambda$ contracts by $\cos\Phi / \cos\phi$, and
 $\nabla F = \mathrm{diag}(\cos\Phi/\cos\phi,\, 1)$ reports exactly that
 contraction. The local frame replaced an earlier equirectangular frame whose
 single standard parallel sat at the seed centroid. That earlier frame reported
@@ -100,7 +100,7 @@ so both stencils reproduce the analytic answer of the synthetic test flow with
 no metric error left. Worst case over the three regions the suite runs (`reference`,
 `antimeridian`, `high_latitude`), the largest absolute deviation of any
 $\nabla F$ component from the analytic value is 1.5e-14 for the neighbour
-stencil — about 20 ulp on components of order 3, which is round-off — and 3.0e-12
+stencil, about 20 ulp on components of order 3, which is round-off, and 3.0e-12
 for the auxiliary one. The auxiliary figure is some 4500 ulp, too large for
 round-off; it is cancellation in differencing arms a kilometre apart on a sphere
 6371 km across.
@@ -122,13 +122,13 @@ which is what the metre-scale stencil differences need, since every one of them
 is a wrap of a quantity already far inside the range.
 
 Normalising stored positions would have to pick a branch, and any branch has a
-cut that some domain straddles — a seed grid running 350 to 370 degrees east
+cut that some domain straddles. A seed grid running 350 to 370 degrees east
 would come back torn into two pieces at 0, and its `lon_grid` axis would stop
 being monotone, which `FlowMap.image` needs for its interpolation. Wrapping the
 difference has no such choice to make: $\mathrm{wrap}(\lambda_b - \lambda_a)$ is
 the shorter of the two ways round for any pair less than 180 degrees apart, in
-any convention, and every pair the package differences — opposite stencil arms,
-adjacent grid points, and their advected images — is far inside that bound.
+any convention, and every pair the package differences (opposite stencil arms,
+adjacent grid points, and their advected images) is far inside that bound.
 
 A mean needs more than a difference, because averaging longitudes across the cut
 is not a difference operation. `_circular_mean_lon(lon, dim)` anchors on the
@@ -138,7 +138,7 @@ $$\bar\lambda = \lambda_{\mathrm{anchor}}
   + \overline{\mathrm{wrap}(\lambda - \lambda_{\mathrm{anchor}})},$$
 
 which is the circular mean for a set spanning much less than a hemisphere and
-which returns a value on the anchor's branch — so the mean of four auxiliary arms
+which returns a value on the anchor's branch, so the mean of four auxiliary arms
 inherits the convention of the arm positions rather than imposing one.
 `AuxiliaryFlowMap.grid_image` is the one caller: the four advected arms it
 averages can straddle the antimeridian. `skipna=False`, so a lost arm makes the
@@ -156,12 +156,12 @@ $$\lambda_{\mathrm{grid}} +
 
 which is a difference operation again and so has no branch to choose. It is
 correct whenever the displacement over the window is under 180 degrees. The
-interpolated result therefore comes back on the branch `lon0` was given in.
+interpolated result therefore comes back on the branch `lon_0` was given in.
 
 ## Stepping a tensor line
 
 `_step_lonlat_by_meters` advances a shrink line by `step_m` along a direction
-that is a local east/north vector at the current point — the same frame $C$ and
+that is a local east/north vector at the current point, the same frame $C$ and
 its eigenvectors were built in. It is written as the **exact inverse of
 `_separation_m`**: the northward component gives $R\,\Delta\phi$, and the
 eastward one is divided by $R\cos(\phi + \tfrac{1}{2}\Delta\phi)$, the same
@@ -174,10 +174,10 @@ applied to a step rather than to a difference.
 The step it replaced divided the eastward component by one reference cosine
 $\cos\phi_{\mathrm{ref}}$ for the whole field. That is the standard-parallel
 error again, but compounded: a tensor line is hundreds of steps long and the
-error is systematic, so it does not average out — it bends the traced curve away
+error is systematic, so it does not average out. It bends the traced curve away
 from the direction $\xi_1$ that was integrated.
 
-An intermediate version solved the *direct great-circle problem* instead —
+An intermediate version solved the *direct great-circle problem* instead,
 angular distance $\lVert d\rVert / R$ and bearing
 $\mathrm{atan2}(d_{\mathrm{east}}, d_{\mathrm{north}})$, then the standard
 formulae for the endpoint. That gives a more accurate arc, but the integrator is
@@ -212,8 +212,8 @@ shrinking `step_m` does not reduce them.
 ## Why the tuning parameters are stated in their own units
 
 The tunable quantities of the tensor-line layer are stated in the units of the
-thing itself — `window_m`, `step_m` and `line_length_m` in metres,
-`min_anisotropy` as a dimensionless eigenvalue ratio — and converted internally
+thing itself (`window_m`, `step_m` and `line_length_m` in metres,
+`min_anisotropy` as a dimensionless eigenvalue ratio) and converted internally
 against the field's own grid spacing, so the same call means the same thing at
 any resolution and over any window. Stated the way they are implemented, the
 two lengths would each depend on something the caller is not asking about: a
@@ -225,7 +225,7 @@ default, is relative to the field it is handed, so it means the same thing on
 any field. `ftle_min` is an absolute value in the field's own units, and it does
 not mean the same thing on any field: a rate that marks a ridge in a fast flow
 marks nothing in a slow one. It exists because that is the property a run
-comparing windows or regions needs — one threshold across all of them, which a
+comparing windows or regions needs, one threshold across all of them, which a
 quantile cannot express. The reasoning behind offering both is in
 [`architecture.md`](architecture.md#why-an-absolute-ftle-floor-exists-at-all).
 
@@ -281,8 +281,8 @@ incompressible flow ($\lambda_1\lambda_2 = 1$), a $\lambda_2$ floor of
 $\sqrt{a_{\min}}$ and hence an equivalent rate
 $\tfrac{1}{|T|}\log\sqrt{\sqrt{a_{\min}}} = \tfrac{1}{4|T|}\log a_{\min}$. With
 $a_{\min} = 1.15$ that is 0.0050/day at $|T| = 7$ d (the calibration identity),
-0.140/day at 6 h and $1.9\times 10^{-4}$/day at 180 d — as fractions of the two
-outer flows' FTLE, 2.3% and 1.8%. The first argument named the right failure
+0.140/day at 6 h and $1.9\times 10^{-4}$/day at 180 d. As fractions of the two
+outer flows' FTLE, that is 2.3% and 1.8%. The first argument named the right failure
 mode, but its fix was too narrow: dividing out $|T|$ makes a floor scale-free in
 the window and in nothing else.
 
@@ -305,8 +305,8 @@ from that point.
 Away from the calibration point the two floors differ measurably, because the
 ocean surface is not incompressible. Measured on the Cabo Verde example (5-day
 window, points taken 34 km clear of any coast), the flow map's areal factor
-$\det \nabla F$ has a median of 1.08 forward and 0.97 backward — nearly
-area-preserving in the bulk — but ranges from 0.63 to 2.4 forward and from 0.045
+$\det \nabla F$ has a median of 1.08 forward and 0.97 backward, nearly
+area-preserving in the bulk, but ranges from 0.63 to 2.4 forward and from 0.045
 to 14 backward. The implied divergence reaches 0.08–0.13 /day at the 99th
 percentile, against a median FTLE of about 0.13 /day, so it is the same order as
 the signal.

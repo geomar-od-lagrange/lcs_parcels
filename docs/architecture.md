@@ -1,9 +1,9 @@
-# Architecture: seeds and flow maps
+# Architecture
 
 Why the diagnostic layer in
-[`src/lcs_parcels/grids.py`](../src/lcs_parcels/grids.py) is shaped the way it
+[`src/lcs_parcels/grids.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/grids.py) is shaped the way it
 is: what the types are, how they compose, and which alternatives were rejected.
-The companion document [`docs/numerics.md`](numerics.md) covers the other half —
+The companion document [`docs/numerics.md`](numerics.md) covers the other half,
 why the numbers that come out of these types are right: the local east/north
 frame each separation is measured in, the units the tuning parameters are stated
 in, and the well-definedness guard. Symbols live in
@@ -11,12 +11,12 @@ in, and the well-definedness guard. Symbols live in
 *Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech. 47:137–162,
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
 
-Timing conventions follow [`plans/timing-design.md`](../plans/timing-design.md):
-a `Seed` is **time-free**; ingest (`pset_to_flowmap`) is given both the release
+Timing conventions follow [`plans/timing-design.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/plans/done/timing-design.md):
+a `SeedGrid` carries no time, and ingest (`pset_to_flowmap`) is given both the release
 time $t_0$ and the end time $t_1$, and the signed window $T = t_1 - t_0$ is
 derived and stored on the resulting `FlowMap`.
 
-The package contains no Parcels code: a `Seed` *emits* a particle set
+The package contains no Parcels code: a `SeedGrid` *emits* a particle set
 (`to_parcels_pset`) and *ingests* the advected positions back into a `FlowMap`
 (`pset_to_flowmap`). Parcels itself sits outside this package and owns the
 integration; direction (the sign of $T$) follows from $t_1$ relative to $t_0$.
@@ -25,23 +25,23 @@ integration; direction (the sign of $T$) follows from $t_1$ relative to $t_0$.
 
 ### Two sibling families, not an inheritance pair
 
-The lifecycle is split into a time-free `Seed` family and a `FlowMap` family.
-They are *siblings*: a `FlowMap` is not a kind of `Seed`, because it emits
-nothing to Parcels, and a `Seed` is not a kind of `FlowMap`, because it has no
+The lifecycle is split into a `SeedGrid` family and a `FlowMap` family.
+They are *siblings*: a `FlowMap` is not a kind of `SeedGrid`, because it emits
+nothing to Parcels, and a `SeedGrid` is not a kind of `FlowMap`, because it has no
 advected positions and no window. Neither base inherits from the other, and
 there is no common base above both, because there is almost nothing the two
 families would share in one. The separation helpers are module-level functions
-called only from the `FlowMap` side (`AuxiliarySeed.from_axes` inverts the same
+called only from the `FlowMap` side (`AuxiliarySeedGrid.from_axes` inverts the same
 relation inline to place its arms). The two families share `__init__`, which
 stores the dataset on `.ds`, and the `lon_grid`/`lat_grid` accessors, which read
-it back; each is one line, written identically on `Seed` and on `FlowMap`. The
-repr's grid summary is a module-level function that both reprs call.
+it back; each is one line, written identically on `SeedGrid` and on `FlowMap`.
+Each base class also carries its own complete `__repr__`.
 
-A `Seed` holds coordinates only: the diagnostic grid points
+A `SeedGrid` holds coordinates only: the diagnostic grid points
 `lon_grid`/`lat_grid` and the reference release positions `lon_0`/`lat_0`
 ($x_0$). No $t_0$, no $T$, no advected positions, no data variables. A
-`FlowMap` adds the advected positions `lon`/`lat` — the flow map image
-$F(x_0)$, and its only data variables — plus the scalar coordinates `t0` and
+`FlowMap` adds the advected positions `lon`/`lat` (the flow map image
+$F(x_0)$, and its only data variables) plus the scalar coordinates `t0` and
 signed `T`.
 
 Each class *wraps* an `xr.Dataset`, held in `.ds`, by composition; none
@@ -51,15 +51,15 @@ plain xarray.
 
 The two families are linked only by the paired class attributes
 `_flowmap_cls` (seed to its flow map) and `_seed_cls` (flow map back to its
-seed), and by the two crossing methods `Seed.pset_to_flowmap` and
-`FlowMap.to_seed`. A new stencil is therefore a `Seed` subclass and a `FlowMap`
+seed), and by the two crossing methods `SeedGrid.pset_to_flowmap` and
+`FlowMap.to_seed`. A new stencil is therefore a `SeedGrid` subclass and a `FlowMap`
 subclass that name each other, and nothing else changes.
 
 ### The two stencils
 
 Within each family, the two finite-difference strategies for the deformation
-gradient $\nabla F$ are modelled as two explicit subclasses — `NeighborSeed` /
-`NeighborFlowMap` and `AuxiliarySeed` / `AuxiliaryFlowMap` — rather than
+gradient $\nabla F$ are modelled as two explicit subclasses (`NeighborSeedGrid` /
+`NeighborFlowMap` and `AuxiliarySeedGrid` / `AuxiliaryFlowMap`) rather than
 inferred at runtime from the dataset's dimensions. The type carries that
 information, so nothing inspects the dataset for a `displacement` dim to decide
 what to do.
@@ -69,8 +69,8 @@ what to do.
   `lon_grid`/`lat_grid`. This is the SPASSO approach (see `src/Diagnostics.py`
   in [SPASSO](https://github.com/OceanCruises/SPASSO)), and it ties the gradient
   step to the seed resolution.
-- **Auxiliary stencil** (`Auxiliary*`): each grid point carries four arms —
-  east, north, west, south — on a single `displacement` dim, stored explicitly
+- **Auxiliary stencil** (`Auxiliary*`): each grid point carries four arms,
+  east, north, west and south, on a single `displacement` dim, stored explicitly
   as the reference positions `lon_0`/`lat_0` around the grid point. There is no
   centre arm, no diagonals and no stored `dx`/`dy`; the reference positions
   record the stencil. The arms decouple the gradient step (`aux_separation_m`)
@@ -80,7 +80,7 @@ what to do.
 and they are the only abstract members: `from_axes` lays the stencil down,
 `deformation_gradient` differences $\nabla F$ across it, and `grid_image`
 collapses the advected positions onto the diagnostic grid. Everything else is
-shared, concrete base-class behaviour — emit and ingest on `Seed`, and on
+shared, concrete base-class behaviour, emit and ingest on `SeedGrid`, and on
 `FlowMap` the whole diagnostic chain: the Cauchy–Green tensor
 $C = (\nabla F)^\top \nabla F$, its eigen-decomposition
 $C\,\xi_i = \lambda_i\,\xi_i$, the FTLE
@@ -98,7 +98,7 @@ The obvious layout gives the diagnostic grid location no name of its own: it is
 already `lon_0`/`lat_0` for the neighbour stencil, and for the auxiliary one,
 where `lon_0` lives on `(i, j, displacement)`, it needs a second pair. One
 concept under two names forces every downstream consumer to sniff the dataset
-for which name is present — the exact runtime introspection the design rules
+for which name is present, the exact runtime introspection the design rules
 ban. Carrying `lon_grid`/`lat_grid` on both stencils removes the branch by
 construction rather than hiding it behind a helper that branches internally.
 
@@ -124,7 +124,7 @@ matching what the deformation gradient does).
 
 Diagnostics are labelled by `lon_grid`/`lat_grid` and *only* by that pair. The
 release positions are dropped in `FlowMap._positions`, because on an
-auxiliary flow map the surviving `lon_0` is one stencil arm — a point about $s$
+auxiliary flow map the surviving `lon_0` is one stencil arm, a point about $s$
 metres from the grid point the diagnostic describes. Keeping `lon_0`/`lat_0`
 alongside the canonical pair would leave a second, wrong label available on the
 diagnostics.
@@ -135,6 +135,26 @@ under the grid-point name. It renames them to `lon_0`/`lat_0` before returning:
 they are the $x_0$ that were mapped rather than diagnostic grid points, and the
 canonical pair exists so that one name never covers two quantities.
 
+### Why the advected positions are `lon`/`lat`, not `lon_1`/`lat_1`
+
+The reference positions carry a `_0` suffix and the times are `t0` and `t1`, so
+`lon_1`/`lat_1` would be the symmetric choice for the arrival positions. They are
+plain `lon`/`lat` instead, for two reasons.
+
+Every product downstream of the flow map returns the position of something at
+the time it is asked about, and returns it as `lon`/`lat`: `grid_image`,
+`FlowMap.image`, `ftle_ridge_seeds` and `shrink_lines` all do. Naming the flow
+map's own arrival positions `lon_1` would make `flowmap.ds` disagree with
+`flowmap.image()` about what an arrival position is called, and the suffix would
+have to be dropped again at the first function that has no `t1` to refer to.
+
+The suffix also means something narrower than "the second time". `_0` marks the
+*reference* position, the $x_0$ a diagnostic is differenced from and reported
+against; the unsuffixed name is the current position. That is the distinction
+Haller writes as $x_0$ and $F(x_0)$ rather than $x_0$ and $x_1$, and it survives
+into a chained evolution where the output of one `image` call becomes the `x_0`
+of the next.
+
 ### Why `_positions` hands out degrees, not metres
 
 `FlowMap._positions` returns the reference and advected positions as
@@ -143,7 +163,7 @@ themselves, through `_separation_m`. The earlier version converted first and
 handed the stencil out already in metres, which only works if there is one frame
 for the whole grid to convert into. There is not: a separation becomes metres
 only once two points are named, because it is taken in the local east/north frame
-of *that pair* — the longitude difference wrapped to $[-180, 180]$ and scaled by
+of *that pair*, with the longitude difference wrapped to $[-180, 180]$ and scaled by
 the cosine of the pair's mid-latitude, the latitude difference by the Earth
 radius alone. The advected pair therefore gets its own cosine rather than the
 reference pair's, which is exactly the rescaling that makes $\nabla F$ report
@@ -157,8 +177,8 @@ longitudes keep whatever convention they arrived in. Nothing normalises them
 onto a branch of the package's choosing.
 
 `tensorlines._step_lonlat_by_meters` applies the same rule on the integration
-side. It is written as the *exact inverse* of `_separation_m` — the same
-mid-latitude cosine, solved for the longitude increment — rather than as the
+side. It is written as the *exact inverse* of `_separation_m`, the same
+mid-latitude cosine solved for the longitude increment, rather than as the
 direct great-circle problem, so that measuring the step it took reproduces the
 direction it was given. A great-circle step is the more accurate arc, but it
 curves away from the direction field the ODE integrates, and that error
@@ -187,7 +207,7 @@ cost of a longer call.
 The rule covers same-typed neighbours only:
 `shrink_lines(flowmap, ...)` keeps `flowmap` positional, since it is the only
 argument of its type and there is nothing to transpose it with. The cost is that
-the star-unpacking idiom is unavailable —
+the star-unpacking idiom is unavailable,
 `pset_to_flowmap(*seed.to_parcels_pset(), ...)` does not work, and the 2-tuple
 `to_parcels_pset` returns is unpacked into named locals first, which costs one
 line per call site. `ftle_ridge_seeds` pays that cost in the return type
@@ -201,7 +221,7 @@ to unpack.
 `name`, `long_name` and `units` are stamped on the coordinates once, in
 `from_axes` and `pset_to_flowmap`, and ride through the diagnostics untouched,
 rather than being re-applied defensively in each operator. The consequence is
-that a `FlowMap` built by hand from an unlabelled dataset stays unlabelled —
+that a `FlowMap` built by hand from an unlabelled dataset stays unlabelled,
 which is consistent with `FlowMap.__init__` already accepting, say, a
 non-axis-aligned grid that `NeighborFlowMap` cannot correctly difference.
 
@@ -217,13 +237,13 @@ quantities under one name collide silently when they are merged into a
 
 Defining a seed, generating a particle set, advecting it with Parcels
 (external), ingesting the result into a flow map, and estimating the FTLE. Every
-step but the advection is a method call on a `Seed` or a `FlowMap`:
+step but the advection is a method call on a `SeedGrid` or a `FlowMap`:
 
-1. `NeighborSeed.from_axes(lon=lon, lat=lat)` turns two 1-D axes into a seed
-   whose `.ds` carries `lon_grid`/`lat_grid` and `lon_0`/`lat_0` on `(i, j)` —
-   coordinates only, and time-free.
+1. `NeighborSeedGrid.from_axes(lon=lon, lat=lat)` turns two 1-D axes into a seed
+   whose `.ds` carries `lon_grid`/`lat_grid` and `lon_0`/`lat_0` on `(i, j)`,
+   coordinates only, and carrying no time.
 2. `seed.to_parcels_pset()` flattens the release positions into a 2-tuple of
-   1-D arrays `(lon0, lat0)`.
+   1-D arrays `(lon_0, lat_0)`.
 3. **Parcels, external and not driven by this package**, builds a `ParticleSet`
    from those arrays and executes an advection from $t_0$ to $t_1$, returning
    advected positions in the same flat order.
@@ -241,7 +261,7 @@ step but the advection is a method call on a `Seed` or a `FlowMap`:
 Those last four steps are the concrete base-class chain that a single
 `fm.ftle()` call invokes under the hood; they are spelled out here to show where
 each Haller quantity enters. `fm.to_seed()` drops the advected positions, `t0`
-and `T` to recover a time-free seed for re-release.
+and `T` to recover a seed grid for re-release.
 
 The `Auxiliary*` pair follows the identical workflow; the only differences are
 that the particle set is additionally stacked over the four-arm `displacement`
@@ -254,22 +274,22 @@ rejected with `ValueError`.
 ## Walkthrough: extracting LCS as shrink lines
 
 Downstream of the FTLE, the geometric layer
-([`src/lcs_parcels/tensorlines.py`](../src/lcs_parcels/tensorlines.py)) turns the
+([`src/lcs_parcels/tensorlines.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/tensorlines.py)) turns the
 strain field into LCS **curves**. The extraction is implemented as two free
 functions that consume a `FlowMap`'s xarray outputs rather than as methods on
 `FlowMap`, which stays a gridded-diagnostics object. That keeps the one new
 external dependency (`scipy`, for grid interpolation) at the boundary:
 
-- `ftle_ridge_seeds(ftle)` — finds seed points at the FTLE ridge tops (windowed
+- `ftle_ridge_seeds(ftle)` finds seed points at the FTLE ridge tops (windowed
   local maxima above a magnitude floor), returning an `xr.Dataset` of
   `lon`/`lat` on a `seed` dim whose attributes record the floor that was applied
   and what `window_m` became on this grid;
-- `shrink_lines(flowmap, seed_lon=..., seed_lat=...)` — integrates the $\xi_1$
+- `shrink_lines(flowmap, seed_lon=..., seed_lat=...)` integrates the $\xi_1$
   tensor lines ($\dot r = \xi_1(r)$, Haller Table 1) through those seeds,
   returning an `xr.Dataset` of polylines on `(line, point)`.
 
 Repelling versus attracting is set by which flow map is passed: forward gives
-repelling LCS, backward gives attracting LCS — the forward–backward duality of
+repelling LCS, backward gives attracting LCS, by the forward–backward duality of
 Haller & Sapsis 2011,
 [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597).
 `FlowMap.hyperbolic_lcs()` runs the whole chain:
@@ -305,7 +325,7 @@ forwarded, so `ftle_ridge_seeds` and `shrink_lines` remain the single owners of
 their defaults. That holds for the mutually exclusive pair too: passing both
 `quantile` and `ftle_min` here forwards both, and the `ValueError` is raised in
 `ftle_ridge_seeds`, which is where the rule lives. There is no direction
-argument — the flow map already carries $\mathrm{sign}(T)$, and the returned
+argument, since the flow map already carries $\mathrm{sign}(T)$, and the returned
 dataset announces repelling or attracting in its own `long_name` attributes.
 What those parameters mean and why they are stated in the units they are is in
 [`docs/numerics.md`](numerics.md).
@@ -313,8 +333,8 @@ What those parameters mean and why they are stated in the units they are is in
 `hyperbolic_lcs()` being a method while the extraction lives in `tensorlines`
 means `grids` would import `tensorlines`, which already imports the separation
 helpers from `grids`. The two names are therefore imported inside
-`hyperbolic_lcs()` rather than at module level. The alternative — moving those
-helpers into a third module — would touch every import in the package to buy
+`hyperbolic_lcs()` rather than at module level. The alternative, moving those
+helpers into a third module, would touch every import in the package to buy
 back two lines, so the deferred import stands until something else needs that
 module to exist.
 
@@ -328,7 +348,7 @@ separation.
 
 That redefinition was rejected because the knob is already in use. Redefining it
 doubles the window of every existing call, and the call still runs and still
-returns seeds — different ones. Breaking changes are the norm here, but this one
+returns seeds, different ones. Breaking changes are the norm here, but this one
 would not announce itself: a renamed argument raises `TypeError` and a changed
 return type raises at the next line, while a redefined float raises nothing.
 
@@ -357,8 +377,8 @@ one, and the same number retunes with the region, the window, and the season.
 So `quantile` remains the default and `ftle_min` has to be asked for by name.
 
 It exists because some analyses need exactly the property the quantile lacks. A
-quantile floor is defined by the field it is applied to, so two runs — a
-three-day window against a ten-day one, one region against its neighbour — are
+quantile floor is defined by the field it is applied to, so two runs (a
+three-day window against a ten-day one, one region against its neighbour) are
 each thresholded at their own top decile, and the seed counts come out
 comparable however the underlying strain differed. A run whose subject is that
 difference needs one threshold held fixed across all of it, which a quantile
@@ -368,12 +388,15 @@ both raises a `ValueError` rather than following a precedence rule: "quantile
 
 ## Reprs
 
-`Seed` and `FlowMap` carry terse one-line reprs, defined on the base classes and
-reading the `lon_grid`/`lat_grid` accessors, so neither concrete class overrides
-anything and a future stencil gets a correct repr for free:
+`SeedGrid` and `FlowMap` carry terse one-line reprs, defined on the base classes
+and reading the `lon_grid`/`lat_grid` accessors, so neither concrete class
+overrides anything and a future stencil gets a correct repr for free. Each base
+class writes its own string out rather than sharing a helper: the two differ
+only by the flow map's trailing `t0`/`T`, and a shared opener would have to hand
+each caller an unclosed `<...` to finish.
 
 ```text
-<NeighborSeed 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00>
+<NeighborSeedGrid 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00>
 <NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00, t0 2020-01-01T00:00:00, T +7.0 days>
 ```
 

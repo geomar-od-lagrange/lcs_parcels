@@ -15,7 +15,7 @@
 # ---
 
 # %% [markdown]
-# # Get the currents: one CMEMS download for the Cabo Verde examples
+# # Download CMEMS data
 #
 # Run this once. It fetches the CMEMS subset that the three Cabo Verde notebooks
 # open from disk and writes it to `data/cabo_verde_currents_hourly.nc`. Re-running

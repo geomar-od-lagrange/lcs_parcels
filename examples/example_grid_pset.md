@@ -14,25 +14,25 @@ jupyter:
     name: python3
 ---
 
-# Seed, flow map, and the two stencils
+# Seed grids and flow maps
 
 This notebook is about the structures and the API, not about advection.
 
-A `Seed` holds a time-free grid of release positions. `Seed.to_parcels_pset()`
-emits them as flat `lon`, `lat` lists. `Seed.pset_to_flowmap(...)` ingests the
+A `SeedGrid` holds a grid of release positions. `SeedGrid.to_parcels_pset()`
+emits them as flat `lon`, `lat` lists. `SeedGrid.pset_to_flowmap(...)` ingests the
 advected positions and returns a `FlowMap`, which computes the deformation
 gradient, the Cauchy–Green tensor and the FTLE. No Parcels is imported below;
 the advection is replaced by particles that do not move.
 
-There are two stencils, and each is a pair of classes. `NeighborSeed` releases
+There are two stencils, and each is a pair of classes. `NeighborSeedGrid` releases
 one particle per grid point and differences against the neighbouring grid
-points. `AuxiliarySeed` releases four arms around each grid point and
+points. `AuxiliarySeedGrid` releases four arms around each grid point and
 differences across the arms.
 
 ```python
 import numpy as np
 
-from lcs_parcels import AuxiliarySeed, NeighborSeed
+from lcs_parcels import AuxiliarySeedGrid, NeighborSeedGrid
 ```
 
 ## Grid and window
@@ -57,21 +57,23 @@ be reconstructed. The outermost ring of grid points has no neighbour to
 difference against on one side, so the FTLE is undefined there.
 
 ```python
-seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
 print(seed)
 seed.ds
 ```
 
 ## The auxiliary stencil
 
-Four arms — `east, north, west, south` — at `aux_separation_m` around each
+Four arms (`east, north, west, south`) at `aux_separation_m` around each
 grid point, so `lon_0`/`lat_0` gain a `displacement` dim and there are four
 particles per grid point. The finite-difference step is the arm separation
 rather than the grid spacing, and the FTLE is defined at every grid point,
 including the boundary.
 
 ```python
-aux_seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis, aux_separation_m=1_000.0)
+aux_seed = AuxiliarySeedGrid.from_axes(
+    lon=lon_axis, lat=lat_axis, aux_separation_m=1_000.0
+)
 print(aux_seed)
 aux_seed.ds
 ```

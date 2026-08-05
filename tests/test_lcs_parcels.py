@@ -9,11 +9,11 @@ import xarray as xr
 import lcs_parcels
 from lcs_parcels import (
     AuxiliaryFlowMap,
-    AuxiliarySeed,
+    AuxiliarySeedGrid,
     FlowMap,
     NeighborFlowMap,
-    NeighborSeed,
-    Seed,
+    NeighborSeedGrid,
+    SeedGrid,
 )
 
 
@@ -36,9 +36,9 @@ def test_version_matches_the_installed_distribution():
 def test_public_classes_importable():
     # Both ABCs and all four concrete classes are exported from the top level.
     for cls in (
-        Seed,
-        NeighborSeed,
-        AuxiliarySeed,
+        SeedGrid,
+        NeighborSeedGrid,
+        AuxiliarySeedGrid,
         FlowMap,
         NeighborFlowMap,
         AuxiliaryFlowMap,
@@ -47,11 +47,11 @@ def test_public_classes_importable():
 
 
 def test_seed_hierarchy():
-    # Both concrete seeds subclass the abstract Seed base.
-    assert issubclass(NeighborSeed, Seed)
-    assert issubclass(AuxiliarySeed, Seed)
+    # Both concrete seeds subclass the abstract SeedGrid base.
+    assert issubclass(NeighborSeedGrid, SeedGrid)
+    assert issubclass(AuxiliarySeedGrid, SeedGrid)
     # They are distinct, first-class types (no default / fallback).
-    assert NeighborSeed is not AuxiliarySeed
+    assert NeighborSeedGrid is not AuxiliarySeedGrid
 
 
 def test_flowmap_hierarchy():
@@ -62,17 +62,17 @@ def test_flowmap_hierarchy():
 
 
 def test_families_are_disjoint():
-    # Seed and FlowMap are sibling families, not an inheritance pair: a FlowMap
-    # is not a kind of Seed (it emits nothing) and vice versa.
-    assert not issubclass(FlowMap, Seed)
-    assert not issubclass(Seed, FlowMap)
+    # SeedGrid and FlowMap are sibling families, not an inheritance pair: a FlowMap
+    # is not a kind of SeedGrid (it emits nothing) and vice versa.
+    assert not issubclass(FlowMap, SeedGrid)
+    assert not issubclass(SeedGrid, FlowMap)
 
 
 def test_seed_is_abstract():
-    # Seed is an ABC: its abstract method (from_axes) makes it non-instantiable,
+    # SeedGrid is an ABC: its abstract method (from_axes) makes it non-instantiable,
     # so only the concrete seeds can be built.
     with pytest.raises(TypeError):
-        Seed(xr.Dataset())
+        SeedGrid(xr.Dataset())
 
 
 def test_flowmap_is_abstract():

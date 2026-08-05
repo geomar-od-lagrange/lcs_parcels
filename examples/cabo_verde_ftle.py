@@ -15,11 +15,11 @@
 # ---
 
 # %% [markdown]
-# # Forward FTLE over Cabo Verde from CMEMS currents
+# # Cabo Verde FTLE
 #
 # The minimal wiring between `lcs_parcels` and Parcels v4: seed a grid, advect it
 # through CMEMS surface currents, ingest the final positions, map the forward
-# FTLE. One stencil (`NeighborSeed`); nothing tuned for speed.
+# FTLE. One stencil (`NeighborSeedGrid`); nothing tuned for speed.
 #
 # The currents come from the local file `data/cabo_verde_currents_hourly.nc`;
 # run `get_data.ipynb` once to produce it.
@@ -31,7 +31,7 @@ from parcels import FieldSet, Particle, ParticleSet, StatusCode
 from parcels.convert import copernicusmarine_to_sgrid
 from parcels.kernels import AdvectionRK4
 
-from lcs_parcels import NeighborSeed
+from lcs_parcels import NeighborSeedGrid
 
 # %% [markdown]
 # ## Parameters
@@ -91,17 +91,17 @@ def set_lost_to_nan(particles, fieldset):
 
 
 # %% [markdown]
-# ## Seed
+# ## Seed grid
 #
-# `NeighborSeed` releases one particle per diagnostic grid point and differences
+# `NeighborSeedGrid` releases one particle per diagnostic grid point and differences
 # the flow-map gradient against the grid neighbours, so the stencil costs nothing
-# beyond the grid itself. The seed is time-free: it carries the release positions
+# beyond the grid itself. The seed grid carries the release positions
 # `lon_0`/`lat_0` and the diagnostic grid `lon_grid`/`lat_grid`, and no time.
 
 # %%
 lon_axis = np.arange(seed_lon[0], seed_lon[1] + 1e-9, resolution_deg)
 lat_axis = np.arange(seed_lat[0], seed_lat[1] + 1e-9, resolution_deg)
-seed = NeighborSeed.from_axes(lon=lon_axis, lat=lat_axis)
+seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
 seed.ds
 
 # %% [markdown]
@@ -120,6 +120,7 @@ pset.execute(
     [AdvectionRK4, set_lost_to_nan],
     dt=np.timedelta64(1, "h"),
     runtime=T,
+    verbose_progress=False,
 )
 
 # %% [markdown]
@@ -153,4 +154,4 @@ ftle
 ftle_per_day = (ftle * 86400.0).assign_attrs(units="1/day")
 
 # %%
-ftle_per_day.plot.pcolormesh(x="lon_grid", y="lat_grid")
+_ = ftle_per_day.plot.pcolormesh(x="lon_grid", y="lat_grid")

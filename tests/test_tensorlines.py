@@ -1,7 +1,7 @@
 """Tensor-line tests: ftle_ridge_seeds and shrink_lines.
 
 ``conftest.advected_flowmap`` advects a seed through a constant linear map ``M``
-acting in the one tangent frame at the seed centroid (``AuxiliarySeed``, so
+acting in the one tangent frame at the seed centroid (``AuxiliarySeedGrid``, so
 ``gradF`` is defined at every grid point and there are no NaN edges). The package
 measures every separation in the local east/north frame of the pair it connects,
 so what it recovers is ``M`` rescaled by the release and arrival cosines
@@ -30,8 +30,8 @@ import xarray as xr
 from conftest import advected_flowmap, advected_flowmap_f, seed_origin
 from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels import AuxiliarySeed, ftle_ridge_seeds, shrink_lines
-from lcs_parcels.grids import _DEG, EARTH_RADIUS_M, _separation_m
+from lcs_parcels import AuxiliarySeedGrid, ftle_ridge_seeds, shrink_lines
+from lcs_parcels.grids import _M_PER_DEG, _separation_m
 from lcs_parcels.tensorlines import (
     _shrink_line_tangent,
     _step_lonlat_by_meters,
@@ -64,7 +64,7 @@ def _gridded_field(values, lon_axis, lat_axis):
 
 def _cells(geometry):
     """The ``(i, j)`` window cell counts of a
-    :func:`~lcs_parcels.tensorlines._window_geometry` dict -- or of a seed
+    :func:`~lcs_parcels.tensorlines._window_geometry` dict, or of a seed
     dataset's attrs, which carry the same keys."""
     return geometry["window_cells_i"], geometry["window_cells_j"]
 
@@ -78,7 +78,7 @@ def _three_cell_window_m(field):
     grid point is then trivially a local maximum along ``j``. Three times the
     *larger* median spacing clears three cells either way. That is
     :func:`~lcs_parcels.tensorlines._window_geometry` behaving as documented --
-    one median per dimension -- so the test states the grid it wants rather than
+    one median per dimension, so the test states the grid it wants rather than
     a number that happens to suit one latitude.
     """
     lon_grid, lat_grid = field["lon_grid"], field["lat_grid"]
@@ -205,7 +205,7 @@ def test_window_cell_count_is_per_dimension_and_odd():
 def test_ftle_ridge_seeds_selectivity_is_physical(n_lon):
     """Resolving or merging the two bumps depends on window_m, not on cell size:
     a window narrower than their 111 km separation keeps both peaks, a wider one
-    keeps only the stronger -- identically on the coarse and the fine grid."""
+    keeps only the stronger, identically on the coarse and the fine grid."""
     ftle = _two_bump_ftle(n_lon)
 
     narrow = ftle_ridge_seeds(ftle, window_m=60_000.0)
@@ -247,7 +247,7 @@ def _lattice_ridge_ftle(window_m, lat_max=1.0):
     """A field whose maxima are packed as tightly as ``window_m`` allows.
 
     Crests sit on a lattice whose period, per dimension, is exactly
-    ``(cells - 1) // 2 + 1`` cells -- one cell beyond the window's reach, the
+    ``(cells - 1) // 2 + 1`` cells, one cell beyond the window's reach, the
     closest two windowed maxima can be. Any tighter and one crest would fall
     inside the other's window and only the larger would survive, so this is the
     extreme case ``min_seed_separation_m`` claims to bound rather than a field
@@ -352,7 +352,7 @@ def test_ftle_ridge_seeds_warns_when_the_window_is_under_three_cells():
 
 
 def test_ftle_ridge_seeds_is_silent_on_a_resolved_window():
-    """A comfortably resolved window warns about nothing -- the warning marks a
+    """A comfortably resolved window warns about nothing. The warning marks a
     real degeneracy and does not fire on the ordinary call."""
     ftle = _two_bump_ftle(61)
 
@@ -392,7 +392,7 @@ def test_ftle_min_is_the_same_floor_on_two_fields_and_a_quantile_is_not():
     ``quantile`` follows each field's own distribution.
 
     ``weak`` is ``strong`` scaled by a tenth, so their quantiles pick out the same
-    *points* at ten times apart values -- the case where a run comparing two
+    *points* at ten times apart values, the case where a run comparing two
     windows or two regions on one absolute criterion gets nothing from a
     quantile. A floor of 0.5 sits above every value of ``weak`` and below the
     crest of ``strong``.
@@ -427,7 +427,7 @@ def test_ftle_ridge_seeds_rejects_both_selectors():
 
 def test_ftle_ridge_seeds_defaults_to_the_ninetieth_percentile():
     """Giving neither selector is exactly ``quantile=0.90``, seeds and threshold
-    alike -- the default the package had before ``ftle_min`` existed."""
+    alike, the default the package had before ``ftle_min`` existed."""
     ftle = _two_bump_ftle(61)
 
     default = ftle_ridge_seeds(ftle, window_m=60_000.0)
@@ -580,12 +580,12 @@ def test_step_lonlat_moves_the_requested_arc_length():
     with the same formula that defines it returns the length asked for to
     round-off. Measured residual 1.6e-15 relative at a 25 km step.
     """
-    lon0, lat0 = np.array([0.0]), np.array([20.0])
+    lon_0, lat_0 = np.array([0.0]), np.array([20.0])
     direction = np.array([[np.cos(0.7), np.sin(0.7)]])
 
-    lon1, lat1 = _step_lonlat_by_meters(lon0, lat0, direction, step_m=25_000.0)
+    lon1, lat1 = _step_lonlat_by_meters(lon_0, lat_0, direction, step_m=25_000.0)
 
-    dx, dy = _separation_m(lon_a=lon0, lat_a=lat0, lon_b=lon1, lat_b=lat1)
+    dx, dy = _separation_m(lon_a=lon_0, lat_a=lat_0, lon_b=lon1, lat_b=lat1)
     np.testing.assert_allclose(np.hypot(dx, dy), 25_000.0, rtol=1e-13, atol=0.0)
 
 
@@ -594,21 +594,21 @@ def test_step_lonlat_spends_more_degrees_at_higher_latitude(lat):
     """A due-east step at latitude L costs exactly ``1 / cos(L)`` times the degrees
     it costs at the equator, and moves no latitude at all.
 
-    The step inverts ``_separation_m`` at the point's *own* latitude -- there is
-    no reference latitude left to pass -- and a due-east direction has a zero
+    The step inverts ``_separation_m`` at the point's *own* latitude, so there is
+    no reference latitude left to pass, and a due-east direction has a zero
     north component, so its mid-latitude is the starting latitude and the
     ``1 / cos`` is the whole of the relation, not its leading term. A
     great-circle step would leave a ``(step_m / R)^2`` correction on the ratio
     and a curvature sag on the latitude; both are zero here.
     """
-    lon0 = np.array([0.0])
+    lon_0 = np.array([0.0])
     east = np.array([[1.0, 0.0]])
 
     lon_equator, _ = _step_lonlat_by_meters(
-        lon0, np.array([0.0]), east, step_m=25_000.0
+        lon_0, np.array([0.0]), east, step_m=25_000.0
     )
     lon_polar, lat_polar = _step_lonlat_by_meters(
-        lon0, np.array([lat]), east, step_m=25_000.0
+        lon_0, np.array([lat]), east, step_m=25_000.0
     )
 
     assert lon_polar[0] > lon_equator[0]
@@ -624,12 +624,10 @@ def test_step_lonlat_crosses_the_antimeridian_on_the_seed_branch():
     The longitude increment is added to the incoming longitude, so a track keeps
     the branch its seed came in on instead of being folded into (-180, 180].
     """
-    lon0, lat0 = np.array([179.9]), np.array([0.0])
+    lon_0, lat_0 = np.array([179.9]), np.array([0.0])
     east = np.array([[1.0, 0.0]])
 
-    lon1, lat1 = _step_lonlat_by_meters(
-        lon0, lat0, east, step_m=0.2 * EARTH_RADIUS_M * _DEG
-    )
+    lon1, lat1 = _step_lonlat_by_meters(lon_0, lat_0, east, step_m=0.2 * _M_PER_DEG)
 
     # Due east on the equator is the equator itself, so the arc is exact here:
     # both residuals measure 0.0, and 1e-12 degrees is 0.1 micrometre of slack.
@@ -693,7 +691,7 @@ def test_trace_half_line_is_second_order_in_the_step(seed_lat):
 
     Run off the equator as well as on it. At the equator the step's own
     latitude-dependent term is identically zero, so an equatorial trace alone
-    cannot see a stepper that is first-order in latitude -- which is what the
+    cannot see a stepper that is first-order in latitude, which is what the
     great-circle step tried before was, at ``(step / R)^2 tan(phi) / 2`` per step
     accumulating linearly in the step count. Measured ratios are 3.97 at the
     equator, 4.04 at 45 N and 4.24 at 70 N.
@@ -792,7 +790,12 @@ def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
     tolerance this assertion used to carry was absorbing.
     """
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
+        AuxiliarySeedGrid,
+        lon_axis,
+        lat_axis,
+        np.diag([1.0, 3.0]),
+        RELEASE_TIME,
+        END_TIME,
     )
     lines = shrink_lines(
         fm, **_centre_seed(fm), step_m=10_000.0, line_length_m=80_000.0
@@ -810,7 +813,12 @@ def test_shrink_line_is_zonal_for_diagonal_map(lon_axis, lat_axis):
 def test_shrink_lines_output_structure(lon_axis, lat_axis):
     """Dataset has lon/lat on (line, point); one line per seed, an odd point count."""
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
+        AuxiliarySeedGrid,
+        lon_axis,
+        lat_axis,
+        np.diag([1.0, 3.0]),
+        RELEASE_TIME,
+        END_TIME,
     )
     seed_lon = [float(fm.ds["lon_grid"].mean()), float(fm.ds["lon_grid"].mean()) + 0.1]
     seed_lat = [float(fm.ds["lat_grid"].mean()), float(fm.ds["lat_grid"].mean())]
@@ -829,7 +837,7 @@ def test_shrink_lines_stop_at_an_isotropic_tensor(lon_axis, lat_axis):
     """M = I gives C = I, an eigenvalue ratio of exactly 1: xi_1 is an arbitrary
     direction in the plane, so the line is untraceable and comes back all NaN."""
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.eye(2), RELEASE_TIME, END_TIME
+        AuxiliarySeedGrid, lon_axis, lat_axis, np.eye(2), RELEASE_TIME, END_TIME
     )
     lines = shrink_lines(
         fm, **_centre_seed(fm), min_anisotropy=1.15, line_length_m=30_000.0
@@ -844,7 +852,7 @@ def test_shrink_lines_default_guard_stops_a_barely_anisotropic_tensor(
     """The *default* ``min_anisotropy`` is 1.15, and nothing weaker: this map's
     ratio sits between 1 and 1.15, so a default-path call must kill the line.
 
-    ``M = diag(1.05, 1.0)`` gives ``C = diag(1.1025, 1.0)`` -- a ratio of 1.1025,
+    ``M = diag(1.05, 1.0)`` gives ``C = diag(1.1025, 1.0)``, a ratio of 1.1025,
     barely anisotropic, where ``xi_1`` is a direction only to within a large
     perturbation of ``C``. Passing no ``min_anisotropy`` at all is the point:
     every other guard test states a floor explicitly, so they pin the argument
@@ -852,7 +860,7 @@ def test_shrink_lines_default_guard_stops_a_barely_anisotropic_tensor(
     """
     a, b = 1.05, 1.0
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([a, b]), RELEASE_TIME, END_TIME
+        AuxiliarySeedGrid, lon_axis, lat_axis, np.diag([a, b]), RELEASE_TIME, END_TIME
     )
 
     lam = fm.cg_eigen()["lambda"]
@@ -873,7 +881,7 @@ def test_shrink_lines_guard_is_an_eigenvalue_ratio(lon_axis, lat_axis, sign, t_d
     the flow map spans and whichever way it runs.
 
     ``M = diag(a, b)`` gives ``C = diag(a^2, b^2)``, so for ``a > b`` the ratio
-    is exactly ``r = (a / b)^2`` at every grid point -- and, unlike the map of a
+    is exactly ``r = (a / b)^2`` at every grid point, and, unlike the map of a
     rate-based guard, ``M`` does not have to be restated per window. A floor just
     under ``r`` must let the line through and a floor just over it must kill it,
     for both windows and both directions.
@@ -882,7 +890,7 @@ def test_shrink_lines_guard_is_an_eigenvalue_ratio(lon_axis, lat_axis, sign, t_d
     r = (a / b) ** 2
     t1 = RELEASE_TIME + sign * np.timedelta64(int(t_days * 24), "h")
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([a, b]), RELEASE_TIME, t1
+        AuxiliarySeedGrid, lon_axis, lat_axis, np.diag([a, b]), RELEASE_TIME, t1
     )
 
     lam = fm.cg_eigen()["lambda"]
@@ -907,20 +915,20 @@ def test_shrink_lines_guard_passes_a_uniformly_compressive_map(lon_axis, lat_axi
     ``M``'s meridional compression moves each point far enough in latitude to
     change its cosine: ``lambda_2`` runs from 0.2005 to 0.3405 there, against the
     closed form below. The ratio bottoms out at 1.25, still clear of the 1.15
-    default, and ``xi_1`` is as well defined here as in any stretching flow -- so
+    default, and ``xi_1`` is as well defined here as in any stretching flow, so
     the line must survive. Any floor on the magnitude of ``lambda_2`` at or above
     1 would kill it.
 
     Not a synthetic corner: ``det grad F`` is about 0.2 here, and in the backward
     Cabo Verde example (5-day window, measured 34 km clear of any coast) the
     0.1st percentile of ``det grad F`` is 0.196. Convergent patches this strong
-    are rare but real, and they are where attracting LCS live -- which is why a
+    are rare but real, and they are where attracting LCS live, which is why a
     magnitude floor terminating there is a directional bias, not just a
     conservative choice.
     """
     a, b = 0.5, 0.4
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([a, b]), RELEASE_TIME, END_TIME
+        AuxiliarySeedGrid, lon_axis, lat_axis, np.diag([a, b]), RELEASE_TIME, END_TIME
     )
 
     # The map acts in the one tangent frame at the seed centroid, so a grid point
@@ -946,7 +954,12 @@ def test_shrink_lines_guard_passes_a_uniformly_compressive_map(lon_axis, lat_axi
 def test_shrink_lines_seed_off_grid_is_nan(lon_axis, lat_axis):
     """A seed outside the grid produces an all-NaN line."""
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
+        AuxiliarySeedGrid,
+        lon_axis,
+        lat_axis,
+        np.diag([1.0, 3.0]),
+        RELEASE_TIME,
+        END_TIME,
     )
     lines = shrink_lines(
         fm,
@@ -965,10 +978,10 @@ def test_shrink_line_steps_in_the_frame_the_tensor_lives_in():
 
     ``C`` is built from separations in the local east/north frame of each pair
     (:func:`~lcs_parcels.grids._separation_m`), so a segment must be measured the
-    same way -- which is what this checks, by taking ``_separation_m`` between
+    same way, which is what this checks, by taking ``_separation_m`` between
     consecutive points of the line and comparing its heading with the tangent the
     integrator would read there. Measured in the same frame the tensor is built
-    in, the two agree to round-off -- 2e-6 degrees of arc. Measuring the same
+    in, the two agree to round-off, 2e-6 degrees of arc. Measuring the same
     segments in a single-reference-cosine frame at 20 N instead tilts them off
     ``xi_1`` by up to 1.7 degrees, a million times as much.
 
@@ -981,7 +994,9 @@ def test_shrink_line_steps_in_the_frame_the_tensor_lives_in():
     M = R @ np.diag([1.0, 3.0]) @ R.T
     lon_axis = np.linspace(-15.0, 15.0, 31)
     lat_axis = np.linspace(0.0, 40.0, 41)
-    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
+    fm = advected_flowmap(
+        AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
 
     lines = shrink_lines(
         fm, seed_lon=[0.0], seed_lat=[20.0], step_m=20_000.0, line_length_m=2_400_000.0
@@ -1023,19 +1038,19 @@ def _local_frame_flowmap(lon_axis, lat_axis, M):
     offset. The arithmetic is written out rather than taken from
     ``lcs_parcels.grids``, since what the frame *is* is the thing under test.
     """
-    seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis)
+    seed = AuxiliarySeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     lon_c, lat_c = seed.ds["lon_grid"], seed.ds["lat_grid"]
     lon_a, lat_a = seed.ds["lon_0"], seed.ds["lat_0"]
 
-    m_per_deg = EARTH_RADIUS_M * _DEG
-    dx = m_per_deg * np.cos(0.5 * (lat_a + lat_c) * _DEG) * (lon_a - lon_c)
+    m_per_deg = _M_PER_DEG
+    dx = m_per_deg * np.cos(np.deg2rad(0.5 * (lat_a + lat_c))) * (lon_a - lon_c)
     dy = m_per_deg * (lat_a - lat_c)
     dx_out = M[0, 0] * dx + M[0, 1] * dy
     dy_out = M[1, 0] * dx + M[1, 1] * dy
 
     dlat = dy_out / m_per_deg
     lat_out = lat_c + dlat
-    lon_out = lon_c + dx_out / (m_per_deg * np.cos((lat_c + 0.5 * dlat) * _DEG))
+    lon_out = lon_c + dx_out / (m_per_deg * np.cos(np.deg2rad(lat_c + 0.5 * dlat)))
 
     dims = seed.ds["lon_0"].dims
     return seed.pset_to_flowmap(
@@ -1059,7 +1074,7 @@ def test_shrink_line_of_a_frame_constant_tensor_is_a_loxodrome():
     from ``lcs_parcels``.
 
     A 3000 km line from 40 N, spanning 30.5 N to 49.5 N, sits 8.4e-6 degrees --
-    0.7 m -- off the closed form at a 20 km step, and the residual falls by four
+    0.7 m, off the closed form at a 20 km step, and the residual falls by four
     at each halving of the step (3.4e-5, 8.4e-6, 2.1e-6, 5.2e-7 degrees at 40,
     20, 10 and 5 km), which is the step's mid-latitude cosine truncating a rhumb
     increment and not a drift.
@@ -1104,7 +1119,7 @@ def test_shrink_line_of_a_frame_constant_tensor_is_a_loxodrome():
     # roughly linear in the line length (5.0e-6 at 2000 km, 1.3e-5 at 4000 km).
     # 1e-4 therefore survives a doubled step or a much longer line, while a
     # stepper that took the cosine at the segment's start rather than its
-    # mid-latitude -- first order -- lands at 1.5e-2 degrees here, 150 times over.
+    # mid-latitude, which is first order, lands at 1.5e-2 degrees here, 150 times over.
     assert np.max(np.abs(lon - expected_lon)) < 1e-4
 
 
@@ -1141,7 +1156,7 @@ def _wavy_stretch_flowmap(period_m=250_000.0, base=3.0, amp=1.0):
     """A flow map whose meridional stretching oscillates with zonal position.
 
     ``f(dx, dy) = (dx, dy * (base + amp cos(2 pi dx / period_m)))``, so the
-    Cauchy-Green tensor -- and hence the FTLE -- varies along ``i`` with several
+    Cauchy-Green tensor, and hence the FTLE, varies along ``i`` with several
     maxima across the domain. That makes the windowed local-maximum test and the
     quantile floor both load-bearing, unlike a constant-``C`` fixture.
     """
@@ -1150,7 +1165,7 @@ def _wavy_stretch_flowmap(period_m=250_000.0, base=3.0, amp=1.0):
         return dx, dy * (base + amp * np.cos(2.0 * np.pi * dx / period_m))
 
     return advected_flowmap_f(
-        AuxiliarySeed, LCS_LON, LCS_LAT, f, RELEASE_TIME, LCS_END_TIME
+        AuxiliarySeedGrid, LCS_LON, LCS_LAT, f, RELEASE_TIME, LCS_END_TIME
     )
 
 
@@ -1228,7 +1243,12 @@ def test_hyperbolic_lcs_min_anisotropy_is_forwarded(lon_axis, lat_axis):
     forward is dropped both calls fall back to the same default and trace alike.
     """
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([3.0, 1.0]), RELEASE_TIME, END_TIME
+        AuxiliarySeedGrid,
+        lon_axis,
+        lat_axis,
+        np.diag([3.0, 1.0]),
+        RELEASE_TIME,
+        END_TIME,
     )
     trace = {
         "window_m": FIXTURE_WINDOW_M,
@@ -1246,7 +1266,12 @@ def test_hyperbolic_lcs_min_anisotropy_is_forwarded(lon_axis, lat_axis):
 def test_hyperbolic_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):
     """The FTLE is computed a single time and handed to the ridge finder."""
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
+        AuxiliarySeedGrid,
+        lon_axis,
+        lat_axis,
+        np.diag([1.0, 3.0]),
+        RELEASE_TIME,
+        END_TIME,
     )
     calls = []
     original = type(fm).ftle
@@ -1270,7 +1295,7 @@ def test_hyperbolic_lcs_metadata_names_the_lcs_type(lon_axis, lat_axis, t0, t1, 
     """A forward flow map yields repelling LCS, a backward one attracting ones,
     and the returned dataset says which without being asked."""
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), t0, t1
+        AuxiliarySeedGrid, lon_axis, lat_axis, np.diag([1.0, 3.0]), t0, t1
     )
 
     lcs = fm.hyperbolic_lcs(**{**LCS_KWARGS, "window_m": FIXTURE_WINDOW_M})
@@ -1285,7 +1310,12 @@ def test_shrink_lines_seed_pair_is_keyword_only(lon_axis, lat_axis):
     """Passing the seed lon/lat pair positionally raises, so a swap cannot pass
     silently."""
     fm = advected_flowmap(
-        AuxiliarySeed, lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
+        AuxiliarySeedGrid,
+        lon_axis,
+        lat_axis,
+        np.diag([1.0, 3.0]),
+        RELEASE_TIME,
+        END_TIME,
     )
     seed = _centre_seed(fm)
     with pytest.raises(TypeError):
