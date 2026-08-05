@@ -95,7 +95,7 @@ def test_roundtrip_preserves_grid_dims(lon_axis, lat_axis):
 
 
 def test_zero_window_raises(lon_axis, lat_axis):
-    """Ingesting with t1 == t0 (zero window) must raise -- FTLE's 1/|T| would
+    """Ingesting with t1 == t0 (zero window) must raise, since FTLE's 1/|T| would
     otherwise divide by zero."""
     seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()

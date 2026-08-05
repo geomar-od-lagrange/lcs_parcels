@@ -53,12 +53,12 @@ Three orderings force the split into separate PRs:
 
 Everything that changes numbers or signatures lands before the first release.
 
-## PR 1 — metric frame and longitude arithmetic
+## PR 1: metric frame and longitude arithmetic
 
 Closes #18, #13. Both change how positions are laid out and measured; #18 asks
 for them to be designed together.
 
-**Decision — metric frame: per-point local east/north.** Drop the shared
+**Decision on metric frame: per-point local east/north.** Drop the shared
 standard parallel entirely. Difference each point in its own local frame, using
 its own $\cos\phi$. Removes the frame concept from $\nabla F$ and from
 tensor-line stepping alike, so there is no longer a "regional domains only"
@@ -70,7 +70,7 @@ taken to its limit: with each separation read in its own local frame there is no
 residual frame to correct. The measured 3.0% median error over 20 degrees and
 15% over 60 degrees go to zero rather than shrinking.
 
-**Decision — branch cut: wrap-aware helpers only.** No normalisation on ingest.
+**Decision on branch cut: wrap-aware helpers only.** No normalisation on ingest.
 Accept whatever longitude convention the user hands us, and do every difference
 and every mean through a wrapping helper. Nothing is silently rewritten, and a
 user who plots our output gets back the convention they came in with.
@@ -86,9 +86,9 @@ Work:
   span is exactly $2s$ everywhere instead of only at the grid centroid.
 - Circular mean for the auxiliary centroid (`AuxiliaryFlowMap.grid_image`),
   anchored on the first arm so the result keeps the input's branch.
-- Forward stepping in `tensorlines.py`: invert the measurement — northward
+- Forward stepping in `tensorlines.py`: invert the measurement, taking northward
   $R\,d\phi$, eastward $R\cos\phi_{\mathrm{mid}}\,d\lambda$ about the same
-  mid-latitude — instead of dividing by one reference cosine.
+  mid-latitude, instead of dividing by one reference cosine.
 - Re-anchor the advected longitudes on their grid point's branch inside
   `FlowMap.image`, so an advection that returns positions wrapped to
   $[-180, 180)$ does not tear under the interpolation.
@@ -113,10 +113,11 @@ Two things measured during the work, both of which changed the design:
 - The mid-latitude cosine is a midpoint rule, so its accuracy is set by the
   separation of the *pair* and its latitude, not by the size of the domain. For a
   zonal pair the relative error against the great-circle distance is
-  $(\Delta\lambda\sin\phi)^2/24$, crossing $10^{-6}$ at $31.2\ \mathrm{km}/\tan\phi$
-  — 54 km at 30 N, 18 km at 60 N, 5.5 km at 80 N, and never at the equator, where
-  a parallel is itself a great circle. The default 1 km auxiliary arms sit far
-  inside that; a neighbour stencil differences over *two* grid cells and on a
+  $(\Delta\lambda\sin\phi)^2/24$, crossing $10^{-6}$ at
+  $31.2\ \mathrm{km}/\tan\phi$: 54 km at 30 N, 18 km at 60 N, 5.5 km at 80 N,
+  and never at the equator, where a parallel is itself a great circle. The
+  default 1 km auxiliary arms sit far
+  inside that. A neighbour stencil differences over *two* grid cells and on a
   coarse grid does not, but pays its own finite-difference truncation first. The
   docs state the number rather than claiming the frame is exact.
 
@@ -130,8 +131,8 @@ Two things measured during the work, both of which changed the design:
 No third-party geodesy is involved. The frame is `EARTH_RADIUS_M` and a cosine in
 `grids.py`; the fix keeps it that way.
 
-Haversine does not apply here. It solves the inverse problem — great-circle
-distance between two given points — and $\nabla F$ needs a local linear map
+Haversine does not apply here. It solves the inverse problem, great-circle
+distance between two given points, and $\nabla F$ needs a local linear map
 between tangent spaces, so it needs signed east and north *components*, not a
 scalar separation. The forward direct problem is what the tensor-line stepping
 wants, and that is written out above.
@@ -142,20 +143,20 @@ so a domain crossing the antimeridian must be seeded on a monotonic longitude
 axis (170, 175, 180, 185) rather than a wrapped one (170, 175, 180, -175). That
 is the axis, not the arithmetic, and it is what the README says after this PR.
 
-## PR 2 — ridge-selection knobs
+## PR 2: ridge-selection knobs
 
 Closes #21, #22. Both touch the `ftle_ridge_seeds` signature, so the signature
 changes once.
 
-**Decision — `window_m`: keep it, report and warn.** `window_m` stays the
+**Decision on `window_m`: keep it, report and warn.** `window_m` stays the
 neighbourhood side. Report the implied minimum seed spacing (about `window_m /
 2`) and the cell counts used in the returned metadata, and warn when `window_m`
 spans fewer than a few grid cells. Nothing silently changes meaning. #21's option
-3 — redefining `window_m` as the minimum seed separation — is rejected on that
+3, redefining `window_m` as the minimum seed separation, is rejected on that
 ground: it would leave existing calls running with a knob that means something
 else.
 
-**Decision — ridge selection: `quantile` default, absolute available.** Add an
+**Decision on ridge selection: `quantile` default, absolute available.** Add an
 absolute FTLE floor alongside `quantile`, with `quantile` staying the default.
 Nothing changes for existing calls, and the absolute option is there when a run
 needs comparability across windows or regions.
@@ -170,8 +171,8 @@ Work:
 As built:
 
 - `ftle_ridge_seeds(ftle, *, window_m=30_000.0, quantile=None, ftle_min=None)`
-  returns an `xr.Dataset` — `lon`/`lat` on a `seed` dim with a `seed` index
-  coordinate — where it returned a `(lon, lat)` tuple of arrays. That is the
+  returns an `xr.Dataset` (`lon`/`lat` on a `seed` dim with a `seed` index
+  coordinate) where it returned a `(lon, lat)` tuple of arrays. That is the
   metadata carrier the two decisions above need, and it removes the unpacking
   the keyword-only `shrink_lines` seed pair made awkward. Call sites read
   `shrink_lines(fm, seed_lon=seeds["lon"], seed_lat=seeds["lat"])`.
@@ -195,7 +196,7 @@ As built:
   values ties for the windowed maximum at every one of its cells, which is
   asserted as documented behaviour rather than left unnoticed.
 
-## PR 3 — prose pass
+## PR 3: prose pass
 
 Closes #25. Prose only, no behaviour change. Runs after PR 1 and PR 2 so it is
 not rewriting text those PRs replace.
@@ -209,11 +210,11 @@ notebook whose cells change.
 Gauge the English against NASA **KSC-DF-107, Revision F** (the Kennedy Space
 Center documentation style guide), not against the house rules alone. The
 `AGENTS.md` prose rules say what not to do; KSC-DF-107 is a positive standard for
-technical writing at sentence level, and this repository's audience — three
-readers, each wanting a different thing from the same sentence — is the case it
+technical writing at sentence level, and this repository's audience (three
+readers, each wanting a different thing from the same sentence) is the case it
 is written for.
 
-## PR 4 — packaging, CI matrix, coverage gate, Dependabot, badges
+## PR 4: packaging, CI matrix, coverage gate, Dependabot, badges
 
 The bulk of #12. No release yet.
 
@@ -253,15 +254,15 @@ These are policy rather than capability. The whole third-party surface is
 scipy 1.11. There is no reason to promise support that far back.
 
 The xarray floor was measured at 2025.11 before it was fixed. Everything from
-2023.12 to 2025.10 failed the same three tests — `test_diagnostics_are_labelled`
-for both seeds and `test_hyperbolic_lcs_output_is_labelled` — because those
+2023.12 to 2025.10 failed the same three tests (`test_diagnostics_are_labelled`
+for both seeds and `test_hyperbolic_lcs_output_is_labelled`) because those
 versions of `xr.dot` drop the attrs of every dimension coordinate they carry
 through, so `i` came back with no `long_name` and output metadata stopped being
 the axis label. `xr.dot` was the only affected call; `apply_ufunc`, `concat`,
 `broadcast`, `where`, `isel` and arithmetic all preserve attrs on every version
 tested.
 
-`xr.dot` stays — it names the contraction, and the tensor is 2x2, so nothing
+`xr.dot` stays. It names the contraction, and the tensor is 2x2, so nothing
 here is on a hot path. The call is followed by an `assign_coords` that restores
 each carried-through coordinate's attrs from the operand. The suite passes at
 xarray 2024.9, 2025.1, 2025.10 and 2026.1.
@@ -283,7 +284,7 @@ release, so 3.11's drop date was 2025-10-23 and 3.12's is 2026-10-01.
 Three facts behind that choice:
 
 - 3.14 was released 2025-10-07 and is currently tested nowhere. The suite passes
-  on it unmodified — 102 passed, verified. The gap in coverage is at the top of
+  on it unmodified, 102 passed, verified. The gap in coverage is at the top of
   the range, not the bottom.
 - numpy 2.5 and scipy 1.18 require Python 3.12, because they follow SPEC 0 too.
   The default pixi environment holds exactly those. A 3.11 floor would mean the
@@ -319,7 +320,7 @@ so users are not forced through pixi before PyPI exists.
 CI gate with no badge and no third-party service. The PyPI version badge lands
 with PR 6, once there is a version to report, and the docs badge with PR 7.
 
-## PR 5 — first release
+## PR 5: first release
 
 - Add `.github/workflows/publish.yml`: triggered on a `v*` tag, builds sdist and
   wheel, uploads with PyPI Trusted Publishing (OIDC, no token in secrets).
@@ -327,7 +328,7 @@ with PR 6, once there is a version to report, and the docs badge with PR 7.
   `src/lcs_parcels/__init__.py` to the same unpadded CalVer string, then the tag.
 - Release notes, now that the loosened compatibility rule requires them. PRs 1
   and 2 change `deformation_gradient` output, and the `ftle_ridge_seeds`
-  signature *and return type* — a `(lon, lat)` tuple becomes an `xr.Dataset`.
+  signature *and return type*, since a `(lon, lat)` tuple becomes an `xr.Dataset`.
   Those go in the notes for this first version even though nobody can have
   depended on them yet, so the format starts as it continues.
 
@@ -335,13 +336,13 @@ with PR 6, once there is a version to report, and the docs badge with PR 7.
 configured on pypi.org before the tag is pushed. Only the account owner can do
 this.
 
-## PR 6 — README install instructions
+## PR 6: README install instructions
 
 After the name resolves on PyPI. `pip install lcs_parcels` becomes the primary
 instruction, the `git+https://` form stays as the way to get unreleased `main`,
 pixi stays as the development path. Add a PyPI version badge.
 
-## PR 7 — Read the Docs
+## PR 7: Read the Docs
 
 Independent of PR 5 and PR 6; can run in parallel.
 
@@ -354,7 +355,7 @@ Independent of PR 5 and PR 6; can run in parallel.
   RTD project connected to the repository.
 - Add the docs link and badge to `README.md` once the site builds.
 
-**Decision — MkDocs Material.** `docs/` is Markdown, so it builds as-is; Sphinx
+**Decision on MkDocs Material.** `docs/` is Markdown, so it builds as-is; Sphinx
 with MyST would carry a `conf.py` and an extension for the same pages. The one
 thing Sphinx would add is generated API pages from the docstrings, and
 `docs/api.md` is hand-written and PR 3 will have just gone over it, so that is
@@ -370,7 +371,7 @@ with it, pins `mkdocs<2`, and is steering users to its own replacement,
 Zensical. Material's own post suggests Sphinx for projects that want long-term
 stability.
 
-None of that stops the site building — it does build, in `strict` mode, on
+None of that stops the site building. It does build, in `strict` mode, on
 mkdocs 1.6.1 and mkdocs-material 9.7.7, and `mkdocs>=1.6,<2` is pinned
 explicitly rather than left to Material to enforce. The exposure is small: five
 Markdown files, no plugin beyond `pymdownx`, and no autodoc. Switching to Sphinx
@@ -378,4 +379,4 @@ with MyST later is an afternoon, not a migration.
 
 So this ships as MkDocs and the choice is recorded as contingent rather than
 settled. The trigger to revisit is Zensical reaching a state worth adopting, or
-mkdocs 1.x losing a security fix — not the API-page argument above.
+mkdocs 1.x losing a security fix, not the API-page argument above.

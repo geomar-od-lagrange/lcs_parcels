@@ -18,7 +18,7 @@
 # # Cabo Verde LCS evolution
 #
 # An extracted hyperbolic LCS (see `cabo_verde_lcs`) is a **material** curve:
-# given its vertices at $t_0$ — the `lon`/`lat` that `shrink_lines` returns —
+# given its vertices at $t_0$, the `lon`/`lat` that `shrink_lines` returns,
 # its position at any other time is fixed by the flow map,
 # $\mathcal{M}(t) = F_{t_0}^{t}(\mathcal{M}(t_0))$ (Haller 2015, Eq. 5,
 # [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322)).
@@ -154,8 +154,8 @@ forward_maps[-1].ds
 # there: repelling LCS from the forward flow, attracting LCS from the backward
 # one (forward–backward duality, Haller & Sapsis 2011,
 # [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)), each seeded at
-# the local maxima of its own FTLE. `FlowMap.hyperbolic_lcs` runs that chain —
-# FTLE, ridge seeds, shrink lines — in one call and reads repelling or
+# the local maxima of its own FTLE. `FlowMap.hyperbolic_lcs` runs that whole
+# chain (FTLE, ridge seeds, shrink lines) in one call and reads repelling or
 # attracting off the sign of its own window. *Hyperbolic* because elliptic LCS
 # are a different family.
 

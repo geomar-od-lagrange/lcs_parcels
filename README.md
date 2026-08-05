@@ -95,19 +95,19 @@ Examples live under [`examples/`](https://github.com/geomar-od-lagrange/lcs_parc
 (`.py`/`.md`/`.ipynb`) sharing one source, and the rendered `.ipynb` is the one
 to read. They are listed in increasing scope:
 
-- [`get_data`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/get_data.ipynb) — downloads the CMEMS subset the
+- [`get_data`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/get_data.ipynb) downloads the CMEMS subset the
   Cabo Verde notebooks read. Run once, before them. Needs CMEMS credentials.
-- [`example_grid_pset`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/example_grid_pset.ipynb) — the package API
-  exercised on its own, without Parcels.
-- [`cabo_verde_ftle`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_ftle.ipynb) — the Parcels v4 wiring
+- [`example_grid_pset`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/example_grid_pset.ipynb) exercises the package API
+  on its own, without Parcels.
+- [`cabo_verde_ftle`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_ftle.ipynb) shows the Parcels v4 wiring
   and the FTLE from CMEMS currents.
-- [`cabo_verde_lcs`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs.ipynb) — repelling and attracting
+- [`cabo_verde_lcs`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs.ipynb) builds repelling and attracting
   LCS as strain tensor lines.
-- [`cabo_verde_lcs_evolution`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs_evolution.ipynb) — an
-  extracted LCS evolved as a material curve.
+- [`cabo_verde_lcs_evolution`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs_evolution.ipynb) evolves an
+  extracted LCS as a material curve.
 
 The Parcels examples need the `examples` pixi environment (`pixi install -e
-examples`) and a CMEMS currents file you save yourself; see
+examples`) and a CMEMS currents file you save yourself. See
 [`examples/README.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/README.md) for the reading order and the data.
 
 ## License

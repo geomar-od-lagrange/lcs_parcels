@@ -113,7 +113,7 @@ def test_only_auxiliary_has_stencil(lon_axis, lat_axis):
 def test_grid_coords_are_canonical_across_stencils(lon_axis, lat_axis):
     """Both stencils carry the diagnostic grid under one name, on (i, j), and both
     expose it as .lon_grid/.lat_grid. For the neighbour stencil it equals the
-    reference release positions -- stored, not reconstructed."""
+    reference release positions, stored rather than reconstructed."""
     ns = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     aus = AuxiliarySeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
 
@@ -137,7 +137,7 @@ def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
 
     Every arm is laid down in the local east/north frame of its own grid point,
     so each arm sits ``s`` meters from that point in its labelled direction and
-    zero meters off it in the perpendicular one -- at *every* grid point, not on
+    zero meters off it in the perpendicular one, at *every* grid point, not on
     average over the grid. Separations are read back with :func:`_separation_m`,
     the same per-pair local frame the diagnostics measure in.
     """
@@ -165,7 +165,7 @@ def test_auxiliary_arm_geometry_and_separation(lon_axis, lat_axis):
         assert float(abs(dy - dy_expected).max()) < 1e-6
 
     # Opposing arms span exactly 2s along their axis and share the centre on the
-    # other one -- again at every grid point.
+    # other one, again at every grid point.
     ew_dx, ew_dy = _separation_m(
         lon_a=lon_0.sel(displacement="west", drop=True),
         lat_a=lat_0.sel(displacement="west", drop=True),
@@ -285,7 +285,7 @@ def test_diagnostics_leave_the_flowmap_dataset_untouched(seed_cls, lon_axis, lat
 
 
 def test_seed_repr_is_a_one_line_summary(lon_axis, lat_axis):
-    """Class, grid shape and lon/lat extent on one line -- not the dataset."""
+    """Class, grid shape and lon/lat extent on one line, not the dataset."""
     for seed_cls in (NeighborSeedGrid, AuxiliarySeedGrid):
         text = repr(seed_cls.from_axes(lon=lon_axis, lat=lat_axis))
 
@@ -301,7 +301,7 @@ def test_flowmap_repr_adds_the_release_time_and_signed_window(lon_axis, lat_axis
 
     The window carries its sign and nothing else: repelling versus attracting is
     a property of the diagnostic, not of the flow map, so the repr names no
-    direction -- the sign of T already says which way the map runs.
+    direction, since the sign of T already says which way the map runs.
     """
     seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()

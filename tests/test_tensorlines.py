@@ -64,7 +64,7 @@ def _gridded_field(values, lon_axis, lat_axis):
 
 def _cells(geometry):
     """The ``(i, j)`` window cell counts of a
-    :func:`~lcs_parcels.tensorlines._window_geometry` dict -- or of a seed
+    :func:`~lcs_parcels.tensorlines._window_geometry` dict, or of a seed
     dataset's attrs, which carry the same keys."""
     return geometry["window_cells_i"], geometry["window_cells_j"]
 
@@ -78,7 +78,7 @@ def _three_cell_window_m(field):
     grid point is then trivially a local maximum along ``j``. Three times the
     *larger* median spacing clears three cells either way. That is
     :func:`~lcs_parcels.tensorlines._window_geometry` behaving as documented --
-    one median per dimension -- so the test states the grid it wants rather than
+    one median per dimension, so the test states the grid it wants rather than
     a number that happens to suit one latitude.
     """
     lon_grid, lat_grid = field["lon_grid"], field["lat_grid"]
@@ -205,7 +205,7 @@ def test_window_cell_count_is_per_dimension_and_odd():
 def test_ftle_ridge_seeds_selectivity_is_physical(n_lon):
     """Resolving or merging the two bumps depends on window_m, not on cell size:
     a window narrower than their 111 km separation keeps both peaks, a wider one
-    keeps only the stronger -- identically on the coarse and the fine grid."""
+    keeps only the stronger, identically on the coarse and the fine grid."""
     ftle = _two_bump_ftle(n_lon)
 
     narrow = ftle_ridge_seeds(ftle, window_m=60_000.0)
@@ -247,7 +247,7 @@ def _lattice_ridge_ftle(window_m, lat_max=1.0):
     """A field whose maxima are packed as tightly as ``window_m`` allows.
 
     Crests sit on a lattice whose period, per dimension, is exactly
-    ``(cells - 1) // 2 + 1`` cells -- one cell beyond the window's reach, the
+    ``(cells - 1) // 2 + 1`` cells, one cell beyond the window's reach, the
     closest two windowed maxima can be. Any tighter and one crest would fall
     inside the other's window and only the larger would survive, so this is the
     extreme case ``min_seed_separation_m`` claims to bound rather than a field
@@ -352,7 +352,7 @@ def test_ftle_ridge_seeds_warns_when_the_window_is_under_three_cells():
 
 
 def test_ftle_ridge_seeds_is_silent_on_a_resolved_window():
-    """A comfortably resolved window warns about nothing -- the warning marks a
+    """A comfortably resolved window warns about nothing. The warning marks a
     real degeneracy and does not fire on the ordinary call."""
     ftle = _two_bump_ftle(61)
 
@@ -392,7 +392,7 @@ def test_ftle_min_is_the_same_floor_on_two_fields_and_a_quantile_is_not():
     ``quantile`` follows each field's own distribution.
 
     ``weak`` is ``strong`` scaled by a tenth, so their quantiles pick out the same
-    *points* at ten times apart values -- the case where a run comparing two
+    *points* at ten times apart values, the case where a run comparing two
     windows or two regions on one absolute criterion gets nothing from a
     quantile. A floor of 0.5 sits above every value of ``weak`` and below the
     crest of ``strong``.
@@ -427,7 +427,7 @@ def test_ftle_ridge_seeds_rejects_both_selectors():
 
 def test_ftle_ridge_seeds_defaults_to_the_ninetieth_percentile():
     """Giving neither selector is exactly ``quantile=0.90``, seeds and threshold
-    alike -- the default the package had before ``ftle_min`` existed."""
+    alike, the default the package had before ``ftle_min`` existed."""
     ftle = _two_bump_ftle(61)
 
     default = ftle_ridge_seeds(ftle, window_m=60_000.0)
@@ -594,8 +594,8 @@ def test_step_lonlat_spends_more_degrees_at_higher_latitude(lat):
     """A due-east step at latitude L costs exactly ``1 / cos(L)`` times the degrees
     it costs at the equator, and moves no latitude at all.
 
-    The step inverts ``_separation_m`` at the point's *own* latitude -- there is
-    no reference latitude left to pass -- and a due-east direction has a zero
+    The step inverts ``_separation_m`` at the point's *own* latitude, so there is
+    no reference latitude left to pass, and a due-east direction has a zero
     north component, so its mid-latitude is the starting latitude and the
     ``1 / cos`` is the whole of the relation, not its leading term. A
     great-circle step would leave a ``(step_m / R)^2`` correction on the ratio
@@ -691,7 +691,7 @@ def test_trace_half_line_is_second_order_in_the_step(seed_lat):
 
     Run off the equator as well as on it. At the equator the step's own
     latitude-dependent term is identically zero, so an equatorial trace alone
-    cannot see a stepper that is first-order in latitude -- which is what the
+    cannot see a stepper that is first-order in latitude, which is what the
     great-circle step tried before was, at ``(step / R)^2 tan(phi) / 2`` per step
     accumulating linearly in the step count. Measured ratios are 3.97 at the
     equator, 4.04 at 45 N and 4.24 at 70 N.
@@ -852,7 +852,7 @@ def test_shrink_lines_default_guard_stops_a_barely_anisotropic_tensor(
     """The *default* ``min_anisotropy`` is 1.15, and nothing weaker: this map's
     ratio sits between 1 and 1.15, so a default-path call must kill the line.
 
-    ``M = diag(1.05, 1.0)`` gives ``C = diag(1.1025, 1.0)`` -- a ratio of 1.1025,
+    ``M = diag(1.05, 1.0)`` gives ``C = diag(1.1025, 1.0)``, a ratio of 1.1025,
     barely anisotropic, where ``xi_1`` is a direction only to within a large
     perturbation of ``C``. Passing no ``min_anisotropy`` at all is the point:
     every other guard test states a floor explicitly, so they pin the argument
@@ -881,7 +881,7 @@ def test_shrink_lines_guard_is_an_eigenvalue_ratio(lon_axis, lat_axis, sign, t_d
     the flow map spans and whichever way it runs.
 
     ``M = diag(a, b)`` gives ``C = diag(a^2, b^2)``, so for ``a > b`` the ratio
-    is exactly ``r = (a / b)^2`` at every grid point -- and, unlike the map of a
+    is exactly ``r = (a / b)^2`` at every grid point, and, unlike the map of a
     rate-based guard, ``M`` does not have to be restated per window. A floor just
     under ``r`` must let the line through and a floor just over it must kill it,
     for both windows and both directions.
@@ -915,14 +915,14 @@ def test_shrink_lines_guard_passes_a_uniformly_compressive_map(lon_axis, lat_axi
     ``M``'s meridional compression moves each point far enough in latitude to
     change its cosine: ``lambda_2`` runs from 0.2005 to 0.3405 there, against the
     closed form below. The ratio bottoms out at 1.25, still clear of the 1.15
-    default, and ``xi_1`` is as well defined here as in any stretching flow -- so
+    default, and ``xi_1`` is as well defined here as in any stretching flow, so
     the line must survive. Any floor on the magnitude of ``lambda_2`` at or above
     1 would kill it.
 
     Not a synthetic corner: ``det grad F`` is about 0.2 here, and in the backward
     Cabo Verde example (5-day window, measured 34 km clear of any coast) the
     0.1st percentile of ``det grad F`` is 0.196. Convergent patches this strong
-    are rare but real, and they are where attracting LCS live -- which is why a
+    are rare but real, and they are where attracting LCS live, which is why a
     magnitude floor terminating there is a directional bias, not just a
     conservative choice.
     """
@@ -978,10 +978,10 @@ def test_shrink_line_steps_in_the_frame_the_tensor_lives_in():
 
     ``C`` is built from separations in the local east/north frame of each pair
     (:func:`~lcs_parcels.grids._separation_m`), so a segment must be measured the
-    same way -- which is what this checks, by taking ``_separation_m`` between
+    same way, which is what this checks, by taking ``_separation_m`` between
     consecutive points of the line and comparing its heading with the tangent the
     integrator would read there. Measured in the same frame the tensor is built
-    in, the two agree to round-off -- 2e-6 degrees of arc. Measuring the same
+    in, the two agree to round-off, 2e-6 degrees of arc. Measuring the same
     segments in a single-reference-cosine frame at 20 N instead tilts them off
     ``xi_1`` by up to 1.7 degrees, a million times as much.
 
@@ -1074,7 +1074,7 @@ def test_shrink_line_of_a_frame_constant_tensor_is_a_loxodrome():
     from ``lcs_parcels``.
 
     A 3000 km line from 40 N, spanning 30.5 N to 49.5 N, sits 8.4e-6 degrees --
-    0.7 m -- off the closed form at a 20 km step, and the residual falls by four
+    0.7 m, off the closed form at a 20 km step, and the residual falls by four
     at each halving of the step (3.4e-5, 8.4e-6, 2.1e-6, 5.2e-7 degrees at 40,
     20, 10 and 5 km), which is the step's mid-latitude cosine truncating a rhumb
     increment and not a drift.
@@ -1119,7 +1119,7 @@ def test_shrink_line_of_a_frame_constant_tensor_is_a_loxodrome():
     # roughly linear in the line length (5.0e-6 at 2000 km, 1.3e-5 at 4000 km).
     # 1e-4 therefore survives a doubled step or a much longer line, while a
     # stepper that took the cosine at the segment's start rather than its
-    # mid-latitude -- first order -- lands at 1.5e-2 degrees here, 150 times over.
+    # mid-latitude, which is first order, lands at 1.5e-2 degrees here, 150 times over.
     assert np.max(np.abs(lon - expected_lon)) < 1e-4
 
 
@@ -1156,7 +1156,7 @@ def _wavy_stretch_flowmap(period_m=250_000.0, base=3.0, amp=1.0):
     """A flow map whose meridional stretching oscillates with zonal position.
 
     ``f(dx, dy) = (dx, dy * (base + amp cos(2 pi dx / period_m)))``, so the
-    Cauchy-Green tensor -- and hence the FTLE -- varies along ``i`` with several
+    Cauchy-Green tensor, and hence the FTLE, varies along ``i`` with several
     maxima across the domain. That makes the windowed local-maximum test and the
     quantile floor both load-bearing, unlike a constant-``C`` fixture.
     """

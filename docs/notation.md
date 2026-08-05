@@ -14,7 +14,7 @@ Haller (2015).
 |---|---|---|---|
 | $v(x, t)$ | velocity field, with position $x = (x^1, x^2)$ in 2D | 2 | (input, external) |
 | $x_0$ | initial (reference) particle *release* position; for the `Neighbor*` classes the grid point itself, for the `Auxiliary*` classes the explicit stencil arms; carried by both the seed and the flow map | 3 | `lon_0`, `lat_0` (`(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes) |
-| $x_{\mathrm{grid}}$ | diagnostic grid point, where every diagnostic is reported; carried explicitly by both stencils and by both families | — | `lon_grid(i, j)`, `lat_grid(i, j)` |
+| $x_{\mathrm{grid}}$ | diagnostic grid point, where every diagnostic is reported; carried explicitly by both stencils and by both families |  | `lon_grid(i, j)`, `lat_grid(i, j)` |
 | $F_{t_0}^{t_1}(x_0) = x(t_1; t_0, x_0)$ | flow **map**: initial position $\to$ position at time $t_1$; stored as the advected positions on a `FlowMap` (its only data vars) | 3 | `lon`, `lat`, sharing the dims of `lon_0`/`lat_0`: `(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes |
 | $F_{t_0}^{t_1}(x_{\mathrm{grid}})$ | flow map image of the diagnostic grid points: the advected positions reduced onto `(i, j)` | 3 | `grid_image` |
 | $\nabla F_{t_0}^{t_1}(x_0)$ | deformation gradient (the **gradient** of the flow map; $2\times 2$ in 2D) | 4, 9 | `deformation_gradient`, `gradF` |
@@ -26,14 +26,14 @@ Haller (2015).
 | $t_0$ | release time; supplied at ingest (`pset_to_flowmap`) and stored as a scalar coord on the `FlowMap` | 3 | `t0` (flow map coord) |
 | $t_1$ | integration end time; supplied at ingest, consumed to derive $T$, not stored (recoverable as $t_0 + T$) | 3 | `t1` (input) |
 | $T = t_1 - t_0$ | integration window, **signed**; derived at ingest from $t_0$ and the end time $t_1$, stored as a scalar coord on the `FlowMap`; its sign sets the integration direction | 3 | `T` (flow map coord) |
-| $dx = R\cos\phi\,d\lambda,\ \ dy = R\,d\phi$ | metric of the sphere of radius $R$: the local east/north frame in which every separation is measured ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ metres). A *finite* separation between two named points takes the cosine at that pair's mid-latitude, $\bar\phi = \tfrac{1}{2}(\phi_a + \phi_b)$ | — | (internal metric, `_separation_m`) |
-| $\Delta\lambda \in [-180^\circ, 180^\circ]$ | longitude *difference*, wrapped; stored longitudes are never wrapped | — | `_wrap_lon` |
+| $dx = R\cos\phi\,d\lambda,\ \ dy = R\,d\phi$ | metric of the sphere of radius $R$: the local east/north frame in which every separation is measured ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ metres). A *finite* separation between two named points takes the cosine at that pair's mid-latitude, $\bar\phi = \tfrac{1}{2}(\phi_a + \phi_b)$ |  | (internal metric, `_separation_m`) |
+| $\Delta\lambda \in [-180^\circ, 180^\circ]$ | longitude *difference*, wrapped; stored longitudes are never wrapped |  | `_wrap_lon` |
 | $\dot r = \xi_1(r)$ | shrink line: tensor line tangent to $\xi_1$; a repelling LCS (forward flow) or, by forward–backward duality, attracting LCS (backward flow) | Table 1 ($n = 2$) | `shrink_lines`, `ftle_ridge_seeds` |
-| $w$ | ridge-seed window: the **side**, in metres, of the square window a seed must be the FTLE maximum over; two seed points can therefore be about $w/2$ apart | — | `window_m` |
-| $\Lambda \ge \Lambda_{\min}$ | FTLE magnitude floor a seed must also clear, set either as a quantile of the field at hand or as an absolute value in the field's units (1/s) | — | `quantile`, `ftle_min` |
-| $\lambda_2 / \lambda_1 \ge a_{\min}$ | anisotropy floor: the ratio of the Cauchy–Green eigenvalues below which $\xi_1$ is not a well-defined direction (dimensionless) | — | `min_anisotropy` |
-| $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 | — |
-| $\eta^\pm(x_0)$ | shear vector field; stretch/shear lines (**deferred**) | 10, 11, Table 1 | — |
+| $w$ | ridge-seed window: the **side**, in metres, of the square window a seed must be the FTLE maximum over; two seed points can therefore be about $w/2$ apart |  | `window_m` |
+| $\Lambda \ge \Lambda_{\min}$ | FTLE magnitude floor a seed must also clear, set either as a quantile of the field at hand or as an absolute value in the field's units (1/s) |  | `quantile`, `ftle_min` |
+| $\lambda_2 / \lambda_1 \ge a_{\min}$ | anisotropy floor: the ratio of the Cauchy–Green eigenvalues below which $\xi_1$ is not a well-defined direction (dimensionless) |  | `min_anisotropy` |
+| $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 |  |
+| $\eta^\pm(x_0)$ | shear vector field; stretch/shear lines (**deferred**) | 10, 11, Table 1 |  |
 
 ## Conventions in detail
 
@@ -42,16 +42,16 @@ Haller (2015).
 Everything positional in the package is one of exactly three lon/lat pairs, all
 in degrees. They are defined here and nowhere else.
 
-- **`lon_grid` / `lat_grid`**, dims `(i, j)` — the **diagnostic grid points**
+- **`lon_grid` / `lat_grid`**, dims `(i, j)`, are the **diagnostic grid points**
   $x_{\mathrm{grid}}$: the locations at which $\nabla F$, $C$, its eigenpairs
   and the FTLE are reported, and the coordinate a diagnostic is plotted or
   selected against. Carried explicitly by both stencils and by both families
   (`SeedGrid` and `FlowMap`), and reachable as the properties `obj.lon_grid` /
   `obj.lat_grid`.
-- **`lon_0` / `lat_0`** — the **reference release positions** $x_0$: where
+- **`lon_0` / `lat_0`** are the **reference release positions** $x_0$, where
   actual particles are put into the water. `(i, j)` for the `Neighbor*` classes,
   `(i, j, displacement)` for the `Auxiliary*` classes, one per stencil arm.
-- **`lon` / `lat`** — the **advected positions** $F_{t_0}^{t_1}(x_0)$, data
+- **`lon` / `lat`** are the **advected positions** $F_{t_0}^{t_1}(x_0)$, data
   variables on a `FlowMap`, sharing the dims of `lon_0`/`lat_0` so that
   $\nabla F = \partial(\mathrm{lon}, \mathrm{lat}) / \partial(\mathrm{lon}_0,
   \mathrm{lat}_0)$ is well-defined.
@@ -71,7 +71,7 @@ about $s$ metres away from the point it describes.
 
 These are two distinct objects and the code keeps the names apart:
 
-- $F_{t_0}^{t_1}(x_0)$ (Eq. 3) is the flow **map** itself — a 2-component vector
+- $F_{t_0}^{t_1}(x_0)$ (Eq. 3) is the flow **map** itself, a 2-component vector
   field giving the final position of a particle released at $x_0$. Its components
   are stored as the advected positions `lon` / `lat` (the only data variables on
   a `FlowMap`; the particle's actual position, as in Parcels), alongside the
@@ -79,8 +79,8 @@ These are two distinct objects and the code keeps the names apart:
   seed and the flow map). A `SeedGrid` has no advected positions at all;
   they enter only at ingest. The symbol `F` / `flow_map` denotes the map as a
   whole.
-- $\nabla F_{t_0}^{t_1}(x_0)$ (Eq. 4) is the **gradient** of that map — a
-  $2\times 2$ matrix at each $x_0$. Code name: `deformation_gradient` / `gradF`.
+- $\nabla F_{t_0}^{t_1}(x_0)$ (Eq. 4) is the **gradient** of that map, a
+  $2\times 2$ matrix at each $x_0$, named `deformation_gradient` / `gradF`.
 
 `F` names the map and `gradF` its gradient; the $2\times 2$ object is never
 called `F`.
@@ -108,7 +108,7 @@ modelled as separate classes:
   Eq. 9. The arms are stored
   *explicitly* as the reference release positions
   `lon_0(i, j, displacement)` / `lat_0(i, j, displacement)` (so the dataset is
-  self-sufficient — no metric convention is needed to recover where particles
+  self-sufficient, since no metric convention is needed to recover where particles
   started), and $\nabla F$ is the plain $\partial(\text{lon}, \text{lat}) /
   \partial(\text{lon}_0, \text{lat}_0)$ differenced over `displacement`. The
   diagnostic grid points `lon_grid(i, j)` / `lat_grid(i, j)` are the arm centres
@@ -147,7 +147,7 @@ the plotting code; the package does not convert.
 ### Integration time $T$
 
 $T = t_1 - t_0$ (Eq. 3), **signed**. A `SeedGrid` owns no $t_0$.
-Both ends of the window enter at ingest — `pset_to_flowmap(*, lon, lat, t0, t1)`
+Both ends of the window enter at ingest, through `pset_to_flowmap(*, lon, lat, t0, t1)`
 takes the release time $t_0$ and the end time $t_1$, derives $T = t_1 - t_0$,
 and stores $t_0$ and $T$ as scalar coords on the `FlowMap` ($t_1$ is recoverable
 as $t_0 + T$). The package does not choose the integration direction:
@@ -166,7 +166,7 @@ $R$ = `EARTH_RADIUS_M` = 6371 km, whose metric is
 
 $$dx = R\cos\phi\,d\lambda, \qquad dy = R\,d\phi$$
 
-with $\lambda$ longitude and $\phi$ latitude in radians — the **local east/north
+with $\lambda$ longitude and $\phi$ latitude in radians. This is the **local east/north
 frame** at the point where it is evaluated.
 
 A *finite* separation is between two named points, so the cosine is taken at
@@ -245,8 +245,8 @@ antimeridian stays on its seed's branch.
 
 ### Geometric LCS layer (tensor lines)
 
-Hyperbolic LCS are extracted as **shrink lines** — tensor lines tangent to
-$\xi_1$, solving $\dot r = \xi_1(r)$ (Haller Table 1, $n = 2$) — in
+Hyperbolic LCS are extracted as **shrink lines**, tensor lines tangent to
+$\xi_1$ solving $\dot r = \xi_1(r)$ (Haller Table 1, $n = 2$), in
 [`src/lcs_parcels/tensorlines.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/tensorlines.py)
 (`shrink_lines`, with `ftle_ridge_seeds` for the seed points). Repelling LCS
 are the shrink lines of the forward flow map; attracting LCS those of the
@@ -293,8 +293,8 @@ selector; the selection is made by $\Lambda_{\min}$.
 
 The following remain deferred:
 
-- $E_\lambda(x_0)$ — generalized Green–Lagrange strain tensor (Eq. 8).
-- $\eta^\pm(x_0)$ — shear vector field; stretch and shear (elliptic) lines
+- $E_\lambda(x_0)$, the generalized Green–Lagrange strain tensor (Eq. 8).
+- $\eta^\pm(x_0)$, the shear vector field, with stretch and shear (elliptic) lines
   (Eqs. 10–11, Table 1).
 
 ## Array and dimension conventions
@@ -304,18 +304,18 @@ dimensions, not as scalar variables (`F11, F12, …`):
 
 | Object | Code name | Dims | Component coords |
 |---|---|---|---|
-| diagnostic grid points $x_{\mathrm{grid}}$ (coords; seed + flow map, both stencils) | `lon_grid`, `lat_grid` | `(i, j)` | — |
-| reference release positions $x_0$ (coords; seed + flow map) | `lon_0`, `lat_0` | `(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes | — |
-| advected flow map $F_{t_0}^{t_1}(x_0)$ (data vars; flow map only) | `lon`, `lat` | same dims as `lon_0`/`lat_0` | — |
-| flow map image of the grid points (flow map only) | `grid_image` (`lon`, `lat`) | `(i, j)` | — |
-| release time $t_0$ / signed window $T$ (scalar coords; flow map only) | `t0`, `T` | scalar | — |
-| auxiliary-grid stencil axis | — | `(displacement,)` | `displacement = ['east','north','west','south']` |
+| diagnostic grid points $x_{\mathrm{grid}}$ (coords; seed + flow map, both stencils) | `lon_grid`, `lat_grid` | `(i, j)` |  |
+| reference release positions $x_0$ (coords; seed + flow map) | `lon_0`, `lat_0` | `(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes |  |
+| advected flow map $F_{t_0}^{t_1}(x_0)$ (data vars; flow map only) | `lon`, `lat` | same dims as `lon_0`/`lat_0` |  |
+| flow map image of the grid points (flow map only) | `grid_image` (`lon`, `lat`) | `(i, j)` |  |
+| release time $t_0$ / signed window $T$ (scalar coords; flow map only) | `t0`, `T` | scalar |  |
+| auxiliary-grid stencil axis |  | `(displacement,)` | `displacement = ['east','north','west','south']` |
 | deformation gradient $\nabla F$ | `gradF` | `i, j, row, col` (set, order not contractual) | `row, col = ['x', 'y']` |
 | Cauchy–Green $C$ | `C` | `i, j, row, col` (set, order not contractual) | `row, col = ['x', 'y']` |
-| eigenvalues $\lambda_i$ | `lambda` | `(i, j, eig)` | — |
+| eigenvalues $\lambda_i$ | `lambda` | `(i, j, eig)` |  |
 | eigenvectors $\xi_i$ | `xi` | `(i, j, comp, eig)` | `comp = ['x', 'y']` |
-| FTLE $\Lambda$ | `ftle` | `(i, j)` | — |
-| shrink-line polylines $\dot r = \xi_1$ | `lon`, `lat` (in the `shrink_lines` dataset) | `(line, point)` | — |
+| FTLE $\Lambda$ | `ftle` | `(i, j)` |  |
+| shrink-line polylines $\dot r = \xi_1$ | `lon`, `lat` (in the `shrink_lines` dataset) | `(line, point)` |  |
 
 Logical grid dims are `i, j`. The `comp` coordinate labels vector/tensor
 components `['x', 'y']`; `row`/`col` (dimension coordinates valued `['x', 'y']`)

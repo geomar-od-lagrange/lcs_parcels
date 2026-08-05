@@ -65,7 +65,7 @@ seed.ds
 # %% [markdown]
 # ## The auxiliary stencil
 #
-# Four arms — `east, north, west, south` — at `aux_separation_m` around each
+# Four arms (`east, north, west, south`) at `aux_separation_m` around each
 # grid point, so `lon_0`/`lat_0` gain a `displacement` dim and there are four
 # particles per grid point. The finite-difference step is the arm separation
 # rather than the grid spacing, and the FTLE is defined at every grid point,

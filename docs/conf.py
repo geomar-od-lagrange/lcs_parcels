@@ -74,8 +74,8 @@ def _stage_examples() -> None:
     Sphinx resolves a symlink to its real path, so a link inside
     `examples/README.md` would be looked up next to the original rather than
     next to the staged copy. Copying instead keeps the README's own relative
-    links -- `[cabo_verde_ftle](cabo_verde_ftle.ipynb)`, which is what makes it
-    work on the forge -- resolving here too.
+    links (`[cabo_verde_ftle](cabo_verde_ftle.ipynb)`, which is what makes it
+    work on the forge) resolving here too.
 
     Only the README and the `.ipynb` are staged. The `.py` and `.md` of each
     jupytext triplet would be read as further copies of the same notebook, and

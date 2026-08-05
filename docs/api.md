@@ -1,7 +1,7 @@
 # API guide
 
-The public surface of `lcs_parcels` is two sibling families — a
-`SeedGrid` family and a `FlowMap` family — each with a shared abstract base and two
+The public surface of `lcs_parcels` is two sibling families, a
+`SeedGrid` family and a `FlowMap` family, each with a shared abstract base and two
 concrete stencils, exported from the package root:
 
 ```python
@@ -13,8 +13,8 @@ curves: `ftle_ridge_seeds` and `shrink_lines` (see
 [Hyperbolic LCS: shrink lines](#hyperbolic-lcs-shrink-lines) below), which
 `FlowMap.hyperbolic_lcs()` runs in one call.
 
-Every adjacent same-typed argument pair on the public surface — every
-lon/lat pair — is **keyword-only**, so a transposed call raises `TypeError`.
+Every adjacent same-typed argument pair on the public surface, meaning every
+lon/lat pair, is **keyword-only**, so a transposed call raises `TypeError`.
 
 A `SeedGrid` lays out reference positions and emits a particle set for Parcels; the
 advected positions are ingested back into a `FlowMap`, which computes the
@@ -62,8 +62,8 @@ positions explicitly.
 A single `FlowMap` carries `t0`/`T` as *scalar* coords; `t1` is not stored,
 being recoverable as `t0 + T`.
 
-Longitudes are stored in whatever convention they arrive in — $[-180, 180)$,
-$[0, 360)$, or anything else — and are never renormalised, so what comes back
+Longitudes are stored in whatever convention they arrive in ($[-180, 180)$,
+$[0, 360)$, or anything else) and are never renormalised, so what comes back
 sits on the branch that went in. Only longitude *differences* and *means* are
 wrapped, so a stencil straddling the antimeridian differences correctly whatever
 branch its points sit on.
@@ -73,7 +73,7 @@ requirement: `FlowMap.image` and `shrink_lines` interpolate along it. Seed a
 domain crossing the antimeridian on `170, 175, 180, 185`, not on
 `170, 175, 180, -175`. On the latter, `hyperbolic_lcs()` raises `ValueError`
 ("the points in dimension 0 must be strictly ascending or descending") out of
-SciPy, and `image()` does not raise at all — it reads the axis as if it were
+SciPy, and `image()` does not raise at all. It reads the axis as if it were
 sorted, so a point in the wrapped half of the domain comes back `NaN` or
 interpolated between the wrong two grid points.
 
@@ -88,13 +88,13 @@ FlowMap.lat_grid -> xr.DataArray
 FlowMap.grid_image -> xr.Dataset     # abstract property (per-stencil)
 ```
 
-- **`grid_image`** — the flow map image of the diagnostic grid points,
+- **`grid_image`** is the flow map image of the diagnostic grid points,
   $F_{t_0}^{t_1}(x_{\mathrm{grid}})$: `lon`/`lat` (degrees) on `(i, j)`, one
   advected position per grid point whatever stencil it was released with. For
   `NeighborFlowMap` that is the advected positions unchanged; for
-  `AuxiliaryFlowMap` it is the centroid of the four advected arms — the
-  longitude averaged on the circle, so four arms straddling the antimeridian
-  average to a position between them — taken with `skipna=False` so a single
+  `AuxiliaryFlowMap` it is the centroid of the four advected arms, with the
+  longitude averaged on the circle so four arms straddling the antimeridian
+  average to a position between them, taken with `skipna=False` so a single
   lost arm makes the whole grid point `NaN`.
 
 Both `SeedGrid` and `FlowMap` have a terse one-line `repr`; display `.ds` to see the
@@ -120,7 +120,7 @@ SeedGrid.pset_to_flowmap(*, lon, lat, t0, t1) -> FlowMap      # concrete (base)
 FlowMap.to_seed() -> SeedGrid                                 # concrete (base)
 ```
 
-- **`from_axes(*, lon, lat)`** — build a seed grid from 1-D lon/lat axes,
+- **`from_axes(*, lon, lat)`** builds a seed grid from 1-D lon/lat axes,
   broadcast into 2-D fields on `(i, j)` (lon varying along
   `i`, lat along `j`) and stored as the diagnostic grid `lon_grid`/`lat_grid`.
   No time is recorded: `t0` and the window `T` enter only at
@@ -129,15 +129,15 @@ FlowMap.to_seed() -> SeedGrid                                 # concrete (base)
   takes a keyword-only `aux_separation_m` (the controlled arm separation $s$ in
   metres; default `1000.0`), lays out the fixed four-arm
   `displacement = ['east', 'north', 'west', 'south']` stencil at $\pm s$ about
-  each grid point — in that point's own local east/north frame, so the east–west
-  and north–south arm spans are $2s$ at every latitude — and stores those arms
+  each grid point, in that point's own local east/north frame so the east–west
+  and north–south arm spans are $2s$ at every latitude, and stores those arms
   explicitly as `lon_0`/`lat_0` on `(i, j, displacement)`. It raises
   `ValueError` if $s$ would span 90 degrees of longitude or more at any grid
   point, which happens closer to a pole than about $0.64\,s$: 640 m for the
   default $s = 1$ km, 32 km for $s = 50$ km. The longitude increment an eastward
   offset of $s$ metres needs grows without bound towards the pole, so the
   east–west arms are rejected rather than approximated.
-- **`to_parcels_pset()`** — flatten the *reference* release positions to plain
+- **`to_parcels_pset()`** flattens the *reference* release positions to plain
   `(lon, lat)` lists (a 2-tuple) over the `particle` index (`('i', 'j')`, plus
   `'displacement'` for `AuxiliarySeedGrid`). The auxiliary arms are emitted directly
   from the explicit `lon_0`/`lat_0`. The 2-tuple is unpacked before it is fed
@@ -149,7 +149,7 @@ FlowMap.to_seed() -> SeedGrid                                 # concrete (base)
   flowmap = seed.pset_to_flowmap(lon=lon1, lat=lat1, t0=t0, t1=t1)
   ```
 
-- **`pset_to_flowmap(*, lon, lat, t0, t1)`** — reattach the flat advected
+- **`pset_to_flowmap(*, lon, lat, t0, t1)`** reattaches the flat advected
   positions onto the seed's `particle` index as the advected `lon`/`lat`,
   leaving the reference `lon_0`/`lat_0` (and any auxiliary geometry) untouched,
   and produce the paired concrete `FlowMap`. It records the release time `t0`
@@ -159,7 +159,7 @@ FlowMap.to_seed() -> SeedGrid                                 # concrete (base)
   before `t0` (negative `T`); no separate direction flag exists. A **zero
   window** (`t1 == t0`) is rejected with `ValueError`, since the FTLE's $1/|T|$
   would divide by zero.
-- **`to_seed()`** — drop the advected `lon`/`lat` and the scalar `t0`/`T`
+- **`to_seed()`** drops the advected `lon`/`lat` and the scalar `t0`/`T`
   coords, recovering the paired `SeedGrid`; the lossless inverse of
   `pset_to_flowmap`. Re-emitting reproduces the same flat particle set. For
   `Auxiliary*` this rebuilds from the carried arms, needing neither the original
@@ -182,7 +182,7 @@ FlowMap.cg_eigen() -> xr.Dataset                  # concrete (base)
 FlowMap.ftle() -> xr.DataArray                    # concrete (base)
 ```
 
-- **`deformation_gradient()`** — $\nabla F = \partial(\text{lon},
+- **`deformation_gradient()`** returns $\nabla F = \partial(\text{lon},
   \text{lat}) / \partial(\text{lon}_0, \text{lat}_0)$ as advected separations
   (numerator, from the ingested outputs) over reference separations
   (denominator). Each separation is taken in metres in the local east/north
@@ -191,7 +191,7 @@ FlowMap.ftle() -> xr.DataArray                    # concrete (base)
   separation is limited by the span of the stencil, not by the size or position
   of the domain; the error series is in
   [`numerics.md`](numerics.md#the-local-east-north-frame). Dims `i`, `j`,
-  `row`, `col` — a *set*, not an order: the package is label-based, so the axis
+  `row`, `col`, a *set* rather than an order. The package is label-based, so the axis
   order the call returns is not part of the contract (today it is
   `('row', 'col', 'i', 'j')`, and that may change).
   `row`/`col` are dimension coordinates valued `['x', 'y']` and
@@ -201,21 +201,21 @@ FlowMap.ftle() -> xr.DataArray                    # concrete (base)
     `(i +/- 1, j +/- 1)`; domain-edge cells are `NaN` by construction.
   - `AuxiliaryFlowMap`: per-point four-arm central difference (east-west,
     north-south over `2s`); defined at every grid point, no `NaN` edges.
-- **`cauchy_green()`** — $C = (\nabla F)^\top \nabla F$, symmetric, on the same
-  dim set `i`, `j`, `row`, `col` (again in no contractual order — as shipped it
+- **`cauchy_green()`** returns $C = (\nabla F)^\top \nabla F$, symmetric, on the same
+  dim set `i`, `j`, `row`, `col` (again in no contractual order, though as shipped it
   is `('row', 'i', 'j', 'col')`). Select by label, and `.transpose()` yourself
   if you need a particular layout.
-- **`cg_eigen()`** — eigen-decomposition of $C$ via `np.linalg.eigh`. Returns a
+- **`cg_eigen()`** is the eigen-decomposition of $C$ via `np.linalg.eigh`. Returns a
   `Dataset` with `lambda` on `(i, j, eig)` (eigenvalues **ascending**,
   $0 < \lambda_1 \le \lambda_2$, `eig = [0, 1]`) and `xi` on
   `(i, j, comp, eig)` (orthonormal eigenvectors, `comp = ['x', 'y']`).
-- **`ftle()`** — $\Lambda = \tfrac{1}{|T|}\log\sqrt{\lambda_{\max}}$ using the
+- **`ftle()`** returns $\Lambda = \tfrac{1}{|T|}\log\sqrt{\lambda_{\max}}$ using the
   *largest* eigenvalue $\lambda_2$ and the recorded signed window `T`. Dims
   `(i, j)`, units 1/second. Only $|T|$ enters, so backward and forward
   integration of the same map give the same FTLE.
 
 All four are reported at the diagnostic grid points and carry
-`lon_grid`/`lat_grid` as their position coords — and only those. The release
+`lon_grid`/`lat_grid` as their position coords, and only those. The release
 positions `lon_0`/`lat_0` are *not* carried through: on an `AuxiliaryFlowMap`
 they are one stencil arm, which would mislabel an `(i, j)` quantity.
 
@@ -235,7 +235,7 @@ seeds = ftle_ridge_seeds(flowmap.ftle())                                 # seed 
 lines = shrink_lines(flowmap, seed_lon=seeds["lon"], seed_lat=seeds["lat"])  # curves
 ```
 
-A repelling LCS is a **shrink line** — a curve tangent to the weak-stretch
+A repelling LCS is a **shrink line**, a curve tangent to the weak-stretch
 eigenvector $\xi_1$ of $C$, solving the tensor-line ODE $\dot r = \xi_1(r)$.
 Attracting LCS need no separate call: by the forward–backward duality (Haller &
 Sapsis 2011,
@@ -256,7 +256,7 @@ own units for `ftle_min`. The three lengths, the ratio and `quantile` mean the
 same thing at any resolution and over any window; `ftle_min` is an absolute
 threshold, so it does not.
 
-- **`ftle_ridge_seeds(ftle)`** — pick seed points at strong local maxima of an
+- **`ftle_ridge_seeds(ftle)`** picks seed points at strong local maxima of an
   FTLE field: grid points that are the maximum over a square window of side
   `window_m` **metres** (a windowed local maximum on the raw value) *and* at or
   above a magnitude floor. `window_m` is converted to an odd cell count per
@@ -275,8 +275,8 @@ threshold, so it does not.
   The floor is set one of two ways, and passing both raises `ValueError`.
   `quantile` is a quantile of this field, in $[0, 1]$; `ftle_min` is an absolute
   value in the units of `ftle` (1/s for `flowmap.ftle()`). Passing neither uses
-  `quantile=0.90`, the top decile. Use `ftle_min` when several runs — other
-  windows, other regions — have to be compared against one threshold, which a
+  `quantile=0.90`, the top decile. Use `ftle_min` when several runs (other
+  windows, other regions) have to be compared against one threshold, which a
   per-field quantile cannot give.
 
   The field must carry `lon_grid`/`lat_grid`; `flowmap.ftle()` does. NaN cells
@@ -289,7 +289,7 @@ threshold, so it does not.
   `window_cells_i`/`window_cells_j` it became, the median grid spacings
   `grid_spacing_i_m`/`grid_spacing_j_m` it was measured against, and
   `min_seed_separation_m`.
-- **`shrink_lines(flowmap, seed_lon=..., seed_lat=...)`** — integrate the
+- **`shrink_lines(flowmap, seed_lon=..., seed_lat=...)`** integrates the
   $\xi_1$ tensor line through each seed point, in both directions, on the flow
   map's rectilinear grid. It interpolates the tensor $C$ (via `scipy`'s
   `RegularGridInterpolator`) and re-diagonalises at each step, which is robust
@@ -298,7 +298,7 @@ threshold, so it does not.
   half in each direction, with $n = $ `line_length_m / (2 * step_m)` steps per
   direction (rounded, at least 1), so a line that runs the full budget has
   $2n + 1$ points. A line stops early where $\xi_1$ stops being a well-defined
-  direction — where $\lambda_2 / \lambda_1$ falls below `min_anisotropy` — or
+  direction, where $\lambda_2 / \lambda_1$ falls below `min_anisotropy`, or
   where it leaves the grid or hits a NaN cell. Returns an `xr.Dataset` with
   `lon`/`lat` on dims `(line, point)`, one `line` per seed point; every row is
   the same length, NaN-filled past termination, and a seed point that cannot be
@@ -306,14 +306,14 @@ threshold, so it does not.
 
 **`min_anisotropy`** is a floor on $\lambda_2 / \lambda_1$, the ratio of the two
 Cauchy–Green eigenvalues, and so dimensionless. It is a **well-definedness
-guard, not an LCS selector** — the magnitude floor in `ftle_ridge_seeds`
+guard, not an LCS selector**. The magnitude floor in `ftle_ridge_seeds`
 (`quantile` or `ftle_min`) is what selects. At the default 1.15 a
 1% error in $C$ swings $\xi_1$ by about 2 degrees; at a ratio of 1.05 by 6
 degrees. Being a ratio it carries no $T$, no grid scale and no stretching rate,
 so 1.15 means the same thing for a six-hour laboratory flow and a six-month
 basin-scale one. Its useful range starts just above 1: $C$ is positive
 semi-definite, so $\lambda_2 \ge \lambda_1 \ge 0$ always, and any
-`min_anisotropy` at or below 1 makes the guard unsatisfiable — it never fires,
+`min_anisotropy` at or below 1 makes the guard unsatisfiable, so it never fires,
 and lines then stop only by leaving the grid or hitting a NaN cell.
 
 This layer interpolates on the axis-aligned `lon_grid`/`lat_grid` axes, so (like
@@ -330,10 +330,10 @@ FlowMap.hyperbolic_lcs(*, window_m=None, quantile=None, ftle_min=None,
                        line_length_m=None) -> xr.Dataset
 ```
 
-Runs the three steps — `ftle()`, `ftle_ridge_seeds`, `shrink_lines` — in one
+Runs the three steps (`ftle()`, `ftle_ridge_seeds`, `shrink_lines`) in one
 call, computing the FTLE exactly once. Every parameter is optional and only the
 ones actually passed are forwarded, so the defaults stay in
-`ftle_ridge_seeds`/`shrink_lines` — including the rule that `quantile` and
+`ftle_ridge_seeds`/`shrink_lines`, including the rule that `quantile` and
 `ftle_min` are mutually exclusive, which raises `ValueError` from
 `ftle_ridge_seeds` when both are passed here. There is no direction argument:
 the flow map already carries $\mathrm{sign}(T)$, so a forward map yields
@@ -341,7 +341,7 @@ repelling LCS and a backward one attracting LCS, and the returned dataset says
 which family it holds. `hyperbolic_lcs()` extracts hyperbolic (repelling and
 attracting) LCS only.
 
-The result is the `shrink_lines` dataset — `lon`/`lat` on `(line, point)` —
+The result is the `shrink_lines` dataset, `lon`/`lat` on `(line, point)`,
 carrying along the `ftle` field on `(i, j)` the seed points were picked from, so
 the curves can be plotted over it without recomputing an eigendecomposition.
 The ridge-selection attributes ride along too, so `lcs.attrs["selector"]`,
@@ -374,11 +374,11 @@ second advection.
 FlowMap.image(*, lon_0, lat_0) -> xr.Dataset
 ```
 
-- **`image(*, lon_0, lat_0)`** — interpolate `grid_image` (the advected positions
+- **`image(*, lon_0, lat_0)`** interpolates `grid_image` (the advected positions
   on the diagnostic grid) at reference points `lon_0`/`lat_0` (`DataArray`s on any
   shared dims, e.g., the `(line, point)` grid of `shrink_lines`), returning their
   advected positions $F_{t_0}^{t_1}(x_0)$ as an `xr.Dataset` with `lon`/`lat` on
-  the input dims — the same structure a `shrink_lines` curve has, so an evolved
+  the input dims, the same structure a `shrink_lines` curve has, so an evolved
   curve plots the same way and can be passed back into `image`. The requested
   reference positions ride along as `lon_0`/`lat_0` coords on the output. Points
   off the grid, in a NaN (land/edge) cell, or NaN themselves map to NaN.
@@ -399,7 +399,7 @@ few horizons and call `image` at each to carry the curve through them; see
 Every array the package returns carries `name`, `long_name`, and `units`, and no
 two quantities come back under the same `name`. That metadata *is* the axis
 label, the title, and the colorbar caption of a vanilla `.plot()`, so a returned
-field needs no hand-set labels to be readable — the only keyword a gridded
+field needs no hand-set labels to be readable. The only keyword a gridded
 diagnostic needs is `x="lon_grid", y="lat_grid"` to be drawn geographically
 rather than against the logical `i`/`j` axes.
 
@@ -423,22 +423,22 @@ The coordinates carry the same metadata, set once at construction
 
 | Coord | `long_name` | `units` |
 |---|---|---|
-| `i` / `j` | logical grid index along i / j | — |
+| `i` / `j` | logical grid index along i / j |  |
 | `lon_grid` / `lat_grid` | longitude / latitude | `degrees_east` / `degrees_north` |
 | `lon_0` / `lat_0` | longitude/latitude of the reference release position x_0 | `degrees_east` / `degrees_north` |
-| `displacement` | auxiliary stencil arm | — |
-| `t0` | release time t0 | — |
-| `T` | signed integration window T = t1 - t0 | — |
-| `row` / `col` | tensor row / column index | — |
-| `comp` | eigenvector component | — |
-| `eig` | Cauchy-Green eigenpair, ascending: 0 is the weak-stretch lambda_1, 1 is lambda_max = lambda_2 | — |
-| `seed` | FTLE ridge seed index | — |
-| `line` | shrink line index, one per seed point | — |
-| `point` | point index along the shrink line | — |
+| `displacement` | auxiliary stencil arm |  |
+| `t0` | release time t0 |  |
+| `T` | signed integration window T = t1 - t0 |  |
+| `row` / `col` | tensor row / column index |  |
+| `comp` | eigenvector component |  |
+| `eig` | Cauchy-Green eigenpair, ascending: 0 is the weak-stretch lambda_1, 1 is lambda_max = lambda_2 |  |
+| `seed` | FTLE ridge seed index |  |
+| `line` | shrink line index, one per seed point |  |
+| `point` | point index along the shrink line |  |
 
 The index and label coords (`i`, `j`, `displacement`, `row`, `col`, `comp`,
 `eig`, `seed`, `line`, `point`) carry no `units`: their values are logical indices or
-string labels, so there is no unit to give. `t0` and `T` carry none either —
+string labels, so there is no unit to give. `t0` and `T` carry none either,
 they are `datetime64`/`timedelta64`, so the dtype already holds the unit.
 
 ## References

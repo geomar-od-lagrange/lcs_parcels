@@ -51,8 +51,8 @@ def apply_map_to_pset(lon, lat, f, origin):
     """Advect a flat (lon, lat) particle set through a general map ``f``.
 
     The map acts in a local meters tangent frame: ``f(dx, dy) -> (dx_out,
-    dy_out)`` transforms the seed separations ``(dx, dy)`` -- measured in meters
-    from ``origin = (lon_0, lat_0)`` -- into advected separations, converted back
+    dy_out)`` transforms the seed separations ``(dx, dy)``, measured in meters
+    from ``origin = (lon_0, lat_0)``, into advected separations, converted back
     to lon/lat. The advected positions are returned as flat lon/lat lists in the
     same order as the input. ``f`` need not be linear.
     """
@@ -189,7 +189,7 @@ def advected_flowmap_f(seed_cls, lon_axis, lat_axis, f, t0, t1):
     and return the ``FlowMap``. The advection ``origin`` is the seed centroid
     (:func:`seed_origin`); ``f``'s Jacobian is in that one tangent frame, so the
     deformation gradient the package recovers is that Jacobian rescaled into the
-    local frames -- see :func:`local_frame_gradient`.
+    local frames; see :func:`local_frame_gradient`.
     """
     seed = seed_cls.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()

@@ -40,8 +40,8 @@ END_TIME = np.datetime64("2020-01-02")
 # Non-symmetric linear flow map, applied in the seed-centroid tangent frame.
 M = np.array([[2.0, 0.5], [0.0, 3.0]])
 
-# The same map as a (row, col) tensor. gradF is *not* equal to this -- it is this
-# rescaled into the local frames -- so it serves as the contrast case.
+# The same map as a (row, col) tensor. gradF is *not* equal to this. It is this
+# rescaled into the local frames, so it serves as the contrast case.
 M_TENSOR = xr.DataArray(
     M, dims=("row", "col"), coords={"row": ["x", "y"], "col": ["x", "y"]}
 )
@@ -193,7 +193,7 @@ def test_deformation_gradient_dims_and_coords(lon_axis, lat_axis):
     assert "comp" not in gradF.coords
 
     # The diagnostic is reported at the grid point, so it carries lon_grid/
-    # lat_grid -- not the per-arm release positions it was differenced from.
+    # lat_grid, not the per-arm release positions it was differenced from.
     assert set(gradF["lon_grid"].dims) == {"i", "j"}
     assert set(gradF["lat_grid"].dims) == {"i", "j"}
     assert "lon_0" not in gradF.coords
@@ -331,7 +331,7 @@ def test_cauchy_green_equals_gradF_T_gradF(lon_axis, lat_axis):
     """C equals ``gradF^T gradF`` built from the analytic gradient.
 
     Use AuxiliarySeedGrid to avoid NaN edges; check to ~1e-6. The constant ``M.T @ M``
-    is not the answer -- assert it misses by far more than that tolerance.
+    is not the answer, so assert it misses by far more than that tolerance.
     """
     g = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
@@ -508,7 +508,7 @@ def test_nan_propagates_through_chain(lon_axis, lat_axis):
 
     Knock out a single arm of one ``AuxiliarySeedGrid`` cell so its stencil is
     incomplete. That one cell's FTLE must be NaN while every other cell stays
-    finite -- the NaN propagates the whole chain and does not leak to neighbours.
+    finite, so the NaN propagates the whole chain and does not leak to neighbours.
     Also guards that ``np.linalg.eigh`` returns NaN rather than raising
     ``LinAlgError`` on a NaN sub-matrix.
     """

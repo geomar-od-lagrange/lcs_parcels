@@ -1,7 +1,7 @@
 """FlowMap.image: interpolating the flow map at arbitrary reference points.
 
 ``image`` maps reference positions ``x_0`` to their advected positions
-``F_{t0}^{t1}(x_0)`` -- the primitive that evolves an extracted material curve.
+``F_{t0}^{t1}(x_0)``, the primitive that evolves an extracted material curve.
 For a constant linear flow map ``F(x) = M @ x`` the advected-position field is
 linear in ``x_0``, so linear interpolation is *exact*: at a grid node it returns
 the node's stored advected position, and at a midpoint it returns the average of
@@ -67,7 +67,7 @@ def test_image_preserves_indexer_dims(lon_axis, lat_axis):
 
 
 def test_image_returns_the_reference_points_as_x0(lon_axis, lat_axis):
-    """The requested reference positions come back as lon_0/lat_0 -- they are x_0,
+    """The requested reference positions come back as lon_0/lat_0, since they are x_0,
     not diagnostic grid points, so they must not reuse the lon_grid/lat_grid name."""
     fm = _flowmap(lon_axis, lat_axis)
     curve = fm.ds[["lon_0", "lat_0"]].isel(j=2).rename(i="param")
@@ -99,7 +99,7 @@ def test_image_accepts_cf_named_indexer_dims(lon_axis, lat_axis):
     """Reference points whose *dims* are called ``lon``/``lat`` are accepted.
 
     That is what ``grid["lon"]``, ``grid["lat"]`` hand you off an ordinary
-    rectilinear CF dataset -- the most natural way to call ``image`` -- and it
+    rectilinear CF dataset, the most natural way to call ``image``, and it
     collides with the names of the returned data variables. Building the result
     by merging (``assign``/``assign_coords``) cannot tell an incoming ``lon``
     data variable from a dimension of the same name and raises ``MergeError``
@@ -160,7 +160,7 @@ def test_image_on_auxiliary_flowmap(lon_axis, lat_axis):
 
 def test_image_auxiliary_lost_arm_maps_to_nan(lon_axis, lat_axis):
     """A grid point with a lost (NaN) arm images to NaN, not the centroid of the
-    surviving arms -- matching the deformation-gradient path."""
+    surviving arms, matching the deformation-gradient path."""
     fm = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
     )

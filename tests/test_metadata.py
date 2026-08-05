@@ -191,7 +191,7 @@ def test_ftle_ridge_seeds_output_is_labelled(lon_axis, lat_axis):
 
 def test_hyperbolic_lcs_carries_the_ridge_selection_attrs(lon_axis, lat_axis):
     """The one-call method reports the ridge selection it made, so
-    ``min_seed_separation_m`` -- what ``window_m`` actually bought -- is readable
+    ``min_seed_separation_m``, what ``window_m`` actually bought, is readable
     off the result without rerunning the seed step.
 
     The seeds' own ``long_name`` stays behind: it describes the seed points, and
@@ -214,7 +214,7 @@ def test_hyperbolic_lcs_carries_the_ridge_selection_attrs(lon_axis, lat_axis):
 
 def test_hyperbolic_lcs_output_is_labelled(lon_axis, lat_axis):
     """The one-call method returns curves and the FTLE field in one dataset, so
-    both halves -- and the grid coords the FTLE brings with it -- must be
+    both halves, and the grid coords the FTLE brings with it, must be
     labelled, and the dataset itself must say which kind of LCS it holds."""
     fm = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
