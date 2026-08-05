@@ -6,41 +6,43 @@ Cauchy-Green tensor $(\nabla F)^\top \nabla F$, its eigen-analysis, and the
 finite-time Lyapunov exponent (FTLE), following Haller (2015),
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
 
-**This package contains no Parcels code.** It sits on either side of an
-advection run: it *emits* a particle set to release, and *ingests* the advected
-positions to diagnose. You run Parcels (or anything else) in between.
+**This package contains no Parcels code.** It *emits* a particle set to release
+and *ingests* the advected positions to diagnose. You run Parcels (or anything
+else) in between.
 
 ## Scope: rectilinear grids, away from the poles
 
-Separations are measured in metres, and the accuracy of a separation is set by
-how far apart the two points are and at what latitude, not by the size or
-placement of the domain. Measured against the great-circle distance, a zonal
-pair is off by
-$10^{-6}$ at a separation of 54 km at 30 N, 18 km at 60 N and 5.5 km at 80 N,
-and never at the equator. The default 1 km auxiliary arms sit far inside that. A
-neighbour stencil differences over two grid cells, so read the series at twice
-the grid spacing; on a coarse grid the finite-difference truncation of that same
-span is the larger error. The full series is in
-[`docs/numerics.md`](docs/numerics.md).
-
 Longitude differences and means wrap, so a domain crossing the antimeridian is
-fine. Longitudes are never normalised on ingest: whatever convention you hand in
-is the one you get back, and advected positions may arrive on any branch.
+fine. Longitudes are never normalised on ingest: they come back in the
+convention you handed in, and advected positions may arrive on any branch.
 
 `NeighborSeed`, `FlowMap.image` and the tensor-line functions need a rectilinear
 grid — `lon_grid` varying along `i`, `lat_grid` along `j` — with a monotonic
 `lon_grid` axis, so a domain crossing the antimeridian is seeded on `170, 175,
 180, 185` rather than `170, 175, 180, -175`. On a wrapped axis `shrink_lines`
-and `hyperbolic_lcs` raise, and `image` answers as if the axis were sorted.
-Traced tensor lines are not bound by that and cross freely.
-`AuxiliaryFlowMap.deformation_gradient` differences a stencil laid around each
-grid point, so it also takes a curvilinear grid.
+and `hyperbolic_lcs` raise, and `image` reads the axis as if it were sorted.
+The traced tensor lines carry no such requirement and cross the antimeridian
+freely. `AuxiliaryFlowMap.deformation_gradient` differences a stencil laid
+around each grid point, so it also takes a curvilinear grid.
 
 The poles are excluded. `AuxiliarySeed.from_axes` raises `ValueError` when
 `aux_separation_m` would span 90 degrees of longitude or more, which happens
-closer to a pole than about 0.64 times the arm separation itself: 640 m for the
-default 1 km arms, 32 km for 50 km arms. And a tensor line stepped past 90
-degrees of latitude runs off the chart rather than over the top.
+closer to a pole than about 0.64 times the arm separation: 640 m for the
+default 1 km arms, 32 km for 50 km arms. Latitude is not folded at 90 degrees
+either, so a tensor line stepped past the pole leaves the domain instead of
+continuing across it.
+
+Separations are measured in metres, and the accuracy of a separation is set by
+how far apart the two points are and at what latitude, not by the size or
+placement of the domain. Measured against the great-circle distance, a zonal
+pair is off by $10^{-6}$ at a separation of 54 km at 30 N, 18 km at 60 N and
+5.5 km at 80 N; the full series is in [`docs/numerics.md`](docs/numerics.md). On
+the equator the error vanishes at every separation. The default 1 km auxiliary
+arms sit far inside those thresholds away from the pole; the zonal threshold
+falls to 1 km itself only above about 88 N. A neighbour stencil differences over
+two
+grid cells, so read the series at twice the grid spacing; on a coarse grid the
+finite-difference truncation of that same span is the larger error.
 
 ## Install
 
@@ -48,8 +50,8 @@ The project is managed with [pixi](https://pixi.sh):
 
 ```console
 $ pixi install
-$ pixi run test                    # the test suite, including the Parcels-free example
-$ pixi run -e examples get-data    # download the CMEMS subset the examples read, once
+$ pixi run test                       # run the test suite, including the Parcels-free example
+$ pixi run -e examples get-data       # download the CMEMS subset the Cabo Verde examples read (once)
 $ pixi run -e examples test-examples  # execute every example against the current API
 ```
 
@@ -97,8 +99,8 @@ read:
   the FTLE from CMEMS currents. Needs CMEMS credentials.
 - [`cabo_verde_lcs`](examples/cabo_verde_lcs.ipynb) — repelling and attracting
   LCS as strain tensor lines.
-- [`cabo_verde_lcs_evolution`](examples/cabo_verde_lcs_evolution.ipynb) — evolve
-  an extracted LCS as a material curve.
+- [`cabo_verde_lcs_evolution`](examples/cabo_verde_lcs_evolution.ipynb) — an
+  extracted LCS evolved as a material curve.
 - [`example_grid_pset`](examples/example_grid_pset.ipynb) — the package API
   exercised on its own, without Parcels.
 

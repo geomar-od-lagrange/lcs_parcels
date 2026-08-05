@@ -16,9 +16,9 @@ jupyter:
 
 # Repelling and attracting LCS as strain tensor lines
 
-The FTLE map (see `cabo_verde_ftle`) shows *where* the flow stretches, but not
-the material curves along which it does. Those curves are tensor lines of the
-strain tensor. Haller (2015, §5.1 / Table 1,
+The FTLE map (see `cabo_verde_ftle`) shows where the flow stretches. It does
+not give the material curves along which the stretching happens. Those curves
+are tensor lines of the strain tensor. Haller (2015, §5.1 / Table 1,
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322))
 constructs those curves directly from the Cauchy–Green strain tensor
 $C = (\nabla F)^\top \nabla F$, whose eigenpairs satisfy
@@ -29,9 +29,10 @@ FTLE ridge marks. It solves the ODE $\dot r = \xi_1(r)$.
 
 Attracting LCS come from the forward–backward duality (Haller & Sapsis 2011,
 [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)): an **attracting**
-LCS is a repelling LCS of the *backward* flow. So we advect the same seed grid
-both ways and take the $\xi_1$ shrink lines of each flow map — forward for
-repelling, backward for attracting.
+LCS is a repelling LCS of the *backward* flow. The notebook therefore advects
+the same seed grid both ways and takes the $\xi_1$ shrink lines of each flow
+map: the forward map gives the repelling LCS, the backward map the attracting
+ones.
 
 ```python
 import matplotlib.pyplot as plt
@@ -66,10 +67,10 @@ z_surface = float(currents["depth"].values[0])
 
 ## Seed grid and window
 
-We anchor at the middle of the window the local file covers and run $\pm 5$ d,
-so the forward and the backward advection both stay inside the data. A
-rectilinear `NeighborSeed` puts one particle on every diagnostic grid point;
-$\nabla F$ is then differenced against the grid neighbours.
+$t_0$ sits at the middle of the window the local file covers, and the runs are
+$\pm 5$ d, so the forward and the backward advection both stay inside the
+data. A rectilinear `NeighborSeed` puts one particle on every diagnostic grid
+point; $\nabla F$ is then differenced against the grid neighbours.
 
 ```python
 t0 = np.datetime64("2025-08-06")
@@ -148,14 +149,14 @@ ftle_forward = forward.ftle()
 ftle_forward
 ```
 
-`ftle_ridge_seeds` picks start points at the ridge tops: grid points that are
-the maximum over a `window_m`-wide neighbourhood and lie in the top `quantile`
-of the field. `window_m` is the full side of that neighbourhood, so two seeds
-can be about half of it apart. We want neighbouring filaments about 15 km apart
-in this eddy field, so the window is 30 km. The top decile keeps the seeds on
-the pronounced ridges of *this* field. The alternative selector, `ftle_min`, is
-an absolute floor in 1/s and is what to use when comparing regions or windows
-against one threshold.
+`ftle_ridge_seeds` picks seed points at the ridge tops: grid points that are
+the maximum over a square window centred on them and lie in the top `quantile`
+of the field. `window_m` is the full side of that window, so two seeds can be
+about half of it apart. The target here is neighbouring filaments about
+15 km apart in this eddy field, so the window is 30 km. The top decile keeps
+the seeds on the pronounced ridges of *this* field. The alternative selector,
+`ftle_min`, is an absolute floor in 1/s; use it when several regions or
+windows have to be compared against one threshold.
 
 ```python
 # Ridge selection.
@@ -167,22 +168,22 @@ repelling_seeds = ftle_ridge_seeds(ftle_forward, window_m=window_m, quantile=qua
 repelling_seeds
 ```
 
-The seed dataset records what the window became on this grid. The distance
-below is the closest two seeds can be — half the window, not the window.
+The seed dataset records how the window came out on this grid. The distance
+below is the closest two seeds can be: half the window, not the window.
 
 ```python
 repelling_seeds.attrs["min_seed_separation_m"]
 ```
 
 `shrink_lines` integrates $\dot r = \xi_1(r)$ through each seed, half the
-length either way. The 3 km step is below the ~4.4 km seed-grid cell, so the
-RK2 trace samples every cell it crosses; the 1500 km cap is longer than the box
-diagonal,
-so what actually ends a curve is leaving the grid, hitting a NaN cell, or
-`min_anisotropy` — the floor on $\lambda_2 / \lambda_1$ below which $\xi_1$ is
-no longer a well-defined direction. Being a ratio, it is free of the window and
-of the flow's own stretching rate, so the 1.15 default carries over unchanged
-from a longer window or a faster flow.
+length either way. The 3 km step is below the seed-grid cell of about 4.4 km,
+so the RK2 trace samples every cell it crosses. The 1500 km cap is longer than
+the box diagonal, so a curve ends by leaving the grid, by hitting a NaN cell,
+or by dropping below `min_anisotropy`, the floor on $\lambda_2 / \lambda_1$
+below which $\xi_1$ is no longer a well-defined direction. That floor is a
+ratio, so it does not depend on the window or on the stretching rate of the
+flow, and the default of 1.15 also applies to a longer window or a faster
+flow.
 
 ```python
 # Line integration.
@@ -201,16 +202,17 @@ repelling_lcs = shrink_lines(
 repelling_lcs
 ```
 
-The lines are a fixed `(line, point)` rectangle, NaN-padded past termination:
-same number of columns, different curve lengths.
+The lines come back as a fixed `(line, point)` rectangle, NaN-padded past
+termination: every line has the same number of columns, and the curves have
+different lengths.
 
 ```python
 repelling_lcs["lon"].isnull().sum("point")
 ```
 
-Rows that are NaN in every column traced no curve at all. About a quarter of
-the seeds here sit close to land, so the interpolated tensor is NaN at the seed
-and no LCS materialises.
+Rows that are NaN in every column traced no curve. About a quarter of the
+seeds here sit close to land, so the interpolated tensor is NaN at the seed
+and no curve is produced.
 
 ```python
 untraceable = repelling_lcs["lon"].isnull().all("point")
@@ -219,9 +221,9 @@ int(untraceable.sum()), repelling_lcs.sizes["line"]
 
 ## Attracting LCS, in one call
 
-The backward flow map runs the identical three steps, so we let
-`hyperbolic_lcs` do it: it computes the FTLE once, hands it to the ridge
-finder, and returns the curves together with the field they were picked from.
+The backward flow map runs the same three steps, and `hyperbolic_lcs` packs
+them into one call: it computes the FTLE once, hands it to the ridge finder,
+and returns the curves together with the field the seeds were picked from.
 *Hyperbolic* because elliptic LCS are a different family.
 
 ```python
@@ -237,9 +239,10 @@ attracting_lcs
 
 ## Repelling LCS over the forward FTLE
 
-The seed points are dotted so we can check they sit on the ridge tops and stay
-separated. The FTLE gets a greyscale so the curves read against it. The dots
-with no curve through them are the untraceable seeds counted above.
+The seed points are dotted, which shows whether they sit on the ridge tops and
+stay separated. The FTLE gets a greyscale so the coloured curves stand out
+against it. The dots with no curve through them are the untraceable seeds
+counted above.
 
 ```python
 fig, ax = plt.subplots()
@@ -271,7 +274,7 @@ ax.plot(
 
 ## Both families together
 
-Both families over the forward FTLE, in one frame: where a repelling and an
+Both families over the forward FTLE in one frame. Where a repelling and an
 attracting curve cross, the flow is locally hyperbolic.
 
 ```python

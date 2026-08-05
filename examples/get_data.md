@@ -20,8 +20,8 @@ Run this once. It fetches the CMEMS subset that the three Cabo Verde notebooks
 open from disk and writes it to `data/cabo_verde_currents_hourly.nc`. Re-running
 it is cheap: if the file is already there and opens, nothing is downloaded.
 
-`examples/data/` is gitignored — the file is never committed, so a fresh clone
-starts here.
+`examples/data/` is gitignored, so the file is never committed and a fresh
+clone has to run this notebook before the three Cabo Verde ones.
 
 This assumes
 [`copernicusmarine`](https://help.marine.copernicus.eu/en/collections/4060068-copernicus-marine-toolbox)

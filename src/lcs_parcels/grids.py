@@ -3,9 +3,9 @@
 A :class:`Seed` lays out a time-free grid of release positions and emits a
 particle set; the advected positions are ingested back into a :class:`FlowMap`,
 which computes the deformation gradient, the Cauchy-Green tensor, its
-eigen-decomposition and the FTLE. This module contains no Parcels code but just
-provides data to construct particle sets and ingests particle positions after
-advection::
+eigen-decomposition and the FTLE. This module contains no Parcels code: it
+provides the data needed to construct a particle set and ingests the particle
+positions after advection::
 
     seed = NeighborSeed.from_axes(lon=lon, lat=lat)
     lon0, lat0 = seed.to_parcels_pset()
@@ -15,20 +15,20 @@ advection::
     lcs = flowmap.hyperbolic_lcs()   # or straight to the LCS curves
 
 Pass ``t1`` before ``t0`` for backward integration; a zero window is rejected.
-Two stencils for the deformation gradient are two pairs of
-classes: :class:`NeighborSeed` / :class:`NeighborFlowMap` difference against
-neighbouring grid points, :class:`AuxiliarySeed` / :class:`AuxiliaryFlowMap`
-against a four-arm stencil laid around each grid point.
+The deformation gradient has two stencils, one pair of classes each:
+:class:`NeighborSeed` / :class:`NeighborFlowMap` difference against neighbouring
+grid points, :class:`AuxiliarySeed` / :class:`AuxiliaryFlowMap` against a
+four-arm stencil laid around each grid point.
 
 Every object wraps an ``xr.Dataset``, available as ``.ds``. Diagnostics are
 reported at the grid points ``lon_grid``/``lat_grid`` (degrees) and every
 returned array carries ``long_name`` and ``units``. Lon/lat pairs are
 keyword-only throughout. Positions are differenced in metres, each pair in its
-own local east/north frame, so the accuracy of a separation depends on how far
-apart that pair is and not on how large the domain is or where it sits.
-Longitude differences wrap, so the antimeridian is not a special case.
-Longitudes are stored in whatever convention they arrive in; only differences
-and means are wrapped.
+own local east/north frame, so the accuracy of a separation is set by the
+distance between the two points rather than by the size or the position of the
+domain. Longitude differences are wrapped, which covers the antimeridian
+without a separate code path. Longitudes are stored in whatever convention they
+arrive in; only differences and means are wrapped.
 
 Notation follows Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev.
 Fluid Mech. 47:137-162, doi:10.1146/annurev-fluid-010313-141322
@@ -44,7 +44,7 @@ import numpy as np
 import xarray as xr
 
 EARTH_RADIUS_M = 6_371_000.0
-"""Mean Earth radius in meters, the sphere all distances are taken on."""
+"""Mean Earth radius in metres. All distances are taken on a sphere of this radius."""
 
 _DEG = np.pi / 180.0
 """Degrees-to-radians factor."""
@@ -52,10 +52,11 @@ _DEG = np.pi / 180.0
 # --- output metadata -------------------------------------------------------
 #
 # Attribute sets attached to every coordinate and every returned field, so a
-# displayed dataset reads itself and a vanilla plot is labelled from the object.
-# A set becomes a constant here when it is attached to more than one object (the
-# coordinates, the lon/lat pairs); a set attached to one returned field only
-# (`cauchy_green`, `ftle`, ...) is written inline where that field is built.
+# displayed dataset describes itself and a vanilla plot takes its labels from
+# the object. A set becomes a constant here when it is attached to more than one
+# object (the coordinates, the lon/lat pairs); a set attached to one returned
+# field only (`cauchy_green`, `ftle`, ...) is written inline where that field is
+# built.
 
 I_ATTRS = {"long_name": "logical grid index along i"}
 J_ATTRS = {"long_name": "logical grid index along j"}
@@ -101,7 +102,7 @@ def _wrap_lon(dlon):
     """Wrap a longitude *difference* (degrees) into ``[-180, 180]``.
 
     Applied to differences only, never to a stored position: the package keeps
-    longitudes in whatever convention it was handed. Subtracting the nearest
+    longitudes in whatever convention the caller supplied. Subtracting the nearest
     multiple of 360 rather than shifting by 180 and taking a modulo leaves a
     difference already inside the range bit-for-bit unchanged, so wrapping costs
     no precision on the metre-scale differences the stencils take. Works on plain
@@ -111,28 +112,28 @@ def _wrap_lon(dlon):
 
 
 def _separation_m(*, lon_a, lat_a, lon_b, lat_b):
-    """East/north separation of point ``b`` from point ``a``, in meters.
+    """East/north separation of point ``b`` from point ``a``, in metres.
 
     The pair is differenced in its own local frame: the longitude difference is
     wrapped and scaled by the cosine of the pair's mid-latitude, the latitude
     difference by the Earth radius alone. There is no shared projection and no
-    standard parallel, so the frame follows the pair rather than the domain, and
-    the antimeridian is not a special case.
+    standard parallel: each pair defines its own frame, and the wrapped longitude
+    difference covers the antimeridian without a separate code path.
 
     The mid-latitude cosine is a midpoint rule, so it is second-order accurate in
-    the *separation of the pair*, not in the size of the domain. For a zonal pair
-    the relative error against the great-circle distance is
+    the *separation of the pair* rather than in the size of the domain. For a
+    zonal pair the relative error against the great-circle distance is
     ``(dlambda sin(phi))**2 / 24``, so it crosses 1e-6 at ``31.2 km / tan(phi)``:
     54 km at 30 N, 18 km at 60 N, 5.5 km at 80 N, and never at the equator, where
     a parallel is itself a great circle. The auxiliary stencil sits far inside
     that at its default 1 km arms. A neighbour stencil differences over two grid
-    cells and can sit outside it, but pays the finite-difference truncation of
-    that same span first.
+    cells and can sit outside it; on a coarse grid the finite-difference
+    truncation over that same span is the larger term.
 
     Returns
     -------
     tuple
-        ``(dx, dy)``, the eastward and northward components in meters.
+        ``(dx, dy)``, the eastward and northward components in metres.
     """
     dlon = _wrap_lon(lon_b - lon_a)
     lat_mid = 0.5 * (lat_a + lat_b)
@@ -158,7 +159,7 @@ def _circular_mean_lon(lon: xr.DataArray, dim: str) -> xr.DataArray:
 
 def _central_separation_m(lon: xr.DataArray, lat: xr.DataArray, dim: str):
     """Separation of the ``index + 1`` neighbour from the ``index - 1`` one along
-    ``dim``, as ``(dx, dy)`` meters.
+    ``dim``, as ``(dx, dy)`` metres.
 
     ``.shift`` fills NaN past both ends, so the first and last index along ``dim``
     are legitimately NaN: they have no neighbour to difference against.
@@ -174,8 +175,8 @@ def _central_separation_m(lon: xr.DataArray, lat: xr.DataArray, dim: str):
 def _arm_separation_m(
     lon: xr.DataArray, lat: xr.DataArray, positive: str, negative: str
 ):
-    """Separation of one auxiliary arm from its opposite, e.g. ``east`` from
-    ``west``, as ``(dx, dy)`` meters.
+    """Separation of one auxiliary arm from its opposite, e.g., ``east`` from
+    ``west``, as ``(dx, dy)`` metres.
 
     The arms are selected with ``drop=True``, so the result is back on ``(i, j)``.
     """
@@ -200,7 +201,7 @@ def _assemble_tensor(
     """Pack four scalar ``(i, j)`` component fields into a ``(row, col)`` tensor.
 
     ``row`` and ``col`` become dimension coordinates valued ``['x', 'y']`` with
-    ``tensor.sel(row=a, col=b)`` the ``(a, b)`` component, e.g.
+    ``tensor.sel(row=a, col=b)`` the ``(a, b)`` component, e.g.,
     ``gradF.sel(row='y', col='x') = dF_y / dx0_x``. The caller's ``name``,
     ``long_name`` and ``units`` are applied to the assembled result.
     """
@@ -320,9 +321,9 @@ class Seed(abc.ABC):
         """Flatten the reference seed positions ``x_0`` to ``(lon, lat)`` lists.
 
         Emits the reference release positions ``lon_0``/``lat_0``, stacking the
-        grid over all of ``lon_0``'s dims into a single ``particle`` index. The
-        ``particle`` order is the lossless inverse used by
-        :meth:`pset_to_flowmap` to reattach advected positions.
+        grid over all of ``lon_0``'s dims into a single ``particle`` index.
+        :meth:`pset_to_flowmap` reattaches the advected positions in that same
+        ``particle`` order.
 
         Returns
         -------
@@ -467,9 +468,9 @@ class FlowMap(abc.ABC):
     def _time_direction(self) -> str:
         """``'forward'`` or ``'backward'``, from ``sign(T)``.
 
-        A flow map is integrated one way or the other and knows nothing more
-        than that. Which LCS family that yields is a property of the diagnostic,
-        so the repelling/attracting wording lives in :meth:`hyperbolic_lcs`.
+        A flow map records only the direction it was integrated in. Which LCS
+        family that direction yields is a property of the diagnostic, so the
+        repelling/attracting wording lives in :meth:`hyperbolic_lcs`.
         """
         if self.ds["T"] > np.timedelta64(0, "s"):
             return "forward"
@@ -508,11 +509,11 @@ class FlowMap(abc.ABC):
         must be labelled ``lon_grid``/``lat_grid`` and not by a release
         position -- which for :class:`AuxiliaryFlowMap` is one stencil arm.
 
-        Degrees, not meters: a separation only becomes meters once two positions
-        are named, and it is then taken in the local frame of that pair
-        (:func:`_separation_m`). The advected pair therefore gets its own cosine,
-        not the reference pair's, which is what makes ``grad F`` free of any
-        shared frame.
+        The positions are returned in degrees rather than metres because a
+        separation is only in metres once a pair of points is chosen, and it is
+        then taken in the local frame of that pair (:func:`_separation_m`). The
+        advected pair therefore gets its own cosine rather than the reference
+        pair's, so ``grad F`` uses no shared frame.
         """
         release = ["lon_0", "lat_0"]
         return (
@@ -528,7 +529,7 @@ class FlowMap(abc.ABC):
 
         The 2x2 tensor ``grad F = d(lon, lat) / d(lon_0, lat_0)`` per grid point,
         finite-differenced as ``(advected separation) / (initial separation)``,
-        each separation taken in meters in its own local east/north frame
+        each separation taken in metres in its own local east/north frame
         (:func:`_separation_m`): the denominator from the reference
         ``lon_0``/``lat_0``, the numerator from the advected
         ``lon``/``lat``. Subclasses define the stencil: neighbouring grid points
@@ -541,7 +542,7 @@ class FlowMap(abc.ABC):
             grad F with dims ``(i, j, row, col)``; ``row`` and ``col`` are
             dimension coordinates valued ``['x', 'y']``, with
             ``grad F.sel(row=a, col=b) = d F_a / d x0_b`` (dimensionless;
-            meters / meters). The tensor carries no ``comp`` coordinate (``comp``
+            metres / metres). The tensor carries no ``comp`` coordinate (``comp``
             labels the eigenvector component dim).
         """
         raise NotImplementedError("abstract method; implemented by subclasses.")
@@ -648,14 +649,14 @@ class FlowMap(abc.ABC):
         """Advected positions ``F_{t0}^{t1}(x_0)`` at arbitrary reference points.
 
         Interpolates the stored advected-position field ``lon``/``lat`` at the
-        reference locations ``lon0``/``lat0`` (degrees), i.e. where those
-        material points sit at ``t1``. Evolving an extracted material curve is
-        exactly this -- feed a curve's own ``lon``/``lat`` (its ``x_0``) and read
-        back its later position, ``M(t1) = F_{t0}^{t1}(M(t0))`` (Haller 2015
+        reference locations ``lon0``/``lat0`` (degrees), i.e., where those
+        material points sit at ``t1``. This is also how an extracted material
+        curve is evolved: pass the curve's own ``lon``/``lat`` (its ``x_0``) and
+        read back its later position, ``M(t1) = F_{t0}^{t1}(M(t0))`` (Haller 2015
         Eq. 5).
 
         Vectorized and dim-preserving: ``lon0``/``lat0`` are ``DataArray``s on
-        any shared dims -- e.g. the ``(line, point)`` grid of
+        any shared dims -- e.g., the ``(line, point)`` grid of
         :func:`~lcs_parcels.shrink_lines` -- and the output carries those dims.
         Points off the grid, in a NaN (land/edge) cell, or NaN themselves map to
         NaN, so an evolved curve terminates exactly where the flow map is
@@ -684,17 +685,17 @@ class FlowMap(abc.ABC):
         xr.Dataset
             ``lon``/``lat`` (degrees) on the dims of ``lon0``/``lat0`` -- the
             same structure a :func:`~lcs_parcels.shrink_lines` curve has, so an
-            evolved curve is drop-in plottable and can itself be re-fed. The
-            requested reference positions ride along as the ``lon_0``/``lat_0``
-            coords.
+            evolved curve plots the same way and can be passed back into this
+            method. The requested reference positions ride along as the
+            ``lon_0``/``lat_0`` coords.
         """
         # Interpolation is arithmetic on the advected longitudes, so they have to
         # be on one branch first: an advection that hands positions back wrapped
         # to [-180, 180) tears from 179.9 to -179.9 between two adjacent grid
         # points, and a linear interpolant reads that tear as a 40 000 km jump.
         # Re-anchoring each image on the branch of the grid point it came from
-        # removes the tear whenever the displacement is under 180 degrees, which
-        # is every advection short of half the globe.
+        # removes the tear whenever the displacement is under 180 degrees, so it
+        # holds for any advection shorter than half the globe.
         grid_image = self.grid_image
         grid_image = grid_image.assign(
             lon=(
@@ -730,8 +731,8 @@ class FlowMap(abc.ABC):
         # variable or the dimension of the same name. Callers passing lon0/lat0
         # straight off a CF dataset -- the most natural way to call this -- have
         # exactly that collision, so the merging forms raise ``MergeError`` on
-        # them. Naming the data variables and the coordinates separately says
-        # which is which, and never merges.
+        # them. Listing the data variables and the coordinates separately states
+        # which is which and performs no merge.
         return xr.Dataset(
             {
                 "lon": image["lon"].assign_attrs(LON_ATTRS),
@@ -758,20 +759,20 @@ class FlowMap(abc.ABC):
         Runs the three-step workflow in one call: compute the FTLE field
         (:meth:`ftle`), pick seed points at its strong local maxima
         (:func:`~lcs_parcels.ftle_ridge_seeds`), and integrate the shrink lines
-        through them (:func:`~lcs_parcels.shrink_lines`). The FTLE is computed
-        once and handed to the ridge finder; to pick ridges from a smoothed or
-        masked field instead, drive the three steps yourself.
+        through them (:func:`~lcs_parcels.shrink_lines`).
 
         A *forward* flow map (``T > 0``) yields repelling LCS, a *backward* one
         (``T < 0``) attracting LCS, by the forward-backward duality (Haller &
-        Sapsis 2011, https://doi.org/10.1063/1.3579597); the sign of the stored
-        window decides, and the returned dataset says which it holds.
+        Sapsis 2011, https://doi.org/10.1063/1.3579597). The sign of the stored
+        window decides which family is returned, and the returned dataset records
+        that family in its ``long_name``.
 
-        Every call recomputes :meth:`ftle`, which is the expensive part of the
-        chain. Re-tuning the ridge or integration parameters against a fixed
-        field is therefore a case for driving :meth:`ftle`,
+        Within one call the FTLE is computed once and handed to the ridge finder,
+        but every call recomputes it, and that is the expensive step. To pick
+        ridges from a smoothed or masked field, or to re-tune the ridge or
+        integration parameters against a fixed field, drive :meth:`ftle`,
         :func:`~lcs_parcels.ftle_ridge_seeds` and
-        :func:`~lcs_parcels.shrink_lines` yourself, computing the field once.
+        :func:`~lcs_parcels.shrink_lines` yourself and compute the field once.
 
         Parameters
         ----------
@@ -795,14 +796,14 @@ class FlowMap(abc.ABC):
         """
         # This method is a layering inversion: `grids` is the lower layer, and
         # here it reaches up into `tensorlines`, which imports from it. The
-        # deferred import is the standard remedy, taken deliberately because the
-        # one-call ergonomics of this method are worth the inversion.
+        # deferred import is the standard remedy for that, accepted so this
+        # method can run the whole workflow in one call.
         from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
 
         # Forwarding a None would push the sentinel into the public signatures of
         # ftle_ridge_seeds and shrink_lines, which would each then have to
-        # resolve it; dropping the unset arguments here keeps exactly one home
-        # for every default.
+        # resolve it; dropping the unset arguments here leaves each default
+        # defined in exactly one place.
         def _filter_kwargs(**kwargs) -> dict[str, float]:
             return {k: v for k, v in kwargs.items() if v is not None}
 
@@ -821,7 +822,8 @@ class FlowMap(abc.ABC):
                 line_length_m=line_length_m,
             ),
         )
-        # The forward-backward duality is the diagnostic's, not the flow map's.
+        # The forward-backward duality belongs to the diagnostic, so the LCS
+        # family is named here rather than on the flow map.
         direction = self._time_direction()
         kind = "repelling" if direction == "forward" else "attracting"
         lines = lines.assign(
@@ -937,7 +939,7 @@ class AuxiliarySeed(Seed):
         ``lat_grid`` are placed on ``(i, j)`` from the axes, then the four-arm
         ``displacement = ['east', 'north', 'west', 'south']`` stencil is laid out
         around each of them at offsets ``east = (+s, 0)``, ``north = (0, +s)``,
-        ``west = (-s, 0)``, ``south = (0, -s)`` meters (``s = aux_separation_m``)
+        ``west = (-s, 0)``, ``south = (0, -s)`` metres (``s = aux_separation_m``)
         and stored as the reference release positions ``lon_0`` / ``lat_0`` on
         ``(i, j, displacement)``.
 
@@ -946,7 +948,7 @@ class AuxiliarySeed(Seed):
         lon, lat : np.ndarray
             1-D longitude/latitude axes (degrees); see :meth:`Seed.from_axes`.
         aux_separation_m : float, optional
-            Auxiliary separation ``s`` (meters) applied to every arm; sets the
+            Auxiliary separation ``s`` (metres) applied to every arm; sets the
             finite-difference step (the reference arm span is ``2s``). Chosen
             small relative to the flow scale.
 
@@ -964,7 +966,7 @@ class AuxiliarySeed(Seed):
         lat_axis = xr.DataArray(np.asarray(lat, dtype=float), dims="j")
         lon_grid, lat_grid = xr.broadcast(lon_axis, lat_axis)
 
-        # Four-arm stencil offsets in meters.
+        # Four-arm stencil offsets in metres.
         s = float(aux_separation_m)
         displacement = ["east", "north", "west", "south"]
         off_x = xr.DataArray(
@@ -986,8 +988,9 @@ class AuxiliarySeed(Seed):
         deg_per_m = 1.0 / (EARTH_RADIUS_M * np.cos(lat_grid * _DEG) * _DEG)
         # `s` degrees of longitude grows without bound as cos(lat) -> 0, and past
         # 180 it aliases through the wrap into an arm on the far side of the
-        # pole -- a wrong gradient rather than a NaN. There is no east at the
-        # pole, so this is rejected rather than approximated.
+        # pole, which yields a wrong gradient rather than a NaN. The east
+        # direction is undefined at the pole, so the case is rejected here
+        # instead of approximated.
         if not bool((np.abs(s * deg_per_m) < 90.0).all()):
             raise ValueError(
                 f"aux_separation_m={s} spans 90 degrees or more of longitude at "
@@ -1086,12 +1089,15 @@ class AuxiliaryFlowMap(FlowMap):
 
     @property
     def grid_image(self) -> xr.Dataset:
-        """The centroid of the four advected arms -- the arms sit ~metres apart,
-        so this is the flow map image of the grid point. The longitudes are
-        averaged on the circle (:func:`_circular_mean_lon`), so four arms
-        straddling the antimeridian average between themselves. ``skipna=False``
-        so a lost (NaN) arm makes the whole grid point NaN, matching the
-        deformation-gradient path. See :attr:`FlowMap.grid_image`."""
+        """The centroid of the four advected arms.
+
+        The arms were released a stencil separation apart, which is small against
+        the flow scale, so their advected centroid is the flow map image of the
+        grid point. The longitudes are averaged on the circle
+        (:func:`_circular_mean_lon`), so four arms straddling the antimeridian
+        average between themselves. ``skipna=False`` so a lost (NaN) arm makes
+        the whole grid point NaN, matching the deformation-gradient path. See
+        :attr:`FlowMap.grid_image`."""
         advected = self.ds[["lon", "lat"]].drop_vars(["lon_0", "lat_0"])
         return xr.Dataset(
             {
