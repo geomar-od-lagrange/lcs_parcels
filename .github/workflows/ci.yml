@@ -44,13 +44,110 @@ jobs:
       - name: Run tests
         run: pixi run test
 
+  # The OS matrix above runs the default environment, which is Python 3.13. The
+  # supported range is wider, so its ends get a job each. SPEC 0 moves that range
+  # on a schedule, and this matrix moves with it.
+  python-versions:
+    name: test (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [py312, py314]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.10.0
+        with:
+          locked: true
+          environments: ${{ matrix.environment }}
+
+      - name: Run tests
+        run: pixi run -e ${{ matrix.environment }} test
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.10.0
+        with:
+          locked: true
+
+      # Gated at 100%, with the three `raise NotImplementedError` bodies
+      # excluded in `[tool.coverage.report]`. No badge and no third-party
+      # service: the gate is the whole mechanism.
+      - name: Run tests with branch coverage
+        run: pixi run test-cov
+
+  # `[project] dependencies` carries floors that nothing else exercises: pixi
+  # resolves the newest of everything. Installing the oldest allowed release of
+  # each direct dependency makes a wrong floor fail here rather than in a user's
+  # environment.
+  minimum-dependencies:
+    name: minimum dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      # 3.12 is the floor of `requires-python`, so the oldest supported
+      # interpreter meets the oldest allowed dependencies here. pytest is
+      # installed in a second step at the default resolution: it is the test
+      # runner rather than a declared dependency, and `lowest-direct` would pick
+      # pytest 2.0.0 for it.
+      - name: Install at the declared floors
+        run: |
+          uv venv --python 3.12
+          uv pip install --resolution lowest-direct .
+          uv pip install pytest
+
+      - name: Show what resolved
+        run: uv pip list
+
+      - name: Run tests
+        run: .venv/bin/python -m pytest -m "not needs_creds"
+
+  # Everything this repository publishes is built here, so a broken sdist
+  # exclude list, a metadata field PyPI rejects, or a README that stops
+  # rendering fails in CI rather than at `twine upload`.
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build the sdist and the wheel
+        run: uv build
+
+      # `--strict` fails on a README that PyPI would reject or render as
+      # plain text.
+      - name: Check the distributions
+        run: uvx twine check --strict dist/*
+
+      # A source distribution that cannot build and test itself is not a source
+      # distribution. This also catches an exclude that drops `src/` or `tests/`.
+      - name: Install the sdist and run its tests
+        run: |
+          mkdir -p /tmp/sdist && tar xzf dist/*.tar.gz -C /tmp/sdist --strip-components=1
+          uv venv --python 3.12
+          uv pip install /tmp/sdist pytest
+          cd /tmp/sdist && "$GITHUB_WORKSPACE/.venv/bin/python" -m pytest -m "not needs_creds"
+
   examples:
     name: examples (CMEMS)
     runs-on: ubuntu-latest
     # Forks get no secrets on `pull_request`, so the credentialled examples
-    # cannot run there. Gate the whole job rather than teaching the tests to
-    # cope: they assume their prerequisites are present and fail loudly.
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' }}
+    # cannot run there. Dependabot is the same case for a different reason: its
+    # runs read the Dependabot secret store, not the Actions one, so the CMEMS
+    # credentials would arrive empty and the job would fail on every bump PR.
+    # Gate the whole job rather than teaching the tests to cope: they assume
+    # their prerequisites are present and fail loudly.
+    if: ${{ github.actor != 'dependabot[bot]' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push') }}
     steps:
       - uses: actions/checkout@v4
 

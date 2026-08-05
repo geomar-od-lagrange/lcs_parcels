@@ -1,8 +1,11 @@
 # LCS-Parcels
 
+[![CI](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml/badge.svg)](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/LICENSE)
+
 Lagrangian coherent structure (LCS) diagnostics on top of
-[Parcels](https://oceanparcels.org/): deformation gradient $\nabla F$,
-Cauchy-Green tensor $(\nabla F)^\top \nabla F$, its eigen-analysis, and the
+[Parcels](https://oceanparcels.org/): deformation gradient `grad F`,
+Cauchy-Green tensor `(grad F)^T grad F`, its eigen-analysis, and the
 finite-time Lyapunov exponent (FTLE), following Haller (2015),
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
 
@@ -35,8 +38,8 @@ continuing across it.
 Separations are measured in metres, and the accuracy of a separation is set by
 how far apart the two points are and at what latitude, not by the size or
 placement of the domain. Measured against the great-circle distance, a zonal
-pair is off by $10^{-6}$ at a separation of 54 km at 30 N, 18 km at 60 N and
-5.5 km at 80 N; the full series is in [`docs/numerics.md`](docs/numerics.md). On
+pair is off by 1e-6 at a separation of 54 km at 30 N, 18 km at 60 N and
+5.5 km at 80 N; the full series is in [`docs/numerics.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/docs/numerics.md). On
 the equator the error vanishes at every separation. The default 1 km auxiliary
 arms sit far inside those thresholds away from the pole; the zonal threshold
 falls to 1 km itself only above about 88 N. A neighbour stencil differences over
@@ -46,7 +49,16 @@ finite-difference truncation of that same span is the larger error.
 
 ## Install
 
-The project is managed with [pixi](https://pixi.sh):
+Python 3.12 or newer:
+
+```console
+$ pip install git+https://github.com/geomar-od-lagrange/lcs_parcels.git
+```
+
+That gets the current `main`. There is no release on PyPI yet.
+
+To work on the package instead, or to run the examples, use
+[pixi](https://pixi.sh):
 
 ```console
 $ pixi install
@@ -91,23 +103,23 @@ itself:
 <NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00, t0 2020-01-01T00:00:00, T +7.0 days>
 ```
 
-Examples live under [`examples/`](examples/). Each is a jupytext triplet
+Examples live under [`examples/`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/). Each is a jupytext triplet
 (`.py`/`.md`/`.ipynb`) sharing one source; the rendered `.ipynb` is the one to
 read:
 
-- [`cabo_verde_ftle`](examples/cabo_verde_ftle.ipynb) — the Parcels v4 wiring:
+- [`cabo_verde_ftle`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_ftle.ipynb) — the Parcels v4 wiring:
   the FTLE from CMEMS currents. Needs CMEMS credentials.
-- [`cabo_verde_lcs`](examples/cabo_verde_lcs.ipynb) — repelling and attracting
+- [`cabo_verde_lcs`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs.ipynb) — repelling and attracting
   LCS as strain tensor lines.
-- [`cabo_verde_lcs_evolution`](examples/cabo_verde_lcs_evolution.ipynb) — an
+- [`cabo_verde_lcs_evolution`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs_evolution.ipynb) — an
   extracted LCS evolved as a material curve.
-- [`example_grid_pset`](examples/example_grid_pset.ipynb) — the package API
+- [`example_grid_pset`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/example_grid_pset.ipynb) — the package API
   exercised on its own, without Parcels.
 
 The Parcels examples need the `examples` pixi environment (`pixi install -e
 examples`) and a CMEMS currents file you save yourself; see
-[`examples/README.md`](examples/README.md) for the reading order and the data.
+[`examples/README.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/README.md) for the reading order and the data.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/LICENSE)

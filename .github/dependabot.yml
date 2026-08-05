@@ -1,0 +1,15 @@
+version: 2
+
+# `github-actions` only, and that is not a scoping decision but the whole of what
+# Dependabot can see here. It has no pixi ecosystem, and its `pip` ecosystem does
+# not read `[tool.pixi.*]`, so it cannot reach the Parcels git pin in the
+# `examples` feature. The `[project]` dependencies carry floors and no caps, so
+# there is nothing there for it to bump either.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

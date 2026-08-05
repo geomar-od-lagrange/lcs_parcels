@@ -7,3 +7,16 @@
 
 # We don't bundle any data
 examples/data/
+
+# coverage
+.coverage
+.coverage.*
+htmlcov/
+
+# build artefacts
+dist/
+build/
+*.egg-info/
+
+# `uv venv`, as the minimum-dependencies CI job makes it
+.venv/
