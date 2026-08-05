@@ -1,8 +1,8 @@
 """Package-level sanity checks: import, version, and class hierarchies."""
 
-import importlib.metadata
 import inspect
 
+import packaging.version
 import pytest
 import xarray as xr
 
@@ -22,15 +22,15 @@ def test_version():
     assert isinstance(lcs_parcels.__version__, str) and lcs_parcels.__version__
 
 
-def test_version_matches_the_installed_distribution():
-    """``__version__`` equals what the installed distribution reports.
+def test_version_is_pep440():
+    """The version parses as PEP 440.
 
-    PEP 440 normalises the version on the way into the metadata, so a
-    zero-padded CalVer date in the source (``2026.08.04.1``) is published as
-    ``2026.8.4.1`` and the two disagree for anyone who installs. Pins no value,
-    so a release bump needs no edit here.
+    hatch-vcs derives it from the git tag, so a tag PEP 440 cannot express, or a
+    checkout with no tags at all, shows up here rather than at upload time.
+    Comparing ``__version__`` against the distribution metadata is no longer a
+    test: it *is* that metadata.
     """
-    assert lcs_parcels.__version__ == importlib.metadata.version("lcs_parcels")
+    packaging.version.Version(lcs_parcels.__version__)
 
 
 def test_public_classes_importable():
