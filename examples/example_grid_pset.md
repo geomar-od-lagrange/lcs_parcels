@@ -21,7 +21,7 @@ This notebook is about the structures and the API, not about advection.
 A `Seed` holds a time-free grid of release positions. `Seed.to_parcels_pset()`
 emits them as flat `lon`, `lat` lists. `Seed.pset_to_flowmap(...)` ingests the
 advected positions and returns a `FlowMap`, which computes the deformation
-gradient, the Cauchy-Green tensor and the FTLE. No Parcels is imported below;
+gradient, the Cauchy–Green tensor and the FTLE. No Parcels is imported below;
 the advection is replaced by particles that do not move.
 
 There are two stencils, and each is a pair of classes. `NeighborSeed` releases
@@ -37,8 +37,9 @@ from lcs_parcels import AuxiliarySeed, NeighborSeed
 
 ## Grid and window
 
-The axes fix *where*; nothing fixes *when* until ingest. `t1 > t0` makes the
-window $T = t_1 - t_0$ positive, so the FTLE below is the forward one.
+The axes set the grid. The times are not attached to anything until ingest.
+`t1 > t0` makes the window $T = t_1 - t_0$ positive, so the FTLE below is the
+forward one.
 
 ```python
 lon_axis = np.linspace(-25.0, -20.0, 6)
@@ -63,11 +64,11 @@ seed.ds
 
 ## The auxiliary stencil
 
-Four arms -- `east, north, west, south` -- at `aux_separation_m` around each
+Four arms — `east, north, west, south` — at `aux_separation_m` around each
 grid point, so `lon_0`/`lat_0` gain a `displacement` dim and there are four
 particles per grid point. The finite-difference step is the arm separation
-rather than the grid spacing, and it is defined at every grid point including
-the boundary.
+rather than the grid spacing, and the FTLE is defined at every grid point,
+including the boundary.
 
 ```python
 aux_seed = AuxiliarySeed.from_axes(lon=lon_axis, lat=lat_axis, aux_separation_m=1_000.0)
@@ -79,8 +80,8 @@ aux_seed.ds
 
 `to_parcels_pset()` flattens the release positions to two plain lists, one
 entry per particle: 30 grid points for the neighbour stencil, 4 arms each for
-the auxiliary one. This is everything Parcels needs, and the order is what
-ingest reattaches by.
+the auxiliary one. The two lists are everything Parcels needs, and ingest
+reattaches the advected positions to the grid by their order.
 
 ```python
 lon_0, lat_0 = seed.to_parcels_pset()
@@ -131,7 +132,7 @@ aux_flowmap.grid_image
 ## FTLE from both stencils
 
 `ftle()` returns 1/s on the diagnostic grid. Both stencils give zero; they
-differ in where the value exists at all.
+differ in where the FTLE is defined.
 
 ```python
 ftle = flowmap.ftle()

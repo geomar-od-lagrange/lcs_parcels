@@ -17,20 +17,21 @@ jupyter:
 # Evolving a hyperbolic LCS as a material curve
 
 An extracted hyperbolic LCS (see `cabo_verde_lcs`) is a **material** curve:
-once we have its vertices at $t_0$ — the `lon`/`lat` that `shrink_lines`
-returns — its position at any other time is fixed by the flow map,
+given its vertices at $t_0$ — the `lon`/`lat` that `shrink_lines` returns —
+its position at any other time is fixed by the flow map,
 $\mathcal{M}(t) = F_{t_0}^{t}(\mathcal{M}(t_0))$ (Haller 2015, Eq. 5,
-[doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322)). We do
-not re-diagnose the LCS at each time; we watch one fixed curve move.
+[doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322)).
+The LCS is not re-diagnosed at each time: one curve, fixed at $t_0$, is
+carried to each horizon.
 
 The flow map $F_{t_0}^{t}$ *is* the advected-position field a `FlowMap`
-stores, so evolving the curve is interpolating that field at the curve's
-vertices with `FlowMap.image` — no re-integration of the curve, and
-self-consistent with the map that diagnosed it.
+stores, so the curve is evolved by interpolating that field at the curve's
+vertices with `FlowMap.image`. The curve itself is never re-integrated.
 
 Each family is evolved in its **coherent** direction, the one in which
-perturbations shrink. So the attracting curve is carried by the forward maps
-and the repelling curve by the backward maps.
+perturbations shrink. The attracting curve is therefore carried by the forward
+maps and the repelling curve by the backward maps. Each is evolved in the
+opposite direction to the one it was diagnosed on.
 
 ```python
 import matplotlib.pyplot as plt
@@ -68,10 +69,10 @@ z_surface = float(currents["depth"].values[0])
 A rectilinear `NeighborSeed` over the release box, anchored at the middle of
 the window the local file covers so five days fit either side of $t_0$.
 
-We evolve to **daily** horizons out to five days. Daily is the cadence at
-which this flow moves a curve visibly while consecutive frames still overlap,
-so the sequence reads as one curve deforming rather than as unrelated curves;
-the longest horizon is also where we diagnose the LCS.
+The horizons are **daily**, out to five days. At that cadence this flow moves
+a curve visibly and consecutive frames still overlap, so the sequence shows
+one curve deforming rather than a set of unrelated curves. The longest horizon
+is also the one the LCS is diagnosed at.
 
 ```python
 t0 = np.datetime64("2025-08-06")
@@ -111,8 +112,8 @@ The horizons are reached one leg at a time, so the five-day run is five days of
 integration rather than $1 + 2 + 3 + 4 + 5$.
 
 Each leg starts a **new** `ParticleSet` from the positions the previous leg
-ended at, released at that leg's start time. Reusing one set across legs would
-not do: a particle that beaches stops advancing, so its clock stays behind, and
+ended at, released at that leg's start time. Reusing one set across legs
+fails: a particle that beaches stops advancing, so its clock stays behind, and
 Parcels interpolates a particle set on the assumption that every particle
 shares one clock.
 
@@ -148,13 +149,13 @@ forward_maps[-1].ds
 
 ## Extract the LCS at the longest window
 
-The ridges are sharpest at the longest horizon, so we diagnose there:
-repelling LCS from the forward flow, attracting from the backward one
-(forward–backward duality, Haller & Sapsis 2011,
+The ridges are sharpest at the longest horizon, so the LCS are diagnosed
+there: repelling LCS from the forward flow, attracting LCS from the backward
+one (forward–backward duality, Haller & Sapsis 2011,
 [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)), each seeded at
 the local maxima of its own FTLE. `FlowMap.hyperbolic_lcs` runs that chain —
 FTLE, ridge seeds, shrink lines — in one call and reads repelling or
-attracting off the sign of its own window; *hyperbolic* because elliptic LCS
+attracting off the sign of its own window. *Hyperbolic* because elliptic LCS
 are a different family.
 
 ```python
@@ -177,9 +178,9 @@ directly with the curve it came from. Concatenating the curve at $t_0$ with
 its image under each horizon map gives an evolution cube on
 `(offset, line, point)`, `offset` being the signed offset from $t_0$ in days.
 
-The scalar `T` on each cube points the *opposite* way to its `offset`, which
-looks wrong and is not: `T` is inherited provenance, the window the curve was
-diagnosed over, while `offset` is the direction it is being advected. An
+The scalar `T` on each cube points the *opposite* way to its `offset`. That is
+correct: `T` is inherited provenance, the window the curve was diagnosed over,
+while `offset` is the direction the curve is being advected in. An
 attracting LCS is diagnosed backward ($T < 0$) and evolved forward.
 
 ```python
@@ -220,9 +221,8 @@ repelling_evo
 ## Snapshots
 
 Each family of material lines day by day, with its own $t_0$ position drawn
-faintly in every
-panel for reference. The axes are shared and left to autoscale, so a curve
-that leaves the release box stays visible.
+faintly in every panel for reference. The axes are shared and left to
+autoscale, so a curve that leaves the release box stays visible.
 
 ```python
 fig, axes = plt.subplots(2, len(offset_days), figsize=(16, 6), sharex=True, sharey=True)

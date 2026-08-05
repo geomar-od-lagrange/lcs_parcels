@@ -35,13 +35,13 @@ from lcs_parcels import NeighborSeed
 
 ## Parameters
 
-Ten days is roughly one eddy turnover time at these latitudes -- the FTLE map
+Ten days is roughly one eddy turnover time at these latitudes: the FTLE map
 below comes out around 0.1/day over most of the box, an e-folding time of about
 ten days. That is long enough for the stretching to separate neighbouring
-particles by more than one seed-grid cell (1/25°, about 4.4 km), short enough
-that the seed grid still resolves where they went. The seed spacing is finer
-than the 1/12° currents, so the differencing stencil is not what limits the
-FTLE.
+particles by more than one seed-grid cell ($1/25^\circ$, about 4.4 km), and
+short enough that the seed grid still resolves where they went. The seed
+spacing is finer than the $1/12^\circ$ currents, so the differencing stencil is
+not what limits the FTLE.
 
 ```python
 t0 = np.datetime64("2025-08-01")
@@ -145,7 +145,7 @@ ftle
 numbers around $10^{-6}$; rescaling to $1/\mathrm{day}$ makes the map
 readable. The scaling carries the name and `long_name` over, so only `units`
 has to be corrected. The grid points are 2-D coords on the logical dims
-`(i, j)`, so the plot is told which coords are the axes; the labels come from
+`(i, j)`, so `x` and `y` name the coords to use as axes; the labels come from
 the metadata.
 
 ```python

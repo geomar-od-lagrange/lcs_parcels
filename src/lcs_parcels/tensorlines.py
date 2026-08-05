@@ -1,4 +1,7 @@
-"""Hyperbolic LCS as strain tensor lines. Haller (2015) §5.1 / Table 1 (n=2).
+"""Hyperbolic LCS as strain tensor lines.
+
+Haller (2015) §5.1 / Table 1 (n=2), doi:10.1146/annurev-fluid-010313-141322
+(https://doi.org/10.1146/annurev-fluid-010313-141322).
 
 A repelling LCS is a *shrink line* -- a curve tangent to the weak-stretch
 eigenvector ``xi_1`` of the Cauchy-Green tensor ``C`` (equivalently, normal to
@@ -8,7 +11,7 @@ forward-backward duality (Haller & Sapsis 2011, https://doi.org/10.1063/1.357959
 they are the shrink lines of the *backward* flow, so :func:`shrink_lines` of a
 backward :class:`~lcs_parcels.FlowMap` gives them.
 
-Two functions compose the workflow: :func:`ftle_ridge_seeds` picks start points,
+Two functions compose the workflow: :func:`ftle_ridge_seeds` picks seed points,
 :func:`shrink_lines` integrates the tensor lines through them. Both take the
 gridded xarray outputs of a :class:`~lcs_parcels.FlowMap`, and
 :meth:`~lcs_parcels.FlowMap.hyperbolic_lcs` runs the pair in one call.
@@ -52,24 +55,24 @@ def _window_geometry(ftle: xr.DataArray, window_m: float) -> dict[str, float]:
 
     ``grid_spacing_i_m`` / ``grid_spacing_j_m`` are the **median** local
     east/north separations of adjacent grid points
-    (:func:`~lcs_parcels.grids._separation_m`). They set the cell counts, where
-    the size most of the grid has is the right one to convert ``window_m`` with.
+    (:func:`~lcs_parcels.grids._separation_m`). They set the cell counts: the
+    size that most of the grid has is the right one to convert ``window_m`` with.
 
     ``min_seed_separation_m`` is the closest two seeds can be, and so is built on
     the **minimum** cell size instead: a window of ``cells`` reaches
     ``(cells - 1) // 2`` cells to either side of its own grid point, so the
     nearest point that can also be a windowed maximum is one cell beyond that,
     and the physical distance that buys is smallest where the cells are smallest.
-    On a grid of near-uniform cells it lands near ``window_m / 2``, which is the
-    number a user choosing ``window_m`` needs; on a grid whose cells converge
-    poleward it is smaller, and taking the median there would overstate it — by a
+    On a grid of near-uniform cells the value lands near ``window_m / 2``, which
+    is the number a user choosing ``window_m`` needs; on a grid whose cells
+    converge poleward it is smaller, and the median would overstate it by a
     factor of 3 over a 75-degree band, measured.
 
     The bound is on *strict* local maxima. Selection is ``ftle >= rolling max``,
     so every cell of a plateau of exactly equal values is a windowed maximum and
     adjacent cells can both be seeds. A masked, saturated or float-tied field can
-    therefore return seeds closer than this. Nothing distinguishes a point on a
-    flat ridge top, so they are all kept rather than broken arbitrarily.
+    therefore return seeds closer than this. The cells of such a plateau are
+    indistinguishable from one another, so all of them are kept.
     """
     lon_grid, lat_grid = ftle["lon_grid"], ftle["lat_grid"]
     dx, _ = _separation_m(
@@ -111,12 +114,13 @@ def ftle_ridge_seeds(
 ) -> xr.Dataset:
     """Seed points at strong local maxima of an FTLE field.
 
-    A grid point is a seed when its FTLE is the maximum over a neighbourhood
+    A grid point is a seed when its FTLE is the maximum over a window
     ``window_m`` wide in total, centred on it (a windowed local maximum on the
     raw value) *and* is at or above a magnitude floor. The floor is either a
-    ``quantile`` of this field or an absolute ``ftle_min``; it is a magnitude
-    test, not a local-contrast one. NaN cells (e.g. the
-    :class:`~lcs_parcels.NeighborFlowMap` edge) never qualify.
+    ``quantile`` of this field or an absolute ``ftle_min``, and it tests the
+    magnitude of the value rather than its contrast against the surrounding
+    cells. NaN cells (e.g., the :class:`~lcs_parcels.NeighborFlowMap` edge) never
+    qualify.
 
     Warns when ``window_m`` spans fewer than three cells in either dimension: a
     one-cell window makes every point a windowed maximum, so the local-maximum
@@ -126,10 +130,10 @@ def ftle_ridge_seeds(
     ----------
     ftle : xr.DataArray
         FTLE field with dims ``(i, j)`` and ``lon_grid``/``lat_grid``
-        coordinates, e.g. from :meth:`FlowMap.ftle`.
+        coordinates, e.g., from :meth:`FlowMap.ftle`.
     window_m : float, optional
-        Side of the square neighbourhood in metres (default 30 km). Converted to
-        an odd cell count per dimension from the field's own grid spacing, so the
+        Side of the square window in metres (default 30 km). Converted to an odd
+        cell count per dimension from the field's own grid spacing, so the
         separation between seeds is a physical distance and does not change with
         grid resolution. On a 1/25-degree grid at 20 N (about 4.2 km cells) the
         default is 7 cells.
@@ -138,11 +142,11 @@ def ftle_ridge_seeds(
         its own grid point, so **the closest two seeds can be is about
         ``window_m / 2``**, not ``window_m``. The returned
         ``min_seed_separation_m`` attribute is that distance computed on this
-        grid, off the smallest cell rather than the typical one, and so is a
-        floor rather than a guide; halve ``window_m`` in your head, or read the
-        attribute. It bounds *strict* local maxima: a plateau of exactly equal
-        values makes every one of its cells a windowed maximum, and those can be
-        adjacent.
+        grid from the smallest cell rather than the typical one, so it is a floor
+        on the separation. For a quick estimate halve ``window_m``; for the value
+        on this grid read the attribute. The bound holds for *strict* local
+        maxima: a plateau of exactly equal values makes every one of its cells a
+        windowed maximum, and those can be adjacent.
     quantile : float, optional
         Magnitude floor as a quantile of this field, in ``[0, 1]``. Defaults to
         0.90 (the top decile) when neither selector is given.
@@ -150,11 +154,11 @@ def ftle_ridge_seeds(
         Magnitude floor as an absolute value, in the units of ``ftle`` (1/s for
         :meth:`FlowMap.ftle`). Mutually exclusive with ``quantile``.
 
-        The default selector is deliberately the quantile, which means the same
-        thing on any field. An absolute floor does not: a rate that marks a ridge
-        in a fast flow marks nothing in a slow one. It is here because that is
-        exactly the property a run comparing windows or regions needs -- the same
-        threshold across all of them -- and a quantile cannot give it.
+        The default selector is the quantile, because a quantile means the same
+        thing on any field, while a given rate marks a ridge in a fast flow and
+        nothing in a slow one. Use ``ftle_min`` when several windows or regions
+        have to be compared against one common threshold, which a quantile cannot
+        provide.
 
     Returns
     -------
@@ -242,15 +246,14 @@ def _shrink_line_tangent(
 ) -> np.ndarray:
     """Unit ``xi_1`` at each ``(lon, lat)``, oriented to ``heading``.
 
-    ``xi_1`` is both the direction material line elements *shrink* along and the
-    tangent of the shrink line -- the two readings coincide, which is what makes
-    the tensor line the curve it is.
+    ``xi_1`` is the direction material line elements *shrink* along, and the
+    shrink line is the curve tangent to it everywhere.
 
     Returns ``NaN`` wherever the tangent is **not well defined**, which is one
     condition with three causes: the point is off-grid, it sits in a NaN cell, or
-    the tensor is too close to isotropic for its eigenvectors to mean anything
-    (``min_anisotropy``). Callers read a NaN row as "the line ends here" without
-    needing to know which of the three fired.
+    the tensor is too close to isotropic for its eigenvectors to be resolved
+    (``min_anisotropy``). Callers read a NaN row as "the line ends here" and do
+    not need to know which of the three fired.
 
     Parameters
     ----------
@@ -285,19 +288,19 @@ def _shrink_line_tangent(
     )
     # Stop where the eigenvalues are too close together to separate: an
     # eigenvector's sensitivity to perturbation of C goes as the inverse of the
-    # *relative* gap between the eigenvalues, so lambda_2 / lambda_1 -- not
-    # lambda_2 alone -- is what decides whether xi_1 is a direction or noise.
+    # *relative* gap between the eigenvalues, so the test is on
+    # lambda_2 / lambda_1 rather than on lambda_2 alone.
     # C is positive semi-definite, so a lambda_1 at or below zero is round-off on
-    # an extremely anisotropic tensor; clamping it to zero passes those points,
-    # which is the right answer for them.
+    # an extremely anisotropic tensor; clamping it to zero lets those points
+    # through, which is correct for them.
     terminated = terminated | (
         eigenvalues[:, 1] < min_anisotropy * np.maximum(eigenvalues[:, 0], 0.0)
     )
     direction = eigenvectors[:, :, 0]
     # An eigenvector has no intrinsic sign, so eigh's choice flips arbitrarily
-    # between neighbouring points. Flip each one to the acute side of the running
-    # heading, which is what makes the marched sequence a continuous curve rather
-    # than a zig-zag.
+    # between neighbouring points. Flipping each one to the acute side of the
+    # running heading keeps the marched sequence a continuous curve instead of a
+    # zig-zag.
     direction[np.sum(direction * heading, axis=1) < 0] *= -1
     direction[terminated] = np.nan
     return direction
@@ -319,17 +322,21 @@ def _step_lonlat_by_meters(
     mid-latitude. A unit ``direction`` moves ``step_m``; a shorter one (the
     half-step of the midpoint scheme) moves proportionally less.
 
-    Inverting the measurement rather than solving the direct great-circle problem
-    is what keeps the traced curve on the direction field. A great-circle arc
+    Inverting the measurement, rather than solving the direct great-circle
+    problem, keeps the traced curve on the direction field. A great-circle arc
     leaves a heading-invariant field at a rate ``(step / R)**2 tan(phi) / 2`` per
     step, which accumulates *linearly* in the step count: a due-east field at
     70 N drifts 3.4 km off its parallel over an 800 km line at a 20 km step, and
-    halving the step only halves that. The step below leaves it exactly.
+    halving the step only halves that. The step taken here has no such term. It
+    follows a field aligned with a parallel or a meridian exactly, at any step
+    size and any latitude; on any other heading the ``cos(phi_mid)`` factor is a
+    midpoint rule, so the error is second order in the step (0.04 m at 60 N on a
+    45-degree heading at a 25 km step, and 2.6 m at 100 km).
 
     The increment is added to the incoming longitude, so a track crossing the
     antimeridian stays on the branch its seed came in on. Latitude is not folded
     at the pole: a line stepped past 90 degrees runs off the chart rather than
-    over the top.
+    over the top, and terminates at the next tangent lookup.
 
     Parameters
     ----------
@@ -476,18 +483,18 @@ def shrink_lines(
         Advected flow map on a rectilinear grid; supplies ``cauchy_green()`` and
         the ``lon_grid``/``lat_grid`` axes.
     seed_lon, seed_lat : array_like
-        Seed positions (degrees), e.g. from :func:`ftle_ridge_seeds`.
+        Seed positions (degrees), e.g., from :func:`ftle_ridge_seeds`.
     min_anisotropy : float, optional
         Stop a line where ``lambda_2 / lambda_1`` falls below this (default
         1.15). An eigenvector's sensitivity to perturbation of ``C`` scales as
-        the inverse of the *relative* gap between the eigenvalues, so this ratio
-        is what decides whether ``xi_1`` is a direction or numerical noise; at
+        the inverse of the *relative* gap between the eigenvalues, so this ratio,
+        rather than ``lambda_2`` alone, decides whether ``xi_1`` is resolved; at
         the default a 1% error in ``C`` swings ``xi_1`` by about 2 degrees.
-        Being a ratio it is free of ``T``, of the grid scale, and of the flow's
-        own stretching rate: the same value means the same thing for a six-hour
-        laboratory flow and a six-month basin-scale one. This is a
-        well-definedness guard, not an LCS selector -- ``quantile`` in
-        :func:`ftle_ridge_seeds` is what selects.
+        Being a ratio it does not depend on ``T``, on the grid scale, or on the
+        flow's own stretching rate, so the same value applies to a six-hour
+        laboratory flow and to a six-month basin-scale one. It is a
+        well-definedness guard; which structures count as LCS is set by
+        ``quantile`` in :func:`ftle_ridge_seeds`.
     step_m : float, optional
         Arc-length step in metres (default 3000).
     line_length_m : float, optional
@@ -506,7 +513,7 @@ def shrink_lines(
     lon_axis = flowmap.lon_grid.isel(j=0).values
     lat_axis = flowmap.lat_grid.isel(i=0).values
     # CG_grid (not "C-grid": no Arakawa staggering here) is the Cauchy-Green
-    # tensor on the analysis grid, interpolated point-by-point during the trace.
+    # tensor on the diagnostic grid, interpolated point-by-point during the trace.
     CG_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
     # The one place this package leaves the label-based xarray API: the ODE loop
     # below evaluates the tensor at millions of scattered points, which

@@ -1,11 +1,12 @@
 # Notation reference
 
-This document is the single source of truth for the symbols and conventions used
-throughout `lcs_parcels`. It follows Haller (2015), *Lagrangian Coherent
-Structures*, Annu. Rev. Fluid Mech. 47:137–162,
+This document defines the symbols and conventions used throughout
+`lcs_parcels`. Naming follows Haller (2015), *Lagrangian Coherent Structures*,
+Annu. Rev. Fluid Mech. 47:137–162,
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
-Each symbol is tied to its Haller equation number and to the name it carries in
-the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
+Each symbol is listed with its Haller equation number and with the name it
+carries in the code. Math is written in LaTeX; equation numbers refer to
+Haller (2015).
 
 ## Symbol table
 
@@ -28,13 +29,13 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 | $dx = R\cos\phi\,d\lambda,\ \ dy = R\,d\phi$ | metric of the sphere of radius $R$: the local east/north frame in which every separation is measured ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ metres). A *finite* separation between two named points takes the cosine at that pair's mid-latitude, $\bar\phi = \tfrac{1}{2}(\phi_a + \phi_b)$ | — | (internal metric, `_separation_m`) |
 | $\Delta\lambda \in [-180^\circ, 180^\circ]$ | longitude *difference*, wrapped; stored longitudes are never wrapped | — | `_wrap_lon` |
 | $\dot r = \xi_1(r)$ | shrink line: tensor line tangent to $\xi_1$; a repelling LCS (forward flow) or, by forward–backward duality, attracting LCS (backward flow) | Table 1 ($n = 2$) | `shrink_lines`, `ftle_ridge_seeds` |
-| $w$ | ridge-seed window: the **side**, in metres, of the square neighbourhood a seed must be the FTLE maximum over; two seeds can therefore be about $w/2$ apart | — | `window_m` |
+| $w$ | ridge-seed window: the **side**, in metres, of the square window a seed must be the FTLE maximum over; two seed points can therefore be about $w/2$ apart | — | `window_m` |
 | $\Lambda \ge \Lambda_{\min}$ | FTLE magnitude floor a seed must also clear, set either as a quantile of the field at hand or as an absolute value in the field's units (1/s) | — | `quantile`, `ftle_min` |
 | $\lambda_2 / \lambda_1 \ge a_{\min}$ | anisotropy floor: the ratio of the Cauchy–Green eigenvalues below which $\xi_1$ is not a well-defined direction (dimensionless) | — | `min_anisotropy` |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 | — |
 | $\eta^\pm(x_0)$ | shear vector field; stretch/shear lines (**deferred**) | 10, 11, Table 1 | — |
 
-## Notes on the subtle points
+## Conventions in detail
 
 ### Three coordinate pairs
 
@@ -56,10 +57,10 @@ in degrees. They are defined here and nowhere else.
   \mathrm{lat}_0)$ is well-defined.
 
 For the `Neighbor*` classes the release point *is* the grid point, so `lon_grid`
-equals `lon_0` and `lat_grid` equals `lat_0`. The value is nevertheless stored
-under both names rather than aliased: a consumer reads `lon_grid` without
-knowing which stencil produced the dataset, and the dataset stays
-self-sufficient — the same call already made for the explicit auxiliary arms.
+equals `lon_0` and `lat_grid` equals `lat_0`. The value is stored under both
+names rather than aliased, so a consumer can read `lon_grid` without knowing
+which stencil produced the dataset, and the dataset stays self-sufficient. The
+auxiliary arms are stored explicitly for the same reason.
 
 The diagnostics carry `lon_grid`/`lat_grid` only. `lon_0`/`lat_0` are dropped
 from them, because on the `Auxiliary*` classes the differenced position is one
@@ -77,32 +78,31 @@ These are two distinct objects and the code keeps the names apart:
   reference positions $x_0$ = `lon_0` / `lat_0` (coordinates, carried by both the
   seed and the flow map). A time-free `Seed` has no advected positions at all;
   they enter only at ingest. The symbol `F` / `flow_map` denotes the map as a
-  whole (reserved to contrast with the gradient `gradF`).
+  whole.
 - $\nabla F_{t_0}^{t_1}(x_0)$ (Eq. 4) is the **gradient** of that map — a
   $2\times 2$ matrix at each $x_0$. Code name: `deformation_gradient` / `gradF`.
 
-`F` is reserved for the map, `gradF` for its gradient; the $2\times 2$ object is
-never called "F".
+`F` names the map and `gradF` its gradient; the $2\times 2$ object is never
+called `F`.
 
 ### Computing the deformation gradient (Eq. 9)
 
 $\nabla F$ is estimated by finite differences of final positions with respect to
-initial positions. Each column of $\nabla F$ is a centered difference of the
+initial positions. Each column of $\nabla F$ is a centred difference of the
 *advected* positions (the **numerator**, measured from the ingested Parcels
 outputs) divided by the controlled *initial* separation (the **denominator**).
-Both are separations in meters, each taken in the local frame of its own pair of
-points (see [the local east-north frame](#the-local-east-north-frame) below);
-the metric only converts lon/lat separations to meters and never supplies the
+Both are separations in metres, each taken in the local frame of its own pair of
+points (see [the local east-north frame](#the-local-east-north-frame) below).
+The metric converts lon/lat separations to metres and never supplies the
 advected displacement (Haller's Eq. 9 stencil). Two stencil strategies are
-modeled as separate classes, both
-first-class:
+modelled as separate classes:
 
-- **Neighbor differencing** (`NeighborFlowMap`): the stencil is the neighboring
+- **Neighbour stencil** (`NeighborFlowMap`): the stencil is the neighbouring
   grid points $(i\pm 1, j\pm 1)$. No extra dimensions; the diagnostic resolution
   and the gradient step are the same grid.
-- **Auxiliary grid** (`AuxiliaryFlowMap`): each grid point carries a fixed four-arm
+- **Auxiliary stencil** (`AuxiliaryFlowMap`): each grid point carries a fixed four-arm
   stencil on a single `displacement` dim
-  (`displacement = ['east', 'north', 'west', 'south']`), placed at $\pm s$ meters
+  (`displacement = ['east', 'north', 'west', 'south']`), placed at $\pm s$ metres
   about the diagnostic grid point (`aux_separation_m`) in that point's own local
   east/north frame, so the arm spans are $2s$ at every latitude, per Haller
   Eq. 9. The arms are stored
@@ -112,11 +112,11 @@ first-class:
   started), and $\nabla F$ is the plain $\partial(\text{lon}, \text{lat}) /
   \partial(\text{lon}_0, \text{lat}_0)$ differenced over `displacement`. The
   diagnostic grid points `lon_grid(i, j)` / `lat_grid(i, j)` are the arm centres
-  and are kept separately. No center arm (it would duplicate the grid position)
+  and are kept separately. No centre arm (it would duplicate the grid position)
   and no diagonal corners. This decouples the gradient step from the diagnostic
   resolution.
 
-Cells with a missing stencil point (e.g. a lost particle arriving as NaN) yield
+Cells with a missing stencil point (e.g., a lost particle arriving as NaN) yield
 a NaN $\nabla F$, and that NaN propagates through $C$, the eigen-analysis, and
 the FTLE without special-casing.
 
@@ -135,14 +135,14 @@ $$\Lambda_{t_0}^{t_1}(x_0) = \frac{1}{|t_1 - t_0|}\,\log\sqrt{\lambda_{\max}}
 
 Note it is the **largest** eigenvalue $\lambda_{\max} = \lambda_2$ (maximum
 stretching) that enters the FTLE, not the smallest. The integration time enters
-as $|T|$, not as $T$: the sign of $T = t_1 - t_0$ encodes forward vs. backward
-integration, and since this package supports backward maps as a matter of course
-(they are how attracting LCS are produced), writing $1/(t_1 - t_0)$ would flip
-the sign of every backward FTLE. This diagnostic uses only $|T|$, so forward and
-backward maps of the same window give exponents of the same sign.
+as $|T|$, not as $T$: the sign of $T = t_1 - t_0$ encodes forward or backward
+integration, and this package supports backward maps (they are how attracting
+LCS are produced), so writing $1/(t_1 - t_0)$ would flip the sign of every
+backward FTLE. With $|T|$, forward and backward maps of the same window give
+exponents of the same sign.
 
-$\Lambda$ is returned in SI, `1/s`. Displaying it per day is a conversion the
-reader makes in the plotting code, not one the package bakes in.
+$\Lambda$ is returned in SI units, `1/s`. Convert it to per day for display in
+the plotting code; the package does not convert.
 
 ### Integration time $T$
 
@@ -150,7 +150,7 @@ $T = t_1 - t_0$ (Eq. 3), **signed**. The `Seed` is time-free: it owns no $t_0$.
 Both ends of the window enter at ingest — `pset_to_flowmap(*, lon, lat, t0, t1)`
 takes the release time $t_0$ and the end time $t_1$, derives $T = t_1 - t_0$,
 and stores $t_0$ and $T$ as scalar coords on the `FlowMap` ($t_1$ is recoverable
-as $t_0 + T$). This package never chooses the direction —
+as $t_0 + T$). The package does not choose the integration direction:
 $\mathrm{sign}(T)$ follows from $t_1$ relative to $t_0$. A zero window
 ($t_1 = t_0$) is rejected with `ValueError`, since the FTLE's $1/|T|$ would
 divide by zero. A release series (sweep $t_0$ or $t_1$) is an external loop over
@@ -160,7 +160,7 @@ into the $(i, j, t_0, T)$ cube. See
 
 ### The local east-north frame
 
-Haller's math is Cartesian, but the grid is lon/lat. There is no shared
+Haller's math is Cartesian and the grid is lon/lat. The package uses no shared
 projection and no standard parallel. Distances are metres on a sphere of radius
 $R$ = `EARTH_RADIUS_M` = 6371 km, whose metric is
 
@@ -183,41 +183,42 @@ $[-180^\circ, 180^\circ]$ by subtracting the nearest multiple of $360^\circ$.
 Every pair therefore gets its own frame: the reference
 separation is measured at the mid-latitude of the reference points, the advected
 separation at the mid-latitude of the advected ones, and $\nabla F$ is the ratio
-of the two. That is the correct object — the Jacobian of the map read between
-the tangent frame at $x_0$ and the tangent frame at $F(x_0)$ — because on a
-sphere no chart has a constant tangent Jacobian, so there is no one frame in
-which both ends could be measured. A rigid meridional translation, which changes
-the metres-per-degree of longitude, accordingly comes back with $F_{xx} \ne 1$
-rather than as a null deformation.
+of the two. $\nabla F$ is then the Jacobian of the map read between the tangent
+frame at $x_0$ and the tangent frame at $F(x_0)$. On a sphere no chart has a
+constant tangent Jacobian, so there is no single frame in which both ends could
+be measured. A rigid meridional translation changes the metres per degree of
+longitude, so it comes back with $F_{xx} \ne 1$ rather than as a null
+deformation.
 
 Both `NeighborFlowMap` and `AuxiliaryFlowMap` difference through the same
 `_separation_m`, and `AuxiliarySeed` places its arms by inverting the same
 relation at each grid point's own latitude, so an arm span is $2s$ metres
-wherever the grid point sits. No separation therefore carries a domain-size
-limit, and none of them treats the antimeridian as a special case. The
-`lon_grid` **axis** is a separate matter: `FlowMap.image` and `shrink_lines`
+wherever the grid point sits. No separation carries a domain-size limit, and
+none treats the antimeridian as a special case. The `lon_grid` **axis** is a
+separate matter: `FlowMap.image` and `shrink_lines`
 interpolate along it, so it must be monotonic, and a domain crossing the
 antimeridian is seeded on `170, 175, 180, 185` rather than on
 `170, 175, 180, -175`. On a wrapped axis `shrink_lines` and `hyperbolic_lcs`
 raise `ValueError` out of SciPy; `FlowMap.image` does not raise, and reads the
 axis as if it were sorted, so a query in the wrapped half comes back `NaN` or
 interpolated between the wrong two grid points. Traced tensor lines are not
-bound by that and cross freely. The mid-latitude cosine is a midpoint rule, so
-the accuracy of a separation is set by the separation itself; the error series
+bound by the monotonic axis and may cross the antimeridian. The mid-latitude
+cosine is a midpoint rule, so the accuracy of a separation is set by the
+separation itself; the error series
 is in [the local east-north frame](numerics.md#the-local-east-north-frame),
 together with the numerical checks.
 
-The poles are excluded. Going the other way — metres to degrees, which is what
-`AuxiliarySeed.from_axes` does to place an arm — a fixed eastward offset needs
-$\Delta\lambda = \Delta x / (R\cos\phi)$, and that grows without bound as
+The poles are excluded. Going the other way, from metres to degrees, is what
+`AuxiliarySeed.from_axes` does to place an arm: a fixed eastward offset needs
+$\Delta\lambda = \Delta x / (R\cos\phi)$, which grows without bound as
 $\cos\phi \to 0$. Past $180^\circ$ it aliases through the wrap into an arm on
 the far side of the pole, which is a wrong gradient rather than a NaN, so
 `AuxiliarySeed.from_axes` raises `ValueError` once the offset reaches
 $90^\circ$ of longitude. `_step_lonlat_by_meters` divides by the same cosine and
-does not fold latitude at $\pm 90^\circ$: a line stepped past the pole runs off
-the chart.
+does not fold latitude at $\pm 90^\circ$: a line stepped past the pole continues
+to latitudes outside $[-90^\circ, 90^\circ]$ instead of folding over the pole.
 
-Longitudes are stored in whatever convention the caller hands us; nothing is
+Longitudes are stored in whatever convention the caller supplies; nothing is
 normalised on ingest, and `lon_grid`, `lon_0` and `lon` come back on the branch
 they went in on. Only *differences* and *means* are wrapped. A mean is taken on
 the circle by `_circular_mean_lon`, which anchors on the first element along the
@@ -225,8 +226,8 @@ averaging dim and averages the wrapped offsets from it, so the result keeps the
 anchor's branch; `AuxiliaryFlowMap.grid_image` uses it for the longitude of the
 four-arm centroid.
 
-Stepping *along* a direction, as opposed to differencing between two points, is
-`_separation_m` read backwards. `tensorlines._step_lonlat_by_meters` advances
+Stepping *along* a direction, rather than differencing between two points,
+inverts `_separation_m`. `tensorlines._step_lonlat_by_meters` advances
 $(\lambda, \phi)$ by a local east/north vector $d$ of length `step_m` as
 
 $$\Delta\phi = \frac{d_{\text{north}}}{R}\tfrac{180}{\pi},
@@ -247,19 +248,19 @@ antimeridian stays on its seed's branch.
 Hyperbolic LCS are extracted as **shrink lines** — tensor lines tangent to
 $\xi_1$, solving $\dot r = \xi_1(r)$ (Haller Table 1, $n = 2$) — in
 [`src/lcs_parcels/tensorlines.py`](../src/lcs_parcels/tensorlines.py)
-(`shrink_lines`, with `ftle_ridge_seeds` for start points). Repelling LCS are the
-shrink lines of the forward flow map; attracting LCS those of the backward flow
-map (forward–backward duality, Haller & Sapsis 2011,
+(`shrink_lines`, with `ftle_ridge_seeds` for the seed points). Repelling LCS
+are the shrink lines of the forward flow map; attracting LCS those of the
+backward flow map (forward–backward duality, Haller & Sapsis 2011,
 [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)).
-`FlowMap.hyperbolic_lcs()` runs the FTLE, the ridge seeds and the tensor lines
-in one call.
+`FlowMap.hyperbolic_lcs()` runs the FTLE, the seeding and the tensor lines in
+one call.
 
 The layer's tuning parameters are stated in the units of the thing itself, so
 that a call means the same thing at any grid resolution and over any window: the
-ridge-seed neighbourhood $w$ (`window_m`), the tensor-line arc step `step_m` and
-the length cap `line_length_m` are metres, and the well-definedness guard
-`min_anisotropy` is the dimensionless eigenvalue ratio $a_{\min}$, a line
-terminating where
+ridge-seed window $w$ (`window_m`), the tensor-line arc step `step_m` and the
+length cap `line_length_m` are metres, and the well-definedness guard
+`min_anisotropy` is the dimensionless eigenvalue ratio $a_{\min}$. A line
+terminates where
 
 $$\frac{\lambda_2}{\lambda_1} < a_{\min}.$$
 
@@ -267,12 +268,12 @@ $$\frac{\lambda_2}{\lambda_1} < a_{\min}.$$
 terminates early is shorter, and the returned block is NaN-filled past
 termination so every row has equal length.
 
-$w$ is the *side* of the ridge-seed neighbourhood, which reaches $w/2$ to either
-side of its own grid point, so two ridge seeds can be about $w/2$ apart, not
-$w$. That is the convention throughout: `window_m` never denotes a seed
-separation. `ftle_ridge_seeds` reports the separation its window implies on the
-grid it was given as the `min_seed_separation_m` attribute of the dataset it
-returns, alongside the odd per-dimension cell counts $w$ was rounded to and the
+$w$ is the *side* of the ridge-seed window, which reaches $w/2$ to either side
+of its own grid point, so two seed points can be about $w/2$ apart, not $w$.
+`window_m` never denotes a seed separation. `ftle_ridge_seeds` reports the
+separation its window implies on the grid it was given as the
+`min_seed_separation_m` attribute of the dataset it returns, alongside the odd
+per-dimension cell counts $w$ was rounded to and the
 median grid spacings that rounding used. The reported separation is taken off
 the grid's *smallest* cell rather than its median one, so it is a floor; it
 bounds strict maxima, since a plateau of exactly equal values makes every one of
@@ -285,10 +286,10 @@ $\Lambda_{\min}$ is the magnitude floor the FTLE at a seed must also clear.
 reported as the `ftle_threshold` attribute whichever set it.
 
 $a_{\min}$ carries no $T$, no grid scale and no stretching rate: it is the
-relative gap between the eigenvalues of $C$, which is what sets how sensitive
-$\xi_1$ is to a perturbation of $C$ — and therefore whether $\xi_1$ is a
-direction at all or numerical noise. Default $a_{\min} = 1.15$. It is a
-well-definedness guard, never an LCS selector; $\Lambda_{\min}$ selects.
+relative gap between the eigenvalues of $C$, which sets how sensitive $\xi_1$ is
+to a perturbation of $C$, and so whether $\xi_1$ is a direction or numerical
+noise. Default $a_{\min} = 1.15$. It is a well-definedness guard, not an LCS
+selector; the selection is made by $\Lambda_{\min}$.
 
 The following remain deferred:
 
@@ -335,9 +336,9 @@ downstream are back on `(i, j)`, labelled by `lon_grid`/`lat_grid`. A single
 extra $t_0$ / $T$ axes that broadcast on top of these.
 
 Storing tensors with component dims keeps the eigen step compact. xarray has no
-native eigendecomposition — it does not wrap `np.linalg`, so `np.linalg.eigh(C)`
-would drop the dims and coords and requires the matrix axes to be last — so
-`cg_eigen` declares the core dims and re-wraps the result:
+native eigendecomposition: it does not wrap `np.linalg`, and `np.linalg.eigh(C)`
+would drop the dims and coords and requires the matrix axes to be last.
+`cg_eigen` therefore declares the core dims and re-wraps the result:
 `xr.apply_ufunc(np.linalg.eigh, C, input_core_dims=[['row', 'col']], ...)`.
 
 ## References
