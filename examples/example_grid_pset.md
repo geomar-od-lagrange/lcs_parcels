@@ -14,7 +14,7 @@ jupyter:
     name: python3
 ---
 
-# Seed grid, flow map, and the two stencils
+# Seed grids and flow maps
 
 This notebook is about the structures and the API, not about advection.
 

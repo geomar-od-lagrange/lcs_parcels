@@ -15,7 +15,7 @@
 # ---
 
 # %% [markdown]
-# # Evolving a hyperbolic LCS as a material curve
+# # Evolving an LCS curve
 #
 # An extracted hyperbolic LCS (see `cabo_verde_lcs`) is a **material** curve:
 # given its vertices at $t_0$ — the `lon`/`lat` that `shrink_lines` returns —

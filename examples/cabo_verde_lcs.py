@@ -15,7 +15,7 @@
 # ---
 
 # %% [markdown]
-# # Repelling and attracting LCS as strain tensor lines
+# # Repelling and attracting LCS
 #
 # The FTLE map (see `cabo_verde_ftle`) shows where the flow stretches. It does
 # not give the material curves along which the stretching happens. Those curves
