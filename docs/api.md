@@ -229,8 +229,8 @@ Haller (2015) §5.1 / Table 1 ($n = 2$):
 ```python
 from lcs_parcels import ftle_ridge_seeds, shrink_lines
 
-seed_lon, seed_lat = ftle_ridge_seeds(flowmap.ftle())                    # start points
-lines = shrink_lines(flowmap, seed_lon=seed_lon, seed_lat=seed_lat)      # curves
+seeds = ftle_ridge_seeds(flowmap.ftle())                                 # start points
+lines = shrink_lines(flowmap, seed_lon=seeds["lon"], seed_lat=seeds["lat"])  # curves
 ```
 
 A repelling LCS is a **shrink line** — a curve tangent to the weak-stretch
@@ -242,26 +242,51 @@ lines of the *backward* flow, so `shrink_lines` of a **forward** `FlowMap` gives
 repelling LCS and of a **backward** one gives attracting LCS.
 
 ```text
-ftle_ridge_seeds(ftle, *, window_m=30_000.0,
-                 quantile=0.90) -> tuple[np.ndarray, np.ndarray]
+ftle_ridge_seeds(ftle, *, window_m=30_000.0, quantile=None,
+                 ftle_min=None) -> xr.Dataset
 shrink_lines(flowmap, *, seed_lon, seed_lat, min_anisotropy=1.15,
              step_m=3_000.0, line_length_m=1_500_000.0) -> xr.Dataset
 ```
 
 Every tuning parameter is stated in the units of the thing itself — metres for
-the three lengths, a dimensionless eigenvalue ratio for the guard — so the same
-call means the same thing at any resolution and over any window:
+the three lengths, a dimensionless eigenvalue ratio for the guard, the field's
+own units for `ftle_min`. The three lengths, the ratio and `quantile` mean the
+same thing at any resolution and over any window; `ftle_min` is an absolute
+threshold and does not:
 
 - **`ftle_ridge_seeds(ftle)`** — start points at strong local maxima of an FTLE
   field: grid points that are the maximum over a square neighbourhood of side
   `window_m` **metres** (a windowed local maximum on the raw value) *and* at or
-  above the `quantile` magnitude floor. `window_m` is converted to an odd cell
-  count per dimension from the field's own `lon_grid`/`lat_grid` spacing (the
-  default 30 km is 7 cells on a $1/25^\circ$ grid at $20^\circ$N). The window
-  reaches `window_m / 2` to either side of its own grid point, so two seeds can
-  be as close as about `window_m / 2`, not `window_m` — halve it to read off the
-  minimum seed spacing. The field must carry `lon_grid`/`lat_grid`; `flowmap.ftle()`
-  does. Returns `(lon, lat)` 1-D arrays. NaN cells never qualify.
+  above a magnitude floor. `window_m` is converted to an odd cell count per
+  dimension from the field's own `lon_grid`/`lat_grid` spacing (the default 30 km
+  is 7 cells on a $1/25^\circ$ grid at $20^\circ$N). The window reaches
+  `window_m / 2` to either side of its own grid point, so two seeds can be as
+  close as about `window_m / 2`, not `window_m`; the returned
+  `min_seed_separation_m` attribute is that distance computed on this grid, off
+  its smallest cell, so it is a floor rather than a typical spacing. It bounds
+  strict maxima: a plateau of exactly equal values makes every one of its cells a
+  windowed maximum, and those can be adjacent. A `window_m` spanning fewer than
+  three cells in either dimension emits a `UserWarning`: a one-cell window makes
+  every point a windowed maximum, so the local-maximum test stops selecting and
+  only the floor is left.
+
+  The floor is set one of two ways, and passing both raises `ValueError`.
+  `quantile` is a quantile of this field, in $[0, 1]$; `ftle_min` is an absolute
+  value in the units of `ftle` (1/s for `flowmap.ftle()`). Passing neither uses
+  `quantile=0.90`, the top decile. Reach for `ftle_min` when several runs —
+  other windows, other regions — have to be compared against one threshold,
+  which a per-field quantile cannot give.
+
+  The field must carry `lon_grid`/`lat_grid`; `flowmap.ftle()` does. NaN cells
+  never qualify.
+
+  Returns an `xr.Dataset` with `lon`/`lat` (degrees) on a `seed` dim, one entry
+  per seed point, and a `seed` index coordinate. Its `attrs` record what the
+  selection did: `selector` (`"quantile"` or `"ftle_min"`) and the
+  `ftle_threshold` it resolved to, plus `window_m`, the odd cell counts
+  `window_cells_i`/`window_cells_j` it became, the median grid spacings
+  `grid_spacing_i_m`/`grid_spacing_j_m` it was measured against, and
+  `min_seed_separation_m`.
 - **`shrink_lines(flowmap, seed_lon=..., seed_lat=...)`** — integrate the
   $\xi_1$ tensor line through each seed, both directions, on the flow map's
   rectilinear grid. It interpolates the tensor $C$ (via `scipy`'s
@@ -279,7 +304,8 @@ call means the same thing at any resolution and over any window:
 
 **`min_anisotropy`** is a floor on $\lambda_2 / \lambda_1$, the ratio of the two
 Cauchy–Green eigenvalues, and so dimensionless. It is a **well-definedness
-guard, not an LCS selector** — `quantile` is what selects. At the default 1.15 a
+guard, not an LCS selector** — the magnitude floor in `ftle_ridge_seeds`
+(`quantile` or `ftle_min`) is what selects. At the default 1.15 a
 1% error in $C$ swings $\xi_1$ by about 2 degrees; at a ratio of 1.05 by 6
 degrees. Being a ratio it carries no $T$, no grid scale and no stretching rate,
 so 1.15 means the same thing for a six-hour laboratory flow and a six-month
@@ -297,14 +323,17 @@ antimeridian on its seed's branch.
 ### One call: `FlowMap.hyperbolic_lcs()`
 
 ```text
-FlowMap.hyperbolic_lcs(*, window_m=None, quantile=None, min_anisotropy=None,
-                       step_m=None, line_length_m=None) -> xr.Dataset
+FlowMap.hyperbolic_lcs(*, window_m=None, quantile=None, ftle_min=None,
+                       min_anisotropy=None, step_m=None,
+                       line_length_m=None) -> xr.Dataset
 ```
 
 Runs the three steps — `ftle()`, `ftle_ridge_seeds`, `shrink_lines` — in one
 call, computing the FTLE exactly once. Every parameter is optional and only the
 ones actually passed are forwarded, so the defaults stay in
-`ftle_ridge_seeds`/`shrink_lines`. There is no direction argument: the flow map
+`ftle_ridge_seeds`/`shrink_lines` — including the rule that `quantile` and
+`ftle_min` are mutually exclusive, which raises `ValueError` from
+`ftle_ridge_seeds` when both are passed here. There is no direction argument: the flow map
 already carries $\mathrm{sign}(T)$, so a forward map yields repelling LCS
 and a backward one attracting LCS, and the returned dataset says which it holds.
 The name says *hyperbolic* because it extracts hyperbolic (repelling and
@@ -312,7 +341,10 @@ attracting) LCS only.
 
 The result is the `shrink_lines` dataset — `lon`/`lat` on `(line, point)` —
 with the `ftle` field on `(i, j)` that the seeds were picked from riding along,
-so the curves can be plotted over it without recomputing an eigendecomposition:
+so the curves can be plotted over it without recomputing an eigendecomposition.
+The ridge-selection attributes ride along too, so `lcs.attrs["selector"]`,
+`lcs.attrs["ftle_threshold"]` and `lcs.attrs["min_seed_separation_m"]` are
+readable off the result without re-running the seeding:
 
 ```python
 lcs = forward.hyperbolic_lcs()
@@ -376,6 +408,7 @@ rather than against the logical `i`/`j` axes.
 | `cg_eigen()["xi"]` | `xi` | eigenvector xi of the Cauchy-Green tensor | `1` |
 | `ftle()` | `ftle` | finite-time Lyapunov exponent | `1/s` |
 | `image()`, `grid_image` | `lon` / `lat` | longitude/latitude of the advected position F(x_0) | `degrees_east` / `degrees_north` |
+| `ftle_ridge_seeds()` | `lon` / `lat` | longitude/latitude of the FTLE ridge seed | `degrees_east` / `degrees_north` |
 | `shrink_lines()` | `lon` / `lat` | longitude/latitude along the shrink line | `degrees_east` / `degrees_north` |
 | `hyperbolic_lcs()` | `lon` / `lat` | longitude/latitude along the repelling (or attracting) LCS | `degrees_east` / `degrees_north` |
 
@@ -397,11 +430,12 @@ The coordinates carry the same treatment, set once at construction
 | `row` / `col` | tensor row / column index | — |
 | `comp` | eigenvector component | — |
 | `eig` | Cauchy-Green eigenpair, ascending: 0 is the weak-stretch lambda_1, 1 is lambda_max = lambda_2 | — |
+| `seed` | FTLE ridge seed index | — |
 | `line` | shrink line index, one per seed point | — |
 | `point` | point index along the shrink line | — |
 
 The index and label coords (`i`, `j`, `displacement`, `row`, `col`, `comp`,
-`eig`, `line`, `point`) carry no `units`: their values are logical indices or
+`eig`, `seed`, `line`, `point`) carry no `units`: their values are logical indices or
 string labels, so there is no unit to give. `t0` and `T` carry none either —
 they are `datetime64`/`timedelta64`, so the dtype already holds the unit.
 

@@ -167,6 +167,34 @@ Work:
   metadata. Warn when `window_m` spans fewer than a few grid cells.
 - #22: add an absolute FTLE floor alongside `quantile`.
 
+As built:
+
+- `ftle_ridge_seeds(ftle, *, window_m=30_000.0, quantile=None, ftle_min=None)`
+  returns an `xr.Dataset` — `lon`/`lat` on a `seed` dim with a `seed` index
+  coordinate — where it returned a `(lon, lat)` tuple of arrays. That is the
+  metadata carrier the two decisions above need, and it removes the unpacking
+  the keyword-only `shrink_lines` seed pair made awkward. Call sites read
+  `shrink_lines(fm, seed_lon=seeds["lon"], seed_lat=seeds["lat"])`.
+- The dataset's `attrs` carry `long_name`, `selector` (`"quantile"` or
+  `"ftle_min"`), `ftle_threshold`, and every key of `_window_geometry`
+  (`window_m`, `window_cells_i`, `window_cells_j`, `grid_spacing_i_m`,
+  `grid_spacing_j_m`, `min_seed_separation_m`). `_window_cells` is replaced by
+  `_window_geometry`, which computes the separation rather than estimating it.
+- The warning threshold is *three* cells in either dimension, the point at
+  which the local-maximum test stops selecting.
+- Passing both `quantile` and `ftle_min` raises `ValueError`; passing neither is
+  `quantile=0.90`, exactly as before.
+- `FlowMap.hyperbolic_lcs` gained `ftle_min` and forwards it, and the
+  ridge-selection attrs (all but the seeds' own `long_name`) ride along on the
+  dataset it returns.
+- `min_seed_separation_m` is computed off the grid's **smallest** cell, not its
+  median one. The first version used the median and was not a bound: adversarial
+  review measured it violated by 11% over a 30-degree latitude band and by a
+  factor of 3 over 75 degrees, because the window is a count of cells and the
+  cells converge poleward. It bounds *strict* maxima; a plateau of exactly equal
+  values ties for the windowed maximum at every one of its cells, which is
+  asserted as documented behaviour rather than left unnoticed.
+
 ## PR 3 — prose pass
 
 Closes #25. Prose only, no behaviour change. Runs after PR 1 and PR 2 so it is
@@ -298,9 +326,10 @@ with PR 6, once there is a version to report, and the docs badge with PR 7.
 - Release commit bumping `version` in `pyproject.toml` and `__version__` in
   `src/lcs_parcels/__init__.py` to the same unpadded CalVer string, then the tag.
 - Release notes, now that the loosened compatibility rule requires them. PRs 1
-  and 2 change `deformation_gradient` output and the `ftle_ridge_seeds`
-  signature; those go in the notes for this first version even though nobody can
-  have depended on them yet, so the format starts as it continues.
+  and 2 change `deformation_gradient` output, and the `ftle_ridge_seeds`
+  signature *and return type* — a `(lon, lat)` tuple becomes an `xr.Dataset`.
+  Those go in the notes for this first version even though nobody can have
+  depended on them yet, so the format starts as it continues.
 
 **User action, blocking:** a pending publisher for `lcs_parcels` must be
 configured on pypi.org before the tag is pushed. Only the account owner can do

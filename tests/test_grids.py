@@ -273,7 +273,9 @@ def test_diagnostics_leave_the_flowmap_dataset_untouched(seed_cls, lon_axis, lat
     fm.ftle()
     _ = fm.grid_image
     fm.image(lon0=fm.ds["lon_grid"], lat0=fm.ds["lat_grid"])
-    fm.hyperbolic_lcs(step_m=1_000.0, line_length_m=6_000.0)
+    # window_m is sized to the fixture grid, whose cells run 30-110 km: the
+    # default 30 km would be a single cell and the call would rightly warn.
+    fm.hyperbolic_lcs(window_m=700_000.0, step_m=1_000.0, line_length_m=6_000.0)
     fm.to_seed()
 
     xr.testing.assert_identical(fm.ds, before)

@@ -28,6 +28,8 @@ the code. Math is written in LaTeX; equation numbers refer to Haller (2015).
 | $dx = R\cos\phi\,d\lambda,\ \ dy = R\,d\phi$ | metric of the sphere of radius $R$: the local east/north frame in which every separation is measured ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ metres). A *finite* separation between two named points takes the cosine at that pair's mid-latitude, $\bar\phi = \tfrac{1}{2}(\phi_a + \phi_b)$ | — | (internal metric, `_separation_m`) |
 | $\Delta\lambda \in [-180^\circ, 180^\circ]$ | longitude *difference*, wrapped; stored longitudes are never wrapped | — | `_wrap_lon` |
 | $\dot r = \xi_1(r)$ | shrink line: tensor line tangent to $\xi_1$; a repelling LCS (forward flow) or, by forward–backward duality, attracting LCS (backward flow) | Table 1 ($n = 2$) | `shrink_lines`, `ftle_ridge_seeds` |
+| $w$ | ridge-seed window: the **side**, in metres, of the square neighbourhood a seed must be the FTLE maximum over; two seeds can therefore be about $w/2$ apart | — | `window_m` |
+| $\Lambda \ge \Lambda_{\min}$ | FTLE magnitude floor a seed must also clear, set either as a quantile of the field at hand or as an absolute value in the field's units (1/s) | — | `quantile`, `ftle_min` |
 | $\lambda_2 / \lambda_1 \ge a_{\min}$ | anisotropy floor: the ratio of the Cauchy–Green eigenvalues below which $\xi_1$ is not a well-defined direction (dimensionless) | — | `min_anisotropy` |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 | — |
 | $\eta^\pm(x_0)$ | shear vector field; stretch/shear lines (**deferred**) | 10, 11, Table 1 | — |
@@ -254,8 +256,8 @@ in one call.
 
 The layer's tuning parameters are stated in the units of the thing itself, so
 that a call means the same thing at any grid resolution and over any window: the
-ridge-seed neighbourhood `window_m`, the tensor-line arc step `step_m` and the
-length cap `line_length_m` are metres, and the well-definedness guard
+ridge-seed neighbourhood $w$ (`window_m`), the tensor-line arc step `step_m` and
+the length cap `line_length_m` are metres, and the well-definedness guard
 `min_anisotropy` is the dimensionless eigenvalue ratio $a_{\min}$, a line
 terminating where
 
@@ -263,16 +265,30 @@ $$\frac{\lambda_2}{\lambda_1} < a_{\min}.$$
 
 `line_length_m` is a cap on the traced arc, not the achieved length: a line that
 terminates early is shorter, and the returned block is NaN-filled past
-termination so every row has equal length. `window_m` is the *side* of the
-ridge-seed neighbourhood, which reaches `window_m / 2` to either side of its own
-grid point, so two ridge seeds can be about `window_m / 2` apart, not
-`window_m`.
+termination so every row has equal length.
+
+$w$ is the *side* of the ridge-seed neighbourhood, which reaches $w/2$ to either
+side of its own grid point, so two ridge seeds can be about $w/2$ apart, not
+$w$. That is the convention throughout: `window_m` never denotes a seed
+separation. `ftle_ridge_seeds` reports the separation its window implies on the
+grid it was given as the `min_seed_separation_m` attribute of the dataset it
+returns, alongside the odd per-dimension cell counts $w$ was rounded to and the
+median grid spacings that rounding used. The reported separation is taken off
+the grid's *smallest* cell rather than its median one, so it is a floor; it
+bounds strict maxima, since a plateau of exactly equal values makes every one of
+its cells a windowed maximum.
+
+$\Lambda_{\min}$ is the magnitude floor the FTLE at a seed must also clear.
+`quantile` states it as a quantile of the field at hand and is the default at
+0.90; `ftle_min` states it as an absolute value in the field's units, 1/s for
+`FlowMap.ftle()`. The two are mutually exclusive, and the resolved value is
+reported as the `ftle_threshold` attribute whichever set it.
 
 $a_{\min}$ carries no $T$, no grid scale and no stretching rate: it is the
 relative gap between the eigenvalues of $C$, which is what sets how sensitive
 $\xi_1$ is to a perturbation of $C$ — and therefore whether $\xi_1$ is a
 direction at all or numerical noise. Default $a_{\min} = 1.15$. It is a
-well-definedness guard, never an LCS selector; `quantile` selects.
+well-definedness guard, never an LCS selector; $\Lambda_{\min}$ selects.
 
 The following remain deferred:
 

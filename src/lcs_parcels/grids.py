@@ -748,6 +748,7 @@ class FlowMap(abc.ABC):
         *,
         window_m: float | None = None,
         quantile: float | None = None,
+        ftle_min: float | None = None,
         min_anisotropy: float | None = None,
         step_m: float | None = None,
         line_length_m: float | None = None,
@@ -774,9 +775,10 @@ class FlowMap(abc.ABC):
 
         Parameters
         ----------
-        window_m, quantile : float, optional
+        window_m, quantile, ftle_min : float, optional
             Ridge-selection parameters, passed to
-            :func:`~lcs_parcels.ftle_ridge_seeds`.
+            :func:`~lcs_parcels.ftle_ridge_seeds`. ``quantile`` and ``ftle_min``
+            are mutually exclusive.
         min_anisotropy, step_m, line_length_m : float, optional
             Integration parameters, passed to
             :func:`~lcs_parcels.shrink_lines`.
@@ -787,7 +789,9 @@ class FlowMap(abc.ABC):
             ``lon``/``lat`` (degrees) on dims ``(line, point)`` -- the LCS curves,
             NaN past termination -- together with the ``ftle`` field (1/s) on
             ``(i, j)`` that the seeds were picked from, so the curves can be
-            plotted over it without recomputing.
+            plotted over it without recomputing. The ridge-selection attributes
+            of :func:`~lcs_parcels.ftle_ridge_seeds` ride along, so the implied
+            ``min_seed_separation_m`` is readable off the result.
         """
         # This method is a layering inversion: `grids` is the lower layer, and
         # here it reaches up into `tensorlines`, which imports from it. The
@@ -803,13 +807,14 @@ class FlowMap(abc.ABC):
             return {k: v for k, v in kwargs.items() if v is not None}
 
         ftle = self.ftle()
-        seed_lon, seed_lat = ftle_ridge_seeds(
-            ftle, **_filter_kwargs(window_m=window_m, quantile=quantile)
+        seeds = ftle_ridge_seeds(
+            ftle,
+            **_filter_kwargs(window_m=window_m, quantile=quantile, ftle_min=ftle_min),
         )
         lines = shrink_lines(
             self,
-            seed_lon=seed_lon,
-            seed_lat=seed_lat,
+            seed_lon=seeds["lon"].values,
+            seed_lat=seeds["lat"].values,
             **_filter_kwargs(
                 min_anisotropy=min_anisotropy,
                 step_m=step_m,
@@ -823,11 +828,15 @@ class FlowMap(abc.ABC):
             lon=lines["lon"].assign_attrs(long_name=f"longitude along the {kind} LCS"),
             lat=lines["lat"].assign_attrs(long_name=f"latitude along the {kind} LCS"),
         )
+        # The ridge-selection attrs ride along, minus their own `long_name`,
+        # which describes the seed points rather than this dataset.
+        ridge_attrs = {k: v for k, v in seeds.attrs.items() if k != "long_name"}
         return lines.assign(ftle=ftle).assign_attrs(
             long_name=(
                 f"{kind} LCS: shrink lines of the {direction} flow map, "
                 "with the FTLE field their seeds were picked from"
-            )
+            ),
+            **ridge_attrs,
         )
 
     def to_seed(self) -> Seed:

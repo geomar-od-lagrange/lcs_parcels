@@ -213,9 +213,14 @@ any resolution and over any horizon. Expressed the natural implementation way
 instead, the two lengths would depend on something other than what the caller is
 asking for: a neighbourhood as a cell count depends on grid resolution, a line
 as a step count depends on the step size.
-`quantile` is left alone: making it absolute would change ridge selection from
-relative-to-this-field to an absolute threshold, which is a science decision
-rather than a units one.
+The magnitude floor on ridge selection comes in both forms. `quantile`, the
+default, is relative to the field it is handed, and so means the same thing on
+any of them. `ftle_min` is an absolute value in the field's own units and does
+not: a rate that marks a ridge in a fast flow marks nothing in a slow one. It
+exists because that is the property a run comparing windows or regions needs —
+one threshold across all of them, which a quantile cannot express. The reasoning
+behind offering both is in
+[`architecture.md`](architecture.md#why-an-absolute-ftle-floor-exists-at-all).
 
 Both lengths are budgets, not achieved quantities, and both invite the same
 misreading. `line_length_m` bounds the traced arc: the
@@ -223,11 +228,19 @@ integrator spends at most `line_length_m / (2 * step_m)` steps per direction and
 a line that terminates earlier is shorter, with the returned block NaN-filled
 past termination so every row has equal length. `window_m` is the *side* of the
 ridge-seed neighbourhood, which reaches only `window_m / 2` to either side of
-its own grid point; two seeds can therefore sit about `window_m / 2` apart. That
-is geometry, not measurement: the bound follows from the window's reach and
-holds for any field. So `line_length_m` is an upper bound on the traced length
-rather than the length itself, and the minimum seed spacing is `window_m / 2`
-rather than `window_m`.
+its own grid point, so two seeds can sit about `window_m / 2` apart. So
+`line_length_m` is an upper bound on the traced length rather than the length
+itself, and the minimum seed spacing is `window_m / 2` rather than `window_m`.
+
+The seed spacing is reported rather than left to that estimate, as
+`min_seed_separation_m` on the returned dataset. The window is a count of
+*cells*, so the distance it buys is the cell size times the count, and the cell
+size is not one number: the reported value takes the **smallest** cell on the
+grid, since that is where two seeds get closest. Taking the median instead
+overstates the floor by 11% over a 30-degree band and by a factor of 3 over 75
+degrees, both measured. The bound holds for strict local maxima; selection is
+`ftle >= rolling max`, so every cell of a plateau of exactly equal values ties
+and adjacent cells can all be seeds.
 
 ## Why the degeneracy guard is an eigenvalue ratio
 

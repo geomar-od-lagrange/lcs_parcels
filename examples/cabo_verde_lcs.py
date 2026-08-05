@@ -152,21 +152,27 @@ ftle_forward
 # %% [markdown]
 # `ftle_ridge_seeds` picks start points at the ridge tops: grid points that are
 # the maximum over a `window_m`-wide neighbourhood and lie in the top `quantile`
-# of the field. The window is the full width, so two seeds cannot be closer than
-# about half of it. We want neighbouring filaments about 15 km apart in this eddy
-# field, which is three to four cells of the 1/25-degree seed grid, so the window
-# is 30 km. The top decile keeps the seeds on the pronounced ridges of *this*
-# field.
+# of the field. `window_m` is the full side of that neighbourhood, so two seeds
+# can be about half of it apart. We want neighbouring filaments about 15 km apart
+# in this eddy field, so the window is 30 km. The top decile keeps the seeds on
+# the pronounced ridges of *this* field. The alternative selector, `ftle_min`, is
+# an absolute floor in 1/s and is what to use when comparing regions or windows
+# against one threshold.
 
 # %%
 # Ridge selection.
 window_m, quantile = 30_000.0, 0.90
 
 # %%
-repelling_seed_lon, repelling_seed_lat = ftle_ridge_seeds(
-    ftle_forward, window_m=window_m, quantile=quantile
-)
-repelling_seed_lon.shape, repelling_seed_lon[:5], repelling_seed_lat[:5]
+repelling_seeds = ftle_ridge_seeds(ftle_forward, window_m=window_m, quantile=quantile)
+repelling_seeds
+
+# %% [markdown]
+# The seed dataset records what the window became on this grid. The distance
+# below is the closest two seeds can be — half the window, not the window.
+
+# %%
+repelling_seeds.attrs["min_seed_separation_m"]
 
 # %% [markdown]
 # `shrink_lines` integrates $\dot r = \xi_1(r)$ through each seed, half the
@@ -186,8 +192,8 @@ step_m, line_length_m, min_anisotropy = 3_000.0, 1_500_000.0, 1.15
 # %%
 repelling_lcs = shrink_lines(
     forward,
-    seed_lon=repelling_seed_lon,
-    seed_lat=repelling_seed_lat,
+    seed_lon=repelling_seeds["lon"],
+    seed_lat=repelling_seeds["lat"],
     step_m=step_m,
     line_length_m=line_length_m,
     min_anisotropy=min_anisotropy,
@@ -244,7 +250,7 @@ ax.plot(
     color="tab:red",
     lw=0.8,
 )
-ax.scatter(repelling_seed_lon, repelling_seed_lat, s=8, color="tab:red")
+ax.scatter(repelling_seeds["lon"], repelling_seeds["lat"], s=8, color="tab:red")
 
 # %% [markdown]
 # ## Attracting LCS over the backward FTLE

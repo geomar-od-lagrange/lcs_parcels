@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from conftest import advected_flowmap
 
-from lcs_parcels import AuxiliarySeed, NeighborSeed, shrink_lines
+from lcs_parcels import AuxiliarySeed, NeighborSeed, ftle_ridge_seeds, shrink_lines
 
 RELEASE_TIME = np.datetime64("2020-01-01")
 END_TIME = np.datetime64("2020-01-02")
@@ -30,9 +30,29 @@ UNITLESS = {
     "eig",
     "line",
     "point",
+    "seed",
     "t0",
     "T",
 }
+
+# What ``ftle_ridge_seeds`` records about the selection it made, over and above
+# its own ``long_name``. Read off a returned dataset, these say what ``window_m``
+# became on the grid and which floor was applied.
+RIDGE_ATTRS = {
+    "selector",
+    "ftle_threshold",
+    "window_m",
+    "window_cells_i",
+    "window_cells_j",
+    "grid_spacing_i_m",
+    "grid_spacing_j_m",
+    "min_seed_separation_m",
+}
+
+# The fixture grids are 1 degree by 1-2 degrees, so a window of a few cells is
+# several hundred kilometres; 700 km clears three cells in both dimensions in
+# every region, including the 2-degree meridional spacing at 72 N.
+RIDGE_WINDOW_M = 700_000.0
 
 
 def assert_labelled(obj, expected_units=None):
@@ -143,12 +163,48 @@ def test_shrink_lines_output_is_labelled(lon_axis, lat_axis):
     )
 
 
+def test_ftle_ridge_seeds_output_is_labelled(lon_axis, lat_axis):
+    """The seed points come back as a dataset, so they carry the same metadata as
+    every other return: labelled ``lon``/``lat`` and a labelled ``seed`` index."""
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
+    seeds = ftle_ridge_seeds(fm.ftle(), window_m=RIDGE_WINDOW_M)
+
+    assert seeds.sizes["seed"] > 0
+    assert_labelled(
+        seeds, expected_units={"lon": "degrees_east", "lat": "degrees_north"}
+    )
+    assert seeds.attrs.get("long_name")
+
+
+def test_hyperbolic_lcs_carries_the_ridge_selection_attrs(lon_axis, lat_axis):
+    """The one-call method reports the ridge selection it made, so
+    ``min_seed_separation_m`` -- what ``window_m`` actually bought -- is readable
+    off the result without rerunning the seed step.
+
+    The seeds' own ``long_name`` stays behind: it describes the seed points, and
+    this dataset holds the curves and the field.
+    """
+    fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
+    lcs = fm.hyperbolic_lcs(
+        window_m=RIDGE_WINDOW_M, step_m=1_000.0, line_length_m=6_000.0
+    )
+    seeds = ftle_ridge_seeds(fm.ftle(), window_m=RIDGE_WINDOW_M)
+
+    assert RIDGE_ATTRS <= set(lcs.attrs)
+    for key in RIDGE_ATTRS:
+        assert lcs.attrs[key] == seeds.attrs[key]
+    assert lcs.attrs["long_name"] != seeds.attrs["long_name"]
+    assert lcs.attrs["window_m"] == RIDGE_WINDOW_M
+
+
 def test_hyperbolic_lcs_output_is_labelled(lon_axis, lat_axis):
     """The one-call method returns curves and the FTLE field in one dataset, so
     both halves -- and the grid coords the FTLE brings with it -- must be
     labelled, and the dataset itself must say which kind of LCS it holds."""
     fm = advected_flowmap(AuxiliarySeed, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
-    lcs = fm.hyperbolic_lcs(step_m=1_000.0, line_length_m=6_000.0)
+    lcs = fm.hyperbolic_lcs(
+        window_m=RIDGE_WINDOW_M, step_m=1_000.0, line_length_m=6_000.0
+    )
 
     assert_labelled(
         lcs,
