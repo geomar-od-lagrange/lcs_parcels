@@ -360,3 +360,22 @@ thing Sphinx would add is generated API pages from the docstrings, and
 `docs/api.md` is hand-written and PR 3 will have just gone over it, so that is
 not a gap being filled. Revisit if hand-maintaining `docs/api.md` starts to
 drift from the docstrings.
+
+**Open again, and not on the grounds the decision was taken on.** Building the
+site surfaced a warning Material for MkDocs prints on every build. MkDocs 1.x
+has had no release in 18 months; MkDocs 2.0 is a ground-up rewrite that removes
+the plugin system, switches the config from YAML to TOML, takes a closed
+contribution model and is currently unlicensed; and Material is incompatible
+with it, pins `mkdocs<2`, and is steering users to its own replacement,
+Zensical. Material's own post suggests Sphinx for projects that want long-term
+stability.
+
+None of that stops the site building — it does build, in `strict` mode, on
+mkdocs 1.6.1 and mkdocs-material 9.7.7, and `mkdocs>=1.6,<2` is pinned
+explicitly rather than left to Material to enforce. The exposure is small: five
+Markdown files, no plugin beyond `pymdownx`, and no autodoc. Switching to Sphinx
+with MyST later is an afternoon, not a migration.
+
+So this ships as MkDocs and the choice is recorded as contingent rather than
+settled. The trigger to revisit is Zensical reaching a state worth adopting, or
+mkdocs 1.x losing a security fix — not the API-page argument above.

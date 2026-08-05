@@ -20,3 +20,11 @@ build/
 
 # `uv venv`, as the minimum-dependencies CI job makes it
 .venv/
+
+# built documentation site
+site/
+
+# generated documentation
+docs/_build/
+docs/generated/
+docs/examples/

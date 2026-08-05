@@ -1,4 +1,4 @@
-# API reference: seeds and flow maps
+# API guide: seeds and flow maps
 
 The public surface of `lcs_parcels` is two sibling families — a time-free
 `Seed` family and a `FlowMap` family — each with a shared abstract base and two
@@ -392,7 +392,7 @@ FlowMap.image(*, lon0, lat0) -> xr.Dataset
 An LCS is evolved in its **coherent** direction, where perturbations decay: an
 attracting LCS forward in time, a repelling one backward. Advect the grid to a
 few horizons and call `image` at each to carry the curve through them; see
-[`examples/cabo_verde_lcs_evolution.py`](../examples/cabo_verde_lcs_evolution.py).
+[`examples/cabo_verde_lcs_evolution.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs_evolution.py).
 
 ## Output metadata
 

@@ -1,7 +1,7 @@
 # Architecture: seeds and flow maps
 
 Why the diagnostic layer in
-[`src/lcs_parcels/grids.py`](../src/lcs_parcels/grids.py) is shaped the way it
+[`src/lcs_parcels/grids.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/grids.py) is shaped the way it
 is: what the types are, how they compose, and which alternatives were rejected.
 The companion document [`docs/numerics.md`](numerics.md) covers the other half —
 why the numbers that come out of these types are right: the local east/north
@@ -11,7 +11,7 @@ in, and the well-definedness guard. Symbols live in
 *Lagrangian Coherent Structures*, Annu. Rev. Fluid Mech. 47:137–162,
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
 
-Timing conventions follow [`plans/timing-design.md`](../plans/timing-design.md):
+Timing conventions follow [`plans/timing-design.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/plans/done/timing-design.md):
 a `Seed` is **time-free**; ingest (`pset_to_flowmap`) is given both the release
 time $t_0$ and the end time $t_1$, and the signed window $T = t_1 - t_0$ is
 derived and stored on the resulting `FlowMap`.
@@ -254,7 +254,7 @@ rejected with `ValueError`.
 ## Walkthrough: extracting LCS as shrink lines
 
 Downstream of the FTLE, the geometric layer
-([`src/lcs_parcels/tensorlines.py`](../src/lcs_parcels/tensorlines.py)) turns the
+([`src/lcs_parcels/tensorlines.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/tensorlines.py)) turns the
 strain field into LCS **curves**. The extraction is implemented as two free
 functions that consume a `FlowMap`'s xarray outputs rather than as methods on
 `FlowMap`, which stays a gridded-diagnostics object. That keeps the one new

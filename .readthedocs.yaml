@@ -1,0 +1,17 @@
+version: 2
+
+# Read the Docs builds through pixi, so the site is built from the same manifest
+# and lockfile as everything else. The `docs` environment carries mkdocs and the
+# theme; `--locked` makes a stale lock a build failure rather than a silent
+# resolve.
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.13"
+  jobs:
+    install:
+      - curl -fsSL https://pixi.sh/install.sh | bash
+      - ~/.pixi/bin/pixi install --locked --environment docs
+    build:
+      html:
+        - ~/.pixi/bin/pixi run --environment docs sphinx-build -b html -W --keep-going docs $READTHEDOCS_OUTPUT/html

@@ -75,6 +75,21 @@ Rules that fall out of it:
 - **Docs reflect the actual state.** Sketches and placeholders are replaced by
   real docs once the corresponding code exists. Don't let aspirational docs
   masquerade as current.
+- **`docs/` is a built site as well as a directory.** Sphinx builds it with
+  MyST, and `-W` makes every warning a failure, so a broken cross-reference or a
+  page missing from a `toctree` fails the `docs` CI job. A new page needs a
+  `toctree` entry in `docs/index.md`. A link out of `docs/` — into `src/` or
+  `plans/` — is an absolute repository URL, because a relative one resolves
+  against the site. Build with `pixi run -e docs docs-build`, or `docs-serve` to
+  watch.
+- **Nothing on the site is a maintained second copy.** The home page includes
+  `README.md`, the examples land on `examples/README.md` and the executed
+  notebooks, and `docs/reference.md` generates the API reference from the
+  docstrings. `docs/examples/` and `docs/generated/` are produced at build time
+  and gitignored. Duplicated *output* is free; duplicated *effort* is what to
+  avoid, so a hand-written page that restates a docstring is the thing to catch.
+  `docs/api.md` is deliberately not that: it is the written guide for onboarding
+  a developer or an agent, and the generated reference carries the signatures.
 - **Plans have a lifecycle.** Design/implementation plans live in `plans/`. Once a
   plan is *fully* implemented, move its file to `plans/done/` to keep the active
   set small. Cross-links into a moved plan **from docs or other plans** are

@@ -193,6 +193,16 @@ python = "3.13.*"
 [tool.pixi.feature.py314.dependencies]
 python = "3.14.*"
 
+[tool.pixi.feature.docs.dependencies]
+sphinx = ">=9.1.0,<10"
+myst-parser = ">=5.1.0,<6"
+myst-nb = ">=1.4.0,<2"
+sphinx-autobuild = ">=2025.8.25,<2026"
+
+[tool.pixi.feature.docs.tasks]
+docs-serve = { cmd = "sphinx-autobuild docs docs/_build/html", description = "Serve the documentation site with live reload" }
+docs-build = { cmd = "sphinx-build -b html -W --keep-going docs docs/_build/html", description = "Build the documentation site; warnings are failures" }
+
 # Every environment also gets the default feature, which carries the package and
 # the test tooling; the `pyNNN` features add nothing but an interpreter pin.
 # `default` is 3.13, so it agrees with `examples` (the newest Parcels v4
@@ -203,3 +213,4 @@ default = ["py313"]
 examples = { features = ["examples"] }
 py312 = ["py312"]
 py314 = ["py314"]
+docs = ["docs"]

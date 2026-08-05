@@ -156,7 +156,7 @@ $\mathrm{sign}(T)$ follows from $t_1$ relative to $t_0$. A zero window
 divide by zero. A release series (sweep $t_0$ or $t_1$) is an external loop over
 scalar-`(t0, T)` flow maps, assembled with `xr.concat` / `combine_by_coords`
 into the $(i, j, t_0, T)$ cube. See
-[`plans/timing-design.md`](../plans/timing-design.md).
+[`plans/timing-design.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/plans/done/timing-design.md).
 
 ### The local east-north frame
 
@@ -247,7 +247,7 @@ antimeridian stays on its seed's branch.
 
 Hyperbolic LCS are extracted as **shrink lines** — tensor lines tangent to
 $\xi_1$, solving $\dot r = \xi_1(r)$ (Haller Table 1, $n = 2$) — in
-[`src/lcs_parcels/tensorlines.py`](../src/lcs_parcels/tensorlines.py)
+[`src/lcs_parcels/tensorlines.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/tensorlines.py)
 (`shrink_lines`, with `ftle_ridge_seeds` for the seed points). Repelling LCS
 are the shrink lines of the forward flow map; attracting LCS those of the
 backward flow map (forward–backward duality, Haller & Sapsis 2011,
