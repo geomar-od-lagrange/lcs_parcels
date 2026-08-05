@@ -14,6 +14,20 @@ will be from now on.
 
 ### Breaking
 
+- **The seed classes are renamed.** `Seed` is now `SeedGrid`, `NeighborSeed` is
+  `NeighborSeedGrid`, and `AuxiliarySeed` is `AuxiliarySeedGrid`. The name says
+  what the object is, a spatial grid of release positions. Write
+  `NeighborSeedGrid.from_axes(lon=lon, lat=lat)` where you wrote
+  `NeighborSeed.from_axes(...)`.
+- **`FlowMap.image` takes `lon_0`/`lat_0`, not `lon0`/`lat0`.** They are
+  keyword-only, so the old spelling raises `TypeError` rather than silently
+  doing the wrong thing. The names now match the coords the method returns.
+  Write `flowmap.image(lon_0=curve["lon"], lat_0=curve["lat"])`.
+- **Two message strings are shorter.** `ftle_ridge_seeds`' `ValueError` is now
+  `"give either quantile or ftle_min, not both"`, and its narrow-window
+  `UserWarning` ends `"Consider wider window_m or finer grid."`. Code matching
+  on the text breaks; code catching the exception or warning class does not.
+
 - **`ftle_ridge_seeds` returns an `xr.Dataset`, not a `(lon, lat)` tuple.**
   `lon` and `lat` are on a `seed` dim, and the dataset's `attrs` carry the
   ridge-selection metadata. Write
@@ -30,8 +44,8 @@ will be from now on.
   in the call changes; the values are corrected. A rigid meridional translation
   used to report an FTLE of exactly zero and now reports the stretching it
   causes.
-- **`AuxiliarySeed.from_axes` raises `ValueError` near a pole**, where
-  `aux_separation_m` would span 90 degrees of longitude or more — closer to a
+- **`AuxiliarySeedGrid.from_axes` raises `ValueError` near a pole**, where
+  `aux_separation_m` would span 90 degrees of longitude or more, closer to a
   pole than about `0.64 * aux_separation_m`. It previously returned an arm on
   the far side of the pole and a wrong gradient.
 - **`requires-python` is now `>=3.12`**, up from an untested `>=3.11`.
@@ -57,7 +71,7 @@ will be from now on.
   works. Longitudes are never normalised on ingest.
 - The tensor-line step follows the direction field instead of drifting off it.
   The previous step left a heading-invariant field at a rate that accumulated
-  linearly in the step count — 3.4 km off a parallel at 70 N over an 800 km line
+  linearly in the step count, 3.4 km off a parallel at 70 N over an 800 km line
   at a 20 km step.
 
 ## Earlier tags

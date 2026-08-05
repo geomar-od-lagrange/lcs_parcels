@@ -1,6 +1,7 @@
 # LCS-Parcels
 
 [![PyPI](https://img.shields.io/pypi/v/lcs_parcels.svg)](https://pypi.org/project/lcs_parcels/)
+[![Docs](https://readthedocs.org/projects/lcs-parcels/badge/?version=latest)](https://lcs-parcels.readthedocs.io/en/latest/)
 [![CI](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml/badge.svg)](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/LICENSE)
 
@@ -13,24 +14,6 @@ finite-time Lyapunov exponent (FTLE), following Haller (2015),
 **This package contains no Parcels code.** It *emits* a particle set to release
 and *ingests* the advected positions to diagnose. You run Parcels (or anything
 else) in between.
-
-## Scope: rectilinear grids, away from the poles
-
-Longitudes are taken in whatever convention you hand in and are never
-renormalised, so what comes back sits on the branch that went in. Most of the
-package needs a rectilinear grid whose `lon_grid` axis is monotonic, so seed a
-domain crossing the antimeridian on `170, 175, 180, 185` rather than on
-`170, 175, 180, -175`. On a wrapped axis `shrink_lines` and `hyperbolic_lcs`
-raise, and `image` reads the axis as if it were sorted and returns `NaN` or the
-wrong cell.
-
-The poles are excluded. `AuxiliarySeedGrid.from_axes` raises `ValueError` when
-`aux_separation_m` would span 90 degrees of longitude or more, and latitude is
-never folded at 90 degrees, so a tensor line stepped past the pole leaves the
-domain instead of continuing across it. The accuracy of a separation, and the
-rest of the limits, are set out in
-[`docs/numerics.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/docs/numerics.md)
-and [`docs/api.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/docs/api.md).
 
 ## Install
 
@@ -114,6 +97,13 @@ to read. They are listed in increasing scope:
 The Parcels examples need the `examples` pixi environment (`pixi install -e
 examples`) and a CMEMS currents file you save yourself. See
 [`examples/README.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/README.md) for the reading order and the data.
+
+## Scope
+
+Rectilinear grids with a monotonic `lon_grid` axis, away from the poles.
+The limits, and the accuracy of a separation, are in
+[`docs/api.md`](https://lcs-parcels.readthedocs.io/en/latest/api.html) and
+[`docs/numerics.md`](https://lcs-parcels.readthedocs.io/en/latest/numerics.html).
 
 ## License
 
