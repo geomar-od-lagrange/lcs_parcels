@@ -60,6 +60,14 @@ Rules that fall out of it:
   `$\lambda_{\max}$`, `$(\nabla F)^\top \nabla F$` with `$...$` (inline) and
   `$$...$$` (display). Do not use unicode math glyphs (`∇ ξ λ ² ᵀ → ±`) in prose
   or tables.
+  **`README.md` is the exception, in both directions.** It is the PyPI landing
+  page as well as the repository front page, and PyPI renders neither LaTeX nor
+  relative links: `$\nabla F$` arrives as those eight literal characters, and
+  `](docs/numerics.md)` resolves under `pypi.org`. So the README writes math as
+  plain text or a code span (`` `grad F` ``, `1e-6`) and every link in it is
+  absolute. Nothing else changes — the unicode-glyph ban still holds there.
+  Check with `readme_renderer`, which is what PyPI uses; the `build` CI job runs
+  `twine check --strict` over it.
 - **Citations always carry a DOI.** Include the DOI and its `https://doi.org/...`
   link whenever you cite a paper.
 - **Keep notation in one place.** Symbols and conventions live in a dedicated
@@ -148,8 +156,14 @@ that reader.
   stack (Parcels v4, `copernicusmarine`, matplotlib) and is pinned to **Python
   3.13**, the newest Parcels v4 supports. Run tests with `pixi run test`; run the
   real examples with `pixi run -e examples ...`. Do not push Parcels/CMEMS/
-  plotting deps into the default env. One further env per supported Python
-  carries the test matrix.
+  plotting deps into the default env.
+- **One environment per supported Python carries the test matrix.** Features
+  `py312`, `py313` and `py314` pin nothing but the interpreter, and the
+  environments of the same name pair each with the default feature. `default`
+  uses `py313`, so `pixi run test` and the examples agree on an interpreter.
+  Adding or dropping a Python version means a feature, an environment and a line
+  in the CI matrix, and `requires-python` and the `Programming Language ::`
+  classifiers move with it.
 - **Supported versions follow SPEC 0**, which numpy, scipy, xarray, matplotlib
   and zarr all endorse: drop a Python version 3 years after its release, and a
   core dependency 2 years after its release
@@ -284,15 +298,22 @@ verified against the pinned v4 alpha:
 
 ## Releases
 
-- **CalVer, `YYYY.MM.DD.N`.** The version is a date plus a same-day counter `N`
-  (start at `1`, bump only for a second release on the same day). No semantic
-  version — there is no compatibility contract to signal.
+- **CalVer, `YYYY.M.D.N`, unpadded.** The version is a date plus a same-day
+  counter `N` (start at `1`, bump only for a second release on the same day). No
+  semantic version — there is no compatibility contract to signal.
+  Write the month and day without a leading zero, because that is the form PEP
+  440 normalises to: a padded `2026.08.04.1` reaches PyPI as `2026.8.4.1`, and
+  the git tag, `__version__` and the published version then disagree. The two
+  tags predating this rule, `v2026.07.17.1` and `v2026.08.04.1`, stay as they
+  are.
 - **The version lives in two places that must stay identical:** `[project]`
   `version` in `pyproject.toml` and `__version__` in
-  `src/lcs_parcels/__init__.py`. A release is a single **"Release vYYYY.MM.DD.N"**
+  `src/lcs_parcels/__init__.py`. A release is a single **"Release vYYYY.M.D.N"**
   commit that bumps *both*, so the package metadata is self-consistent.
-- **Tag the released commit** `vYYYY.MM.DD.N` and push the tag; cut a GitHub
+- **Tag the released commit** `vYYYY.M.D.N` and push the tag; cut a GitHub
   release from it. The bump commit may ride in the feature PR it releases — no
   separate release PR is needed. The tag is the release of record.
+- **A release that breaks a documented call says so in its release notes**, per
+  the compatibility rule above: what broke and what to write instead.
 - **Never pin the version value in a test.** `test_version` asserts a version
   string exists, not what it is, so a bump needs no test edit.

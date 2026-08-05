@@ -1,5 +1,6 @@
 """Package-level sanity checks: import, version, and class hierarchies."""
 
+import importlib.metadata
 import inspect
 
 import pytest
@@ -19,6 +20,17 @@ from lcs_parcels import (
 def test_version():
     # A version string is exported; don't pin the value (it goes stale on bumps).
     assert isinstance(lcs_parcels.__version__, str) and lcs_parcels.__version__
+
+
+def test_version_matches_the_installed_distribution():
+    """``__version__`` equals what the installed distribution reports.
+
+    PEP 440 normalises the version on the way into the metadata, so a
+    zero-padded CalVer date in the source (``2026.08.04.1``) is published as
+    ``2026.8.4.1`` and the two disagree for anyone who installs. Pins no value,
+    so a release bump needs no edit here.
+    """
+    assert lcs_parcels.__version__ == importlib.metadata.version("lcs_parcels")
 
 
 def test_public_classes_importable():

@@ -1,18 +1,87 @@
 [build-system]
-requires = ["hatchling"]
+# >=1.27 for PEP 639: the SPDX `license` expression and `license-files` below
+# need Metadata 2.4, which older hatchling does not emit. Without the floor a
+# constrained build environment produces wrong license metadata rather than
+# failing.
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "lcs_parcels"
-version = "2026.08.04.1"
+version = "2026.8.4.1"
 description = "Lagrangian coherent structures with Parcels."
 readme = "README.md"
-requires-python = ">=3.11"
-license = { file = "LICENSE" }
-dependencies = ["numpy", "xarray", "scipy"]
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+# Names only. PEP 621 sends entries with an email to `Author-email` and entries
+# without to `Author`, and PyPI then labels the `Author` line with the *other*
+# entry's address. Both names in one field keep the attribution right; the
+# address goes on `maintainers`, which has its own line.
+authors = [
+    { name = "Henry Adjei" },
+    { name = "Willi Rath" },
+]
+maintainers = [{ name = "Willi Rath", email = "wrath@geomar.de" }]
+keywords = [
+    "lagrangian",
+    "coherent-structures",
+    "lcs",
+    "ftle",
+    "oceanography",
+    "parcels",
+    "xarray",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Oceanography",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+# Floors only, no caps: a cap in a library's metadata propagates into every
+# downstream resolution. Each floor is the SPEC 0 line
+# (https://scientific-python.org/specs/spec-0000/): the oldest minor released
+# inside the 24-month window, which opened 2024-08-05 when these were set.
+# numpy 2.1.0 is 2024-08-18 and inside it; scipy 1.14.0 is 2024-06-24 and
+# outside, so 1.15 is its oldest in-window minor; xarray 2024.7.0 is 2024-07-30
+# and outside, so 2024.9 is. The suite passes at all three floors. None sits
+# above the line -- a floor may only do that with a measured failure recorded
+# beside it, and there is none. `pixi.lock` pins the development environment;
+# this declares what the library can live with.
+dependencies = ["numpy>=2.1", "xarray>=2024.9", "scipy>=1.15"]
+
+[project.urls]
+Homepage = "https://github.com/geomar-od-lagrange/lcs_parcels"
+Repository = "https://github.com/geomar-od-lagrange/lcs_parcels"
+Issues = "https://github.com/geomar-od-lagrange/lcs_parcels/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lcs_parcels"]
+
+# The sdist is the package, not the working repository: agent instructions, the
+# plans, the development lockfile and CI config have no use once installed. The
+# `.ipynb` go too -- their value is that they render on the forge, which an sdist
+# does not, and the executed outputs were 85% of a 1 MB archive. The `.py`
+# sources they are generated from stay, so `tests/test_examples.py` still has
+# something to execute. (Hatchling includes `.gitignore` whatever this says; it
+# is one line and not worth fighting the backend over.)
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".claude",
+    ".github",
+    ".gitattributes",
+    ".gitignore",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "pixi.lock",
+    "plans",
+    "*.ipynb",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -23,6 +92,15 @@ markers = [
   "minimal: needs neither CMEMS credentials nor downloaded data",
   "needs_creds: needs CMEMS credentials, and downloads data if it is absent",
 ]
+
+[tool.coverage.run]
+branch = true
+source = ["lcs_parcels"]
+
+[tool.coverage.report]
+# The three abstract-method bodies are `raise NotImplementedError` and are never
+# executed by design. Excluding them makes 100% the honest number to gate on.
+exclude_also = ["raise NotImplementedError"]
 
 [tool.ruff]
 # Notebooks and prose are generated or vendored: the `.ipynb`/`.md` of an
@@ -57,6 +135,7 @@ lcs_parcels = { path = ".", editable = true }
 [tool.pixi.tasks]
 lint = "ruff check . && ruff format --check ."
 test = { cmd = 'pytest -m "not needs_creds"', description = "Unit suite plus the examples that need no credentials" }
+test-cov = { cmd = 'pytest -m "not needs_creds" --cov --cov-branch --cov-report=term-missing --cov-fail-under=100', description = "Unit suite with branch coverage, gated at 100%" }
 
 [tool.pixi.dependencies]
 pytest = ">=9.0.3,<10"
@@ -66,9 +145,10 @@ ipython = ">=9.14.1,<10"
 ipykernel = ">=7.3.0,<8"
 nbconvert = ">=7.17.1,<8"
 jupytext = ">=1.19.4,<2"
-python = "3.13.*"
+python = ">=3.12"
 scipy = ">=1.18.0,<2"
 ruff = ">=0.16.1,<0.17"
+pytest-cov = ">=7.1.0,<8"
 
 # --- examples feature -------------------------------------------------------
 # Real Parcels-driven examples (CMEMS currents, advection). The default env is
@@ -104,8 +184,22 @@ parcels = { git = "https://github.com/OceanParcels/Parcels.git", rev = "5a0df965
 test-examples = { cmd = "pytest tests/test_examples.py", description = "Every example, including the one needing no credentials" }
 get-data = { cmd = "python get_data.py", cwd = "examples", description = "Download the CMEMS subset to examples/data/ (needs CMEMS credentials)" }
 
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+
+[tool.pixi.feature.py314.dependencies]
+python = "3.14.*"
+
+# Every environment also gets the default feature, which carries the package and
+# the test tooling; the `pyNNN` features add nothing but an interpreter pin.
+# `default` is 3.13, so it agrees with `examples` (the newest Parcels v4
+# supports). `py312` and `py314` are the ends of the supported range and are what
+# the CI matrix runs.
 [tool.pixi.environments]
-# Both envs pin Python 3.13 (the newest Parcels v4 supports); the `examples` env
-# adds the Parcels + CMEMS stack on top of the minimal default.
-default = { features = [], solve-group = "default" }
+default = ["py313"]
 examples = { features = ["examples"] }
+py312 = ["py312"]
+py314 = ["py314"]
