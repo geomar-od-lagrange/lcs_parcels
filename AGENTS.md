@@ -105,6 +105,16 @@ Rules that fall out of it:
   absolute. Nothing else changes, and the unicode-glyph ban still holds there.
   Check with `readme_renderer`, which is what PyPI uses; the `build` CI job runs
   `twine check --strict` over it.
+- **A link names the general URL, never the redirect target.** Write
+  `https://lcs-parcels.readthedocs.io/`, not
+  `https://lcs-parcels.readthedocs.io/en/latest/`, because the versioned form
+  pins the README's own links into `latest` even for a reader who arrived on
+  another version. Read the Docs serves an unversioned deep link only behind its
+  `/page/` prefix, so a page is
+  `https://lcs-parcels.readthedocs.io/page/api.html` and the badge image needs
+  no `?version=`. Both were checked against the live site; the bare
+  `/api.html` returns 404. Changing one occurrence means changing all of them,
+  `[project.urls]` and the workflows included.
 - **Citations always carry a DOI.** Include the DOI and its `https://doi.org/...`
   link whenever you cite a paper.
 - **Keep notation in one place.** Symbols and conventions live in a dedicated
