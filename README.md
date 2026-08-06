@@ -1,15 +1,18 @@
 # LCS-Parcels
 
-[![PyPI](https://img.shields.io/pypi/v/lcs_parcels.svg)](https://pypi.org/project/lcs_parcels/)
+[![PyPI](https://img.shields.io/pypi/v/lcs-parcels.svg)](https://pypi.org/project/lcs-parcels/)
 [![Docs](https://readthedocs.org/projects/lcs-parcels/badge/?version=latest)](https://lcs-parcels.readthedocs.io/en/latest/)
-[![CI](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml/badge.svg)](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml)
+[![CI](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml?query=branch%3Amain)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/LICENSE)
 
 Lagrangian coherent structure (LCS) diagnostics on top of
-[Parcels](https://oceanparcels.org/): deformation gradient `grad F`,
+[Parcels](https://parcels-code.org/): deformation gradient `grad F`,
 Cauchy-Green tensor `(grad F)^T grad F`, its eigen-analysis, and the
 finite-time Lyapunov exponent (FTLE), following Haller (2015),
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
+
+The documentation is at
+[lcs-parcels.readthedocs.io](https://lcs-parcels.readthedocs.io/en/latest/).
 
 **This package contains no Parcels code.** It *emits* a particle set to release
 and *ingests* the advected positions to diagnose. You run Parcels (or anything
@@ -20,7 +23,7 @@ else) in between.
 Python 3.12 or newer:
 
 ```console
-$ pip install lcs_parcels
+$ pip install lcs-parcels
 ```
 
 For unreleased `main`:
@@ -79,31 +82,33 @@ itself:
 
 ## Examples
 
-Examples live under [`examples/`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/). Each is a jupytext triplet
-(`.py`/`.md`/`.ipynb`) sharing one source, and the rendered `.ipynb` is the one
-to read. They are listed in increasing scope:
+The examples are rendered with their output on the documentation site, and the
+links below go there. Each one is a jupytext triplet (`.py`/`.md`/`.ipynb`)
+sharing one source under
+[`examples/`](https://github.com/geomar-od-lagrange/lcs_parcels/tree/main/examples/).
+They are listed in increasing scope:
 
-- [`get_data`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/get_data.ipynb) downloads the CMEMS subset the
+- [`get_data`](https://lcs-parcels.readthedocs.io/en/latest/examples/get_data.html) downloads the CMEMS subset the
   Cabo Verde notebooks read. Run once, before them. Needs CMEMS credentials.
-- [`example_grid_pset`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/example_grid_pset.ipynb) exercises the package API
+- [`example_grid_pset`](https://lcs-parcels.readthedocs.io/en/latest/examples/example_grid_pset.html) exercises the package API
   on its own, without Parcels.
-- [`cabo_verde_ftle`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_ftle.ipynb) shows the Parcels v4 wiring
+- [`cabo_verde_ftle`](https://lcs-parcels.readthedocs.io/en/latest/examples/cabo_verde_ftle.html) shows the Parcels v4 wiring
   and the FTLE from CMEMS currents.
-- [`cabo_verde_lcs`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs.ipynb) builds repelling and attracting
+- [`cabo_verde_lcs`](https://lcs-parcels.readthedocs.io/en/latest/examples/cabo_verde_lcs.html) builds repelling and attracting
   LCS as strain tensor lines.
-- [`cabo_verde_lcs_evolution`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/cabo_verde_lcs_evolution.ipynb) evolves an
+- [`cabo_verde_lcs_evolution`](https://lcs-parcels.readthedocs.io/en/latest/examples/cabo_verde_lcs_evolution.html) evolves an
   extracted LCS as a material curve.
 
 The Parcels examples need the `examples` pixi environment (`pixi install -e
-examples`) and a CMEMS currents file you save yourself. See
-[`examples/README.md`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/examples/README.md) for the reading order and the data.
+examples`) and a CMEMS currents file you save yourself. The
+[examples index](https://lcs-parcels.readthedocs.io/en/latest/examples/README.html) has the reading order and the data.
 
 ## Scope
 
 Rectilinear grids with a monotonic `lon_grid` axis, away from the poles.
-The limits, and the accuracy of a separation, are in
-[`docs/api.md`](https://lcs-parcels.readthedocs.io/en/latest/api.html) and
-[`docs/numerics.md`](https://lcs-parcels.readthedocs.io/en/latest/numerics.html).
+The limits, and the accuracy of a separation, are in the
+[API guide](https://lcs-parcels.readthedocs.io/en/latest/api.html) and the
+[numerics notes](https://lcs-parcels.readthedocs.io/en/latest/numerics.html).
 
 ## License
 

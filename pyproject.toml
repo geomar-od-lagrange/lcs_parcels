@@ -70,6 +70,7 @@ dependencies = ["numpy>=2.1", "xarray>=2024.9", "scipy>=1.15"]
 
 [project.urls]
 Homepage = "https://github.com/geomar-od-lagrange/lcs_parcels"
+Documentation = "https://lcs-parcels.readthedocs.io/en/latest/"
 Repository = "https://github.com/geomar-od-lagrange/lcs_parcels"
 Issues = "https://github.com/geomar-od-lagrange/lcs_parcels/issues"
 Changelog = "https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/CHANGELOG.md"
@@ -189,6 +190,9 @@ polars = ">=1.31.0"
 # CMEMS access + plotting for the example itself.
 copernicusmarine = ">=2"
 matplotlib-base = "*"
+# Without it, `copernicusmarine`'s tqdm prints an IProgress warning carrying the
+# absolute path of the environment it ran in, which lands in the committed output.
+ipywidgets = ">=8.1.8,<9"
 
 [tool.pixi.feature.examples.pypi-dependencies]
 # Pinned to Parcels v4 `main` (HEAD as of 2026-07-10). Bump the rev to advance.

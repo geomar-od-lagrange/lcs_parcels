@@ -23,7 +23,9 @@ FTLE. One stencil (`NeighborSeedGrid`); nothing tuned for speed.
 The currents come from the local file `data/cabo_verde_currents_hourly.nc`;
 run `get_data.ipynb` once to produce it.
 
-```python
+```python tags=["remove-output"]
+# Importing Parcels pulls in the holoviews/bokeh bootstrap and prints an
+# alpha-version notice, neither of which belongs on the rendered page.
 import numpy as np
 import xarray as xr
 from parcels import FieldSet, Particle, ParticleSet, StatusCode
