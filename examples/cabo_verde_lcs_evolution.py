@@ -1,7 +1,7 @@
 # ---
 # jupyter:
 #   jupytext:
-#     cell_metadata_filter: -all
+#     cell_metadata_filter: tags,-all
 #     formats: py:percent,md,ipynb
 #     text_representation:
 #       extension: .py
@@ -34,7 +34,9 @@
 # maps and the repelling curve by the backward maps. Each is evolved in the
 # opposite direction to the one it was diagnosed on.
 
-# %%
+# %% tags=["remove-output"]
+# Importing Parcels pulls in the holoviews/bokeh bootstrap and prints an
+# alpha-version notice, neither of which belongs on the rendered page.
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr

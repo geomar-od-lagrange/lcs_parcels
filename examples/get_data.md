@@ -24,7 +24,7 @@ it is cheap: if the file is already there and opens, nothing is downloaded.
 clone has to run this notebook before the three Cabo Verde ones.
 
 This assumes
-[`copernicusmarine`](https://help.marine.copernicus.eu/en/collections/4060068-copernicus-marine-toolbox)
+[`copernicusmarine`](https://help.marine.copernicus.eu/en/collections/9080063-copernicus-marine-toolbox)
 has credentials.
 
 ```python
@@ -78,6 +78,8 @@ if not have_file:
         end_datetime="2025-08-12",
     ).load()
     ds.to_netcdf(target)
+
+print(f"{target}: {target.stat().st_size / 1e6:.0f} MB on disk")
 ```
 
 ## What landed on disk

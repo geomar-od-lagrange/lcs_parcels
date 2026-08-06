@@ -1,7 +1,7 @@
 ---
 jupyter:
   jupytext:
-    cell_metadata_filter: -all
+    cell_metadata_filter: tags,-all
     formats: py:percent,md,ipynb
     text_representation:
       extension: .md
@@ -34,7 +34,9 @@ the same seed grid both ways and takes the $\xi_1$ shrink lines of each flow
 map: the forward map gives the repelling LCS, the backward map the attracting
 ones.
 
-```python
+```python tags=["remove-output"]
+# Importing Parcels pulls in the holoviews/bokeh bootstrap and prints an
+# alpha-version notice, neither of which belongs on the rendered page.
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr

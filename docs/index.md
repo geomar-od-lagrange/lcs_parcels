@@ -32,4 +32,5 @@ api
 notation
 numerics
 architecture
+changelog
 ```

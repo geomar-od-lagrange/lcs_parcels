@@ -51,7 +51,7 @@ jobs:
     # rotate. The environment also gives a place to require an approval.
     environment:
       name: pypi
-      url: https://pypi.org/p/lcs_parcels
+      url: https://pypi.org/p/lcs-parcels
     permissions:
       id-token: write
     steps:

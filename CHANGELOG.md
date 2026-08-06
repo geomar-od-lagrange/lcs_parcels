@@ -4,6 +4,52 @@ Versions are CalVer, `YYYY.M.D.N`. The API breaks whenever the design improves,
 so each entry says what broke and what to write instead. There are no
 deprecation shims: the old form is deleted and every call site updated.
 
+## 2026.8.6.1
+
+Links, badges and notebook output. Nothing in the API changed, so no call has
+to be rewritten.
+
+### Changed
+
+- The README's example links point at the rendered notebooks on the
+  documentation site rather than at the GitHub blobs. The README is included
+  into the site's home page, so those links used to send a reader off the site
+  to read a notebook the site itself publishes.
+- Links into the documentation use the general URL,
+  `https://lcs-parcels.readthedocs.io/`, with deep links behind Read the Docs'
+  `/page/` prefix. The versioned form pinned them to `latest`.
+- The PyPI badge, its link target, the `pip install` line and the `pypi`
+  environment URL in `publish.yml` all spell the canonical `lcs-parcels`. The
+  distribution name is unchanged and both spellings resolve, so installing
+  works exactly as before.
+- The CI badge is pinned to `main`. A red run on a branch or a fork PR no
+  longer shows as a failing badge on the front page and on PyPI.
+- Parcels is linked at `https://parcels-code.org/`, and `get_data`'s Copernicus
+  Marine help link no longer names a retired collection id. Both were
+  redirects.
+
+### Added
+
+- `Documentation` in `[project.urls]`, which is what puts the documentation
+  site in the PyPI sidebar.
+- `CHANGELOG.md` is a page on the documentation site, included rather than
+  copied.
+
+### Fixed
+
+- The committed notebooks no longer carry an absolute path from the machine
+  that executed them. `ipywidgets` is in the `examples` environment, so
+  `copernicusmarine`'s tqdm stops printing an IProgress warning naming the
+  environment it ran in.
+- The Parcels import cell is tagged `remove-output`. The rendered pages carried
+  an ipykernel scratch path inside the alpha-version warning, and about 55 kB
+  per notebook of holoviews/bokeh bootstrap whose inlined HTML injected
+  `cdn.bokeh.org` script tags into the reader's browser for a library no
+  notebook uses.
+- `get_data` reports the size of the file on disk whether or not it downloaded
+  anything. The download cell used to be silent when the file was already
+  there.
+
 ## 2026.8.5.1
 
 First release on PyPI. `pip install lcs_parcels`.
