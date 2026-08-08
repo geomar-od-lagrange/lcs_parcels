@@ -55,3 +55,8 @@ def test_cabo_verde_lcs():
 @pytest.mark.needs_creds
 def test_cabo_verde_lcs_evolution():
     run_example("cabo_verde_lcs_evolution")
+
+
+@pytest.mark.needs_creds
+def test_cabo_verde_unstructured():
+    run_example("cabo_verde_unstructured")

@@ -65,7 +65,7 @@ lon_0, lat_0 = seed.to_parcels_pset()
 flowmap = seed.pset_to_flowmap(
     lon=lon_advected, lat=lat_advected, t0=t0, t1=t1
 )
-ftle = flowmap.ftle()  # xr.DataArray of the FTLE (1/s) on the (i, j) grid
+ftle = flowmap.ftle()  # xr.DataArray of the FTLE (1/s) at the grid points
 
 # 4. Or go straight to the hyperbolic LCS curves, FTLE field included.
 lcs = flowmap.hyperbolic_lcs()
@@ -95,6 +95,8 @@ itself:
   LCS as strain tensor lines.
 - [`cabo_verde_lcs_evolution`](https://lcs-parcels.readthedocs.io/page/examples/cabo_verde_lcs_evolution.html) evolves an
   extracted LCS as a material curve.
+- [`cabo_verde_unstructured`](https://lcs-parcels.readthedocs.io/page/examples/cabo_verde_unstructured.html) runs the same
+  chain over grid points that are not a grid.
 
 The Parcels examples need the `examples` pixi environment (`pixi install -e
 examples`) and a CMEMS currents file you save yourself. The
@@ -102,8 +104,10 @@ examples`) and a CMEMS currents file you save yourself. The
 
 ## Scope
 
-Rectilinear grids with a monotonic `lon_grid` axis, away from the poles.
-The limits, and the accuracy of a separation, are in the
+Away from the poles. `NeighborSeedGrid` and `AuxiliarySeedGrid` need a
+rectilinear grid with a monotonic `lon_grid` axis;
+`UnstructuredAuxiliarySeedGrid` takes the grid points as they come, on one
+longitude branch. The limits, and the accuracy of a separation, are in the
 [API guide](https://lcs-parcels.readthedocs.io/page/api.html) and the
 [numerics notes](https://lcs-parcels.readthedocs.io/page/numerics.html).
 

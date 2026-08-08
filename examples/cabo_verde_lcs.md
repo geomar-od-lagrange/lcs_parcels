@@ -154,10 +154,10 @@ ftle_forward
 ```
 
 `ftle_ridge_seeds` picks seed points at the ridge tops: grid points that are
-the maximum over a square window centred on them and lie in the top `quantile`
-of the field. `window_m` is the full side of that window, so two seeds can be
-about half of it apart. The target here is neighbouring filaments about
-15 km apart in this eddy field, so the window is 30 km. The top decile keeps
+the maximum over every grid point within `window_m / 2` of them and lie in the
+top `quantile` of the field. `window_m` is the diameter of that neighbourhood,
+so two seeds end up half of it apart. The target here is neighbouring
+filaments about 15 km apart in this eddy field, so the window is 30 km. The top decile keeps
 the seeds on the pronounced ridges of *this* field. The alternative selector,
 `ftle_min`, is an absolute floor in 1/s; use it when several regions or
 windows have to be compared against one threshold.
@@ -172,8 +172,8 @@ repelling_seeds = ftle_ridge_seeds(ftle_forward, window_m=window_m, quantile=qua
 repelling_seeds
 ```
 
-The seed dataset records how the window came out on this grid. The distance
-below is the closest two seeds can be: half the window, not the window.
+The distance below is the closest two seeds can be: half the window, not the
+window.
 
 ```python
 repelling_seeds.attrs["min_seed_separation_m"]
@@ -214,7 +214,7 @@ different lengths.
 repelling_lcs["lon"].isnull().sum("point")
 ```
 
-Rows that are NaN in every column traced no curve. About a quarter of the
+Rows that are NaN in every column traced no curve. Close to a third of the
 seeds here sit close to land, so the interpolated tensor is NaN at the seed
 and no curve is produced.
 

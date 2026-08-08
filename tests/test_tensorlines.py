@@ -27,16 +27,27 @@ import warnings
 import numpy as np
 import pytest
 import xarray as xr
-from conftest import advected_flowmap, advected_flowmap_f, seed_origin
+from conftest import (
+    advected_flowmap,
+    advected_flowmap_f,
+    advected_scattered_flowmap,
+    apply_map_to_pset,
+    scattered_points,
+    seed_origin,
+)
 from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels import AuxiliarySeedGrid, ftle_ridge_seeds, shrink_lines
+from lcs_parcels import (
+    AuxiliarySeedGrid,
+    UnstructuredAuxiliarySeedGrid,
+    ftle_ridge_seeds,
+    shrink_lines,
+)
 from lcs_parcels.grids import _M_PER_DEG, _separation_m
 from lcs_parcels.tensorlines import (
     _shrink_line_tangent,
     _step_lonlat_by_meters,
     _trace_half_line,
-    _window_geometry,
 )
 
 RELEASE_TIME = np.datetime64("2020-01-01")
@@ -62,24 +73,35 @@ def _gridded_field(values, lon_axis, lat_axis):
     )
 
 
-def _cells(geometry):
-    """The ``(i, j)`` window cell counts of a
-    :func:`~lcs_parcels.tensorlines._window_geometry` dict, or of a seed
-    dataset's attrs, which carry the same keys."""
-    return geometry["window_cells_i"], geometry["window_cells_j"]
+def _scattered_field(field):
+    """The same values and the same points, as a set with no axes left."""
+    dims = field.dims
+    return xr.DataArray(
+        field.values.ravel(),
+        dims="grid_point",
+        coords={
+            "lon_grid": (
+                "grid_point",
+                field["lon_grid"].transpose(*dims).values.ravel(),
+            ),
+            "lat_grid": (
+                "grid_point",
+                field["lat_grid"].transpose(*dims).values.ravel(),
+            ),
+        },
+    )
 
 
-def _three_cell_window_m(field):
-    """A ``window_m`` worth at least three cells in *both* dimensions of ``field``.
+def _three_spacing_window_m(field):
+    """A ``window_m`` worth three grid spacings in *both* dimensions of ``field``.
 
     ``window_m`` is one metre length against a grid whose two cell sizes need not
     match: at 72 N the fixture's 1 x 2 degree cells are 34 km by 222 km, so a
-    window chosen for the zonal spacing is a single cell meridionally, and every
-    grid point is then trivially a local maximum along ``j``. Three times the
-    *larger* median spacing clears three cells either way. That is
-    :func:`~lcs_parcels.tensorlines._window_geometry` behaving as documented --
-    one median per dimension, so the test states the grid it wants rather than
-    a number that happens to suit one latitude.
+    window chosen for the zonal spacing leaves every grid point alone in its own
+    neighbourhood meridionally, and each is then trivially a local maximum. Three
+    times the *larger* median spacing gives every point a competitor either way,
+    so the test states the grid it wants rather than a number that happens to
+    suit one latitude.
     """
     lon_grid, lat_grid = field["lon_grid"], field["lat_grid"]
     dx, _ = _separation_m(
@@ -106,9 +128,9 @@ def test_ftle_ridge_seeds_picks_the_peak(lon_axis, lat_axis):
         np.exp(-((ii - 2.0) ** 2 + (jj - 2.0) ** 2)), lon_axis, lat_axis
     )
 
-    window_m = _three_cell_window_m(ftle)
-    assert min(_cells(_window_geometry(ftle, window_m))) >= 3
-    seeds = ftle_ridge_seeds(ftle, window_m=window_m, quantile=0.90)
+    seeds = ftle_ridge_seeds(
+        ftle, window_m=_three_spacing_window_m(ftle), quantile=0.90
+    )
 
     assert seeds.sizes["seed"] == 1
     assert seeds["lon"].values[0] == lon_axis[2]
@@ -116,15 +138,71 @@ def test_ftle_ridge_seeds_picks_the_peak(lon_axis, lat_axis):
 
 
 def test_ftle_ridge_seeds_skips_nan(lon_axis, lat_axis):
-    """NaN cells never qualify as seeds."""
+    """NaN cells never qualify as seeds, and never deny a finite one."""
     field = np.full((lon_axis.size, lat_axis.size), np.nan)
     field[1, 1] = 5.0  # a lone finite peak
     ftle = _gridded_field(field, lon_axis, lat_axis)
 
-    seeds = ftle_ridge_seeds(ftle, window_m=_three_cell_window_m(ftle), quantile=0.5)
+    seeds = ftle_ridge_seeds(ftle, window_m=_three_spacing_window_m(ftle), quantile=0.5)
 
     assert seeds["lon"].values.tolist() == [lon_axis[1]]
     assert seeds["lat"].values.tolist() == [lat_axis[1]]
+
+
+def test_ftle_ridge_seeds_is_one_rule_for_either_layout(lon_axis, lat_axis):
+    """The same points and values give the same seeds laid out either way.
+
+    ``ftle_ridge_seeds`` takes a field rather than a flow map, so it cannot
+    dispatch on the layout and must not need to. Nothing else in the suite would
+    catch the two paths drifting apart, because there is only one path.
+    """
+    ii, jj = np.meshgrid(
+        np.arange(lon_axis.size), np.arange(lat_axis.size), indexing="ij"
+    )
+    ftle = _gridded_field(
+        np.exp(-((ii - 2.0) ** 2 + (jj - 1.0) ** 2)) + 0.7 * np.exp(-((ii - 0.0) ** 2)),
+        lon_axis,
+        lat_axis,
+    )
+    window_m = _three_spacing_window_m(ftle)
+
+    structured = ftle_ridge_seeds(ftle, window_m=window_m, quantile=0.5)
+    scattered = ftle_ridge_seeds(
+        _scattered_field(ftle), window_m=window_m, quantile=0.5
+    )
+
+    assert structured.attrs == scattered.attrs
+    np.testing.assert_array_equal(
+        np.sort(structured["lon"].values), np.sort(scattered["lon"].values)
+    )
+    np.testing.assert_array_equal(
+        np.sort(structured["lat"].values), np.sort(scattered["lat"].values)
+    )
+
+
+def test_ftle_ridge_seeds_measure_across_the_antimeridian():
+    """Grid points on both branches of 180 are neighbours, not half a world apart.
+
+    The neighbourhood is taken on the sphere, so it has no branch to be cut on,
+    which a point set may straddle where the `lon_grid` axis of a structured grid
+    may not. A degree-space distance would put the two halves 360 degrees apart
+    and make every point its own maximum.
+    """
+    lon = np.array([179.4, 179.7, 180.0, 180.3, 180.6])
+    lat = np.full(lon.size, 10.0)
+    values = np.array([0.1, 0.4, 1.0, 0.3, 0.2])
+    coords = {"lon_grid": ("grid_point", lon), "lat_grid": ("grid_point", lat)}
+    plain = xr.DataArray(values, dims="grid_point", coords=coords)
+    wrapped = plain.assign_coords(
+        lon_grid=("grid_point", (lon + 180.0) % 360.0 - 180.0)
+    )
+
+    window_m = 200_000.0
+    assert ftle_ridge_seeds(plain, window_m=window_m, quantile=0.5).sizes["seed"] == 1
+    seeds = ftle_ridge_seeds(wrapped, window_m=window_m, quantile=0.5)
+
+    assert seeds.sizes["seed"] == 1
+    assert seeds["lon"].values[0] == -180.0
 
 
 def _two_bump_ftle(n_lon):
@@ -144,61 +222,19 @@ def _two_bump_ftle(n_lon):
     return bumps.assign_coords(lon_grid=lon2d, lat_grid=lat2d)
 
 
-def test_window_cell_count_tracks_grid_resolution():
-    """The same physical window is a different number of cells on a finer grid."""
-    coarse = _two_bump_ftle(61)  # 0.1 degree cells
-    fine = _two_bump_ftle(121)  # 0.05 degree cells
+def test_ftle_ridge_seeds_are_resolution_independent():
+    """The same physical window picks the same seeds on a grid twice as fine.
 
-    coarse_geometry = _window_geometry(coarse, 60_000.0)
-    fine_geometry = _window_geometry(fine, 60_000.0)
-
-    assert _cells(coarse_geometry) == (5, 5)
-    assert _cells(fine_geometry) == (11, 11)
-    # The same physical window, so the same physical seed spacing on both grids.
-    np.testing.assert_allclose(
-        fine_geometry["min_seed_separation_m"],
-        coarse_geometry["min_seed_separation_m"],
-        rtol=0.05,
-    )
-
-
-def test_window_cell_count_is_per_dimension_and_odd():
-    """Each dimension gets its own count, from the median local east/north
-    spacing of that dimension, rounded down to an odd number.
-
-    A mid-latitude grid of 0.1 deg by 0.05 deg cells separates the three things an
-    equatorial isotropic grid hides. The zonal spacing shrinks poleward across
-    this grid and its median cell sits at 40 N, so the spacings are
-    ``dx = 0.1 * 111195 * cos(40) = 8518 m`` and ``dy = 0.05 * 111195 = 5560 m``:
-    a 50 km window is ``round(5.87) = 6 -> 5`` cells along ``i`` (the
-    odd-enforcement branch fires) and ``round(8.99) = 9`` along ``j``.
+    The neighbourhood is a distance rather than a count of grid points, so
+    halving the cell size neither tightens nor loosens the selection, and the
+    separation it reports does not move at all.
     """
-    lon_axis = np.arange(0.0, 4.0001, 0.1)
-    lat_axis = np.arange(30.0, 50.0001, 0.05)
-    lon2d, lat2d = xr.broadcast(
-        xr.DataArray(lon_axis, dims="i"), xr.DataArray(lat_axis, dims="j")
-    )
-    ftle = xr.DataArray(
-        np.zeros(lon2d.shape),
-        dims=("i", "j"),
-        coords={"lon_grid": lon2d, "lat_grid": lat2d},
-    )
+    coarse = ftle_ridge_seeds(_two_bump_ftle(61), window_m=60_000.0)  # 0.1 deg cells
+    fine = ftle_ridge_seeds(_two_bump_ftle(121), window_m=60_000.0)  # 0.05 deg cells
 
-    geometry = _window_geometry(ftle, 50_000.0)
-
-    assert _cells(geometry) == (5, 9)
-    np.testing.assert_allclose(geometry["grid_spacing_i_m"], 8518.0, rtol=1e-3)
-    np.testing.assert_allclose(geometry["grid_spacing_j_m"], 5560.0, rtol=1e-3)
-    # (5 - 1) // 2 + 1 = 3 cells along i, (9 - 1) // 2 + 1 = 5 along j, and the
-    # reported value is the smaller of the two. It is built on the SMALLEST cell,
-    # not the median one: the zonal cell shrinks to 0.1 * 111195 * cos(50) =
-    # 7148 m at the poleward edge, so the bound is 3 * 7148 against 5 * 5560.
-    # Using the median 8518 here would claim 25554 m and be violated by the
-    # seeds at 50 N.
-    np.testing.assert_allclose(
-        geometry["min_seed_separation_m"], 3.0 * 7148.0, rtol=1e-3
-    )
-    assert geometry["window_m"] == 50_000.0
+    np.testing.assert_allclose(np.sort(coarse["lon"].values), [-0.5, 0.5])
+    np.testing.assert_allclose(np.sort(fine["lon"].values), [-0.5, 0.5])
+    assert coarse.attrs["min_seed_separation_m"] == fine.attrs["min_seed_separation_m"]
 
 
 @pytest.mark.parametrize("n_lon", [61, 121])
@@ -218,7 +254,7 @@ def test_ftle_ridge_seeds_selectivity_is_physical(n_lon):
 
 def test_ftle_ridge_seeds_output_structure_and_attrs():
     """The returned dataset is ``lon``/``lat`` on an indexed ``seed`` dim, each
-    labelled, and its attrs report what ``window_m`` became on this grid."""
+    labelled, and its attrs report the selection it made."""
     seeds = ftle_ridge_seeds(_two_bump_ftle(61), window_m=60_000.0)
 
     assert set(seeds.dims) == {"seed"}
@@ -233,65 +269,57 @@ def test_ftle_ridge_seeds_output_structure_and_attrs():
         "selector",
         "ftle_threshold",
         "window_m",
-        "window_cells_i",
-        "window_cells_j",
-        "grid_spacing_i_m",
-        "grid_spacing_j_m",
         "min_seed_separation_m",
     }
     assert seeds.attrs["selector"] == "quantile"
     assert seeds.attrs["window_m"] == 60_000.0
+    assert seeds.attrs["min_seed_separation_m"] == 30_000.0
 
 
 def _lattice_ridge_ftle(window_m, lat_max=1.0):
     """A field whose maxima are packed as tightly as ``window_m`` allows.
 
-    Crests sit on a lattice whose period, per dimension, is exactly
-    ``(cells - 1) // 2 + 1`` cells, one cell beyond the window's reach, the
-    closest two windowed maxima can be. Any tighter and one crest would fall
-    inside the other's window and only the larger would survive, so this is the
+    Crests sit on a lattice one grid cell wider than the neighbourhood radius,
+    the closest two maxima can be. Any tighter and one crest would fall inside
+    the other's neighbourhood and only the larger would survive, so this is the
     extreme case ``min_seed_separation_m`` claims to bound rather than a field
     that merely happens to stay clear of it.
 
-    ``cos`` in each index separately keeps the field separable, so the rolling
-    2-D maximum is the sum of the two 1-D maxima and a point is a seed exactly
-    when it is a crest in both dimensions. Returns the field and its geometry.
-
-    ``lat_max`` sets how far the grid reaches poleward from the equator. The
-    lattice is uniform in *index* space while its cells shrink in metres, so a
-    wide band is what separates the median cell size from the smallest one.
+    ``cos`` in each index separately keeps the field separable, so a point is a
+    crest exactly when it is one in both dimensions. The zonal cell shrinks
+    poleward, so the zonal period is counted off the smallest cell on the grid,
+    the one at ``lat_max``, and the lattice is no tighter than the bound anywhere.
     """
-    lon_axis = np.arange(0.0, 6.0001, 0.1)
-    lat_axis = np.arange(0.0, lat_max + 1e-9, 0.1)
+    step_deg = 0.1
+    lon_axis = np.arange(0.0, 6.0001, step_deg)
+    lat_axis = np.arange(0.0, lat_max + 1e-9, step_deg)
+    radius_m = 0.5 * window_m
+    period_i = int(radius_m / (step_deg * _M_PER_DEG * np.cos(np.deg2rad(lat_max)))) + 1
+    period_j = int(radius_m / (step_deg * _M_PER_DEG)) + 1
     ii, jj = np.meshgrid(
         np.arange(lon_axis.size), np.arange(lat_axis.size), indexing="ij"
     )
-    geometry = _window_geometry(_gridded_field(ii * 0.0, lon_axis, lat_axis), window_m)
-    period_i = (geometry["window_cells_i"] - 1) // 2 + 1
-    period_j = (geometry["window_cells_j"] - 1) // 2 + 1
     values = np.cos(2.0 * np.pi * ii / period_i) + np.cos(2.0 * np.pi * jj / period_j)
-    return _gridded_field(values, lon_axis, lat_axis), geometry
+    return _gridded_field(values, lon_axis, lat_axis)
 
 
-@pytest.mark.parametrize("lat_max", [1.0, 10.0, 30.0, 60.0, 75.0])
+@pytest.mark.parametrize("lat_max", [1.0, 30.0, 75.0])
 def test_min_seed_separation_m_bounds_the_returned_seeds(lat_max):
     """No two seeds are closer than the reported ``min_seed_separation_m``, and
     they are a good deal closer than ``window_m``.
 
     Measured with :func:`~lcs_parcels.grids._separation_m`, the same frame the
-    package works in. The field packs its crests at exactly the reported
+    package works in. The field packs its crests at just over the reported
     separation, so the bound is attained and not merely respected: the measured
-    closest pair is about ``window_m / 2``, which is the whole content of #21 --
-    reporting ``window_m`` here would overstate the spacing twofold and the
-    second assertion would fail.
+    closest pair is about ``window_m / 2``, and reporting ``window_m`` here would
+    overstate the spacing twofold and fail the second assertion.
 
-    Parametrized over the latitude band because the bound is built on the
-    smallest cell rather than the median one, and only a wide band separates the
-    two. A median-based bound passes at ``lat_max=1`` and is violated by 11% at
-    30 degrees and by a factor of 3 at 75.
+    Parametrized over the latitude band because the neighbourhood is a
+    great-circle radius rather than a degree-space one: the zonal cell shrinks by
+    a factor of four over the widest band here, and the bound holds throughout.
     """
     window_m = 60_000.0
-    ftle, geometry = _lattice_ridge_ftle(window_m, lat_max=lat_max)
+    ftle = _lattice_ridge_ftle(window_m, lat_max=lat_max)
     seeds = ftle_ridge_seeds(ftle, window_m=window_m, quantile=0.0)
     assert seeds.sizes["seed"] > 20  # several ridges, not one
 
@@ -303,20 +331,17 @@ def test_min_seed_separation_m_bounds_the_returned_seeds(lat_max):
     distance = np.hypot(dx, dy)
     closest = float(distance.where(distance > 0.0).min())
 
-    # The lattice is laid out in index space and the pairs are measured in
-    # metres, so the two agree only to the grid's own rounding; 1e-3 is slack
-    # enough for that and nothing else.
-    assert closest > geometry["min_seed_separation_m"] * (1.0 - 1e-3)
+    assert closest > seeds.attrs["min_seed_separation_m"]
     assert closest < 0.75 * window_m  # and the bound is near window_m / 2
 
 
 def test_min_seed_separation_m_bounds_strict_maxima_only():
     """A plateau of exactly equal values puts seeds closer than the bound.
 
-    Selection is ``ftle >= rolling max``, so every cell of a flat top ties for
-    the maximum and adjacent cells are all seeds. Nothing distinguishes a point
-    on a flat ridge, so they are kept rather than broken arbitrarily, and the
-    docstring says the bound is on *strict* maxima. Asserted here so the
+    Selection is ``ftle >= neighbourhood max``, so every cell of a flat top ties
+    for the maximum and adjacent cells are all seeds. Nothing distinguishes a
+    point on a flat ridge, so they are kept rather than broken arbitrarily, and
+    the docstring says the bound is on *strict* maxima. Asserted here so the
     exception is a documented behaviour rather than an unnoticed one.
     """
     lon_axis = np.arange(0.0, 3.0001, 0.1)
@@ -326,7 +351,6 @@ def test_min_seed_separation_m_bounds_strict_maxima_only():
     ftle = _gridded_field(values, lon_axis, lat_axis)
 
     seeds = ftle_ridge_seeds(ftle, window_m=60_000.0, quantile=0.99)
-    geometry = _window_geometry(ftle, 60_000.0)
 
     # The whole plateau is selected, and its cells are adjacent.
     assert seeds.sizes["seed"] == 16
@@ -337,18 +361,19 @@ def test_min_seed_separation_m_bounds_strict_maxima_only():
     )
     distance = np.hypot(dx, dy)
     closest = float(distance.where(distance > 0.0).min())
-    assert closest < 0.5 * geometry["min_seed_separation_m"]
+    assert closest < 0.5 * seeds.attrs["min_seed_separation_m"]
 
 
-def test_ftle_ridge_seeds_warns_when_the_window_is_under_three_cells():
-    """A window narrower than three cells makes every point a windowed maximum,
-    so the local-maximum test stops selecting and the caller is told."""
+def test_ftle_ridge_seeds_warns_when_the_window_is_under_the_grid_spacing():
+    """A neighbourhood that reaches no other grid point makes every point its own
+    maximum, so the local-maximum test stops selecting and the caller is told."""
     ftle = _two_bump_ftle(61)  # about 11 km cells
 
-    with pytest.warns(UserWarning, match="three cells"):
+    with pytest.warns(UserWarning, match="no neighbour"):
         seeds = ftle_ridge_seeds(ftle, window_m=1_000.0)
 
-    assert _cells(seeds.attrs) == (1, 1)
+    # Nothing was rejected, so what comes back is the magnitude floor alone.
+    assert seeds.sizes["seed"] == int((ftle >= ftle.quantile(0.90)).sum())
 
 
 def test_ftle_ridge_seeds_is_silent_on_a_resolved_window():
@@ -358,9 +383,7 @@ def test_ftle_ridge_seeds_is_silent_on_a_resolved_window():
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        seeds = ftle_ridge_seeds(ftle, window_m=60_000.0)
-
-    assert min(_cells(seeds.attrs)) >= 3
+        ftle_ridge_seeds(ftle, window_m=60_000.0)
 
 
 def test_ftle_min_reproduces_the_matching_quantile():
@@ -1152,20 +1175,30 @@ LCS_KWARGS = {
 FIXTURE_WINDOW_M = 700_000.0
 
 
-def _wavy_stretch_flowmap(period_m=250_000.0, base=3.0, amp=1.0):
-    """A flow map whose meridional stretching oscillates with zonal position.
+def _wavy_stretch(period_m=250_000.0, base=3.0, amp=1.0):
+    """A map whose meridional stretching oscillates with zonal position.
 
     ``f(dx, dy) = (dx, dy * (base + amp cos(2 pi dx / period_m)))``, so the
-    Cauchy-Green tensor, and hence the FTLE, varies along ``i`` with several
-    maxima across the domain. That makes the windowed local-maximum test and the
-    quantile floor both load-bearing, unlike a constant-``C`` fixture.
+    Cauchy-Green tensor, and hence the FTLE, varies zonally with several maxima
+    across the domain. That makes the local-maximum test and the quantile floor
+    both load-bearing, unlike a constant-``C`` fixture.
     """
 
     def f(dx, dy):
         return dx, dy * (base + amp * np.cos(2.0 * np.pi * dx / period_m))
 
+    return f
+
+
+def _wavy_stretch_flowmap(**kwargs):
+    """:func:`_wavy_stretch` seeded on the rectilinear LCS fixture axes."""
     return advected_flowmap_f(
-        AuxiliarySeedGrid, LCS_LON, LCS_LAT, f, RELEASE_TIME, LCS_END_TIME
+        AuxiliarySeedGrid,
+        LCS_LON,
+        LCS_LAT,
+        _wavy_stretch(**kwargs),
+        RELEASE_TIME,
+        LCS_END_TIME,
     )
 
 
@@ -1320,3 +1353,64 @@ def test_shrink_lines_seed_pair_is_keyword_only(lon_axis, lat_axis):
     seed = _centre_seed(fm)
     with pytest.raises(TypeError):
         shrink_lines(fm, seed["seed_lon"], seed["seed_lat"])
+
+
+# --- the tensor-line layer on an unstructured layout -----------------------
+
+
+def test_shrink_lines_run_on_a_point_set(lon_axis, lat_axis):
+    """The tensor lines trace on grid points that carry no axes.
+
+    ``M = diag(1, 3)`` again, so ``xi_1`` is due east and the exact answer is a
+    parallel of latitude whichever interpolator reads the tensor between the
+    grid points.
+    """
+    fm = advected_scattered_flowmap(
+        lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
+    )
+    lines = shrink_lines(
+        fm, **_centre_seed(fm), step_m=10_000.0, line_length_m=80_000.0
+    )
+
+    lon = lines["lon"].isel(line=0).values
+    lat = lines["lat"].isel(line=0).values
+    valid = np.isfinite(lon) & np.isfinite(lat)
+
+    assert valid.all()
+    assert np.ptp(lat[valid]) < 1e-9
+    assert np.ptp(lon[valid]) > 0.1
+
+
+def test_shrink_lines_stop_outside_the_convex_hull(lon_axis, lat_axis):
+    """A seed the point set does not enclose traces nothing, the scattered
+    counterpart of running off a rectilinear grid."""
+    fm = advected_scattered_flowmap(
+        lon_axis, lat_axis, np.diag([1.0, 3.0]), RELEASE_TIME, END_TIME
+    )
+    lines = shrink_lines(
+        fm,
+        seed_lon=[float(lon_axis[0]) - 50.0],
+        seed_lat=[float(lat_axis[0])],
+        step_m=10_000.0,
+        line_length_m=80_000.0,
+    )
+
+    assert bool(lines["lon"].isnull().all())
+
+
+def test_hyperbolic_lcs_runs_on_a_point_set():
+    """The one-call workflow needs no axes anywhere along it: the ridge rule
+    reads a point set and the tensor interpolator is the flow map's own."""
+    lon_points, lat_points = scattered_points(LCS_LON, LCS_LAT)
+    seed = UnstructuredAuxiliarySeedGrid.from_points(lon=lon_points, lat=lat_points)
+    lon, lat = seed.to_parcels_pset()
+    lon_out, lat_out = apply_map_to_pset(lon, lat, _wavy_stretch(), seed_origin(seed))
+    fm = seed.pset_to_flowmap(
+        lon=lon_out, lat=lat_out, t0=RELEASE_TIME, t1=LCS_END_TIME
+    )
+
+    lcs = fm.hyperbolic_lcs(**LCS_KWARGS)
+
+    assert set(lcs["ftle"].dims) == {"grid_point"}
+    assert lcs.sizes["line"] > 1
+    assert bool(lcs["lon"].notnull().any())

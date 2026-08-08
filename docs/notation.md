@@ -13,10 +13,10 @@ Haller (2015).
 | Symbol | Meaning | Haller Eq. | Code name |
 |---|---|---|---|
 | $v(x, t)$ | velocity field, with position $x = (x^1, x^2)$ in 2D | 2 | (input, external) |
-| $x_0$ | initial (reference) particle *release* position; for the `Neighbor*` classes the grid point itself, for the `Auxiliary*` classes the explicit stencil arms; carried by both the seed and the flow map | 3 | `lon_0`, `lat_0` (`(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes) |
-| $x_{\mathrm{grid}}$ | diagnostic grid point, where every diagnostic is reported; carried explicitly by both stencils and by both families |  | `lon_grid(i, j)`, `lat_grid(i, j)` |
-| $F_{t_0}^{t_1}(x_0) = x(t_1; t_0, x_0)$ | flow **map**: initial position $\to$ position at time $t_1$; stored as the advected positions on a `FlowMap` (its only data vars) | 3 | `lon`, `lat`, sharing the dims of `lon_0`/`lat_0`: `(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes |
-| $F_{t_0}^{t_1}(x_{\mathrm{grid}})$ | flow map image of the diagnostic grid points: the advected positions reduced onto `(i, j)` | 3 | `grid_image` |
+| $x_0$ | initial (reference) particle *release* position; for the `Neighbor*` classes the grid point itself, for the auxiliary classes the explicit stencil arms; carried by both the seed and the flow map | 3 | `lon_0`, `lat_0` (the grid dims, plus `displacement` on the auxiliary classes) |
+| $x_{\mathrm{grid}}$ | diagnostic grid point, where every diagnostic is reported; carried explicitly by every pair and by both families |  | `lon_grid`, `lat_grid` |
+| $F_{t_0}^{t_1}(x_0) = x(t_1; t_0, x_0)$ | flow **map**: initial position $\to$ position at time $t_1$; stored as the advected positions on a `FlowMap` (its only data vars) | 3 | `lon`, `lat`, sharing the dims of `lon_0`/`lat_0` |
+| $F_{t_0}^{t_1}(x_{\mathrm{grid}})$ | flow map image of the diagnostic grid points: the advected positions reduced onto the grid dims | 3 | `grid_image` |
 | $\nabla F_{t_0}^{t_1}(x_0)$ | deformation gradient (the **gradient** of the flow map; $2\times 2$ in 2D) | 4, 9 | `deformation_gradient`, `gradF` |
 | $C(x_0) = \left(\nabla F_{t_0}^{t_1}\right)^\top \nabla F_{t_0}^{t_1}$ | right Cauchy–Green strain tensor ($2\times 2$, symmetric positive-definite) | 6 | `cauchy_green`, `C` |
 | $C\,\xi_i = \lambda_i\,\xi_i,\ \ 0 < \lambda_1 \le \lambda_2,\ \ \xi_1 \perp \xi_2$ | eigen-decomposition of $C$ | 7 | `cg_eigen` |
@@ -29,7 +29,7 @@ Haller (2015).
 | $dx = R\cos\phi\,d\lambda,\ \ dy = R\,d\phi$ | metric of the sphere of radius $R$: the local east/north frame in which every separation is measured ($\lambda$ longitude, $\phi$ latitude; lon/lat $\to$ metres). A *finite* separation between two named points takes the cosine at that pair's mid-latitude, $\bar\phi = \tfrac{1}{2}(\phi_a + \phi_b)$ |  | (internal metric, `_separation_m`) |
 | $\Delta\lambda \in [-180^\circ, 180^\circ]$ | longitude *difference*, wrapped; stored longitudes are never wrapped |  | `_wrap_lon` |
 | $\dot r = \xi_1(r)$ | shrink line: tensor line tangent to $\xi_1$; a repelling LCS (forward flow) or, by forward–backward duality, attracting LCS (backward flow) | Table 1 ($n = 2$) | `shrink_lines`, `ftle_ridge_seeds` |
-| $w$ | ridge-seed window: the **side**, in metres, of the square window a seed must be the FTLE maximum over; two seed points can therefore be about $w/2$ apart |  | `window_m` |
+| $w$ | ridge-seed window: the **diameter**, in metres, of the spherical neighbourhood a seed must be the FTLE maximum over; two seed points are therefore at least $w/2$ apart |  | `window_m` |
 | $\Lambda \ge \Lambda_{\min}$ | FTLE magnitude floor a seed must also clear, set either as a quantile of the field at hand or as an absolute value in the field's units (1/s) |  | `quantile`, `ftle_min` |
 | $\lambda_2 / \lambda_1 \ge a_{\min}$ | anisotropy floor: the ratio of the Cauchy–Green eigenvalues below which $\xi_1$ is not a well-defined direction (dimensionless) |  | `min_anisotropy` |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 |  |
@@ -42,15 +42,18 @@ Haller (2015).
 Everything positional in the package is one of exactly three lon/lat pairs, all
 in degrees. They are defined here and nowhere else.
 
-- **`lon_grid` / `lat_grid`**, dims `(i, j)`, are the **diagnostic grid points**
+- **`lon_grid` / `lat_grid`** are the **diagnostic grid points**
   $x_{\mathrm{grid}}$: the locations at which $\nabla F$, $C$, its eigenpairs
   and the FTLE are reported, and the coordinate a diagnostic is plotted or
-  selected against. Carried explicitly by both stencils and by both families
+  selected against. Carried explicitly by every pair and by both families
   (`SeedGrid` and `FlowMap`), and reachable as the properties `obj.lon_grid` /
-  `obj.lat_grid`.
+  `obj.lat_grid`. Their dims are the **grid dims**: `(i, j)` on `Neighbor*` and
+  `Auxiliary*`, and on `UnstructuredAuxiliary*` whatever dims the caller's own
+  arrays carried, or `grid_point` if those were plain 1-D arrays.
 - **`lon_0` / `lat_0`** are the **reference release positions** $x_0$, where
-  actual particles are put into the water. `(i, j)` for the `Neighbor*` classes,
-  `(i, j, displacement)` for the `Auxiliary*` classes, one per stencil arm.
+  actual particles are put into the water. The grid dims for the `Neighbor*`
+  classes, and those plus `displacement` for the auxiliary classes, one per
+  stencil arm.
 - **`lon` / `lat`** are the **advected positions** $F_{t_0}^{t_1}(x_0)$, data
   variables on a `FlowMap`, sharing the dims of `lon_0`/`lat_0` so that
   $\nabla F = \partial(\mathrm{lon}, \mathrm{lat}) / \partial(\mathrm{lon}_0,
@@ -63,8 +66,8 @@ which stencil produced the dataset, and the dataset stays self-sufficient. The
 auxiliary arms are stored explicitly for the same reason.
 
 The diagnostics carry `lon_grid`/`lat_grid` only. `lon_0`/`lat_0` are dropped
-from them, because on the `Auxiliary*` classes the differenced position is one
-arm, and attaching it to an `(i, j)` result would label a quantity by a point
+from them, because on the auxiliary classes the differenced position is one arm,
+and attaching it to a per-grid-point result would label a quantity by a point
 about $s$ metres away from the point it describes.
 
 ### Flow map vs. deformation gradient
@@ -95,12 +98,14 @@ Both are separations in metres, each taken in the local frame of its own pair of
 points (see [the local east-north frame](#the-local-east-north-frame) below).
 The metric converts lon/lat separations to metres and never supplies the
 advected displacement (Haller's Eq. 9 stencil). Two stencil strategies are
-modelled as separate classes:
+modelled as separate classes, and the auxiliary one comes in two layouts:
 
 - **Neighbour stencil** (`NeighborFlowMap`): the stencil is the neighbouring
   grid points $(i\pm 1, j\pm 1)$. No extra dimensions; the diagnostic resolution
-  and the gradient step are the same grid.
-- **Auxiliary stencil** (`AuxiliaryFlowMap`): each grid point carries a fixed four-arm
+  and the gradient step are the same grid, which has to be rectilinear for the
+  neighbours to be defined.
+- **Auxiliary stencil** (`AuxiliaryFlowMap` and `UnstructuredAuxiliaryFlowMap`):
+  each grid point carries a fixed four-arm
   stencil on a single `displacement` dim
   (`displacement = ['east', 'north', 'west', 'south']`), placed at $\pm s$ metres
   about the diagnostic grid point (`aux_separation_m`) in that point's own local
@@ -111,10 +116,12 @@ modelled as separate classes:
   self-sufficient, since no metric convention is needed to recover where particles
   started), and $\nabla F$ is the plain $\partial(\text{lon}, \text{lat}) /
   \partial(\text{lon}_0, \text{lat}_0)$ differenced over `displacement`. The
-  diagnostic grid points `lon_grid(i, j)` / `lat_grid(i, j)` are the arm centres
-  and are kept separately. No centre arm (it would duplicate the grid position)
-  and no diagonal corners. This decouples the gradient step from the diagnostic
-  resolution.
+  diagnostic grid points `lon_grid` / `lat_grid` are the arm centres and are
+  kept separately. No centre arm (it would duplicate the grid position) and no
+  diagonal corners. This decouples the gradient step from the diagnostic
+  resolution, and, since a grid point is never differenced against another one,
+  from the layout of the grid points as well: `AuxiliaryFlowMap` keeps them on
+  `(i, j)` and `UnstructuredAuxiliaryFlowMap` takes them as they come.
 
 Cells with a missing stencil point (e.g., a lost particle arriving as NaN) yield
 a NaN $\nabla F$, and that NaN propagates through $C$, the eigen-analysis, and
@@ -190,19 +197,20 @@ be measured. A rigid meridional translation changes the metres per degree of
 longitude, so it comes back with $F_{xx} \ne 1$ rather than as a null
 deformation.
 
-Both `NeighborFlowMap` and `AuxiliaryFlowMap` difference through the same
-`_separation_m`, and `AuxiliarySeedGrid` places its arms by inverting the same
-relation at each grid point's own latitude, so an arm span is $2s$ metres
-wherever the grid point sits. No separation carries a domain-size limit, and
-none treats the antimeridian as a special case. The `lon_grid` **axis** is a
-separate matter: `FlowMap.image` and `shrink_lines`
-interpolate along it, so it must be monotonic, and a domain crossing the
+Every flow map differences through the same `_separation_m`, and both auxiliary
+seed grids place their arms by inverting the same relation at each grid point's
+own latitude, so an arm span is $2s$ metres wherever the grid point sits. No separation carries a domain-size limit, and
+none treats the antimeridian as a special case. Reading a field *between* grid
+points is a separate matter. On `Neighbor*` and `Auxiliary*` it goes along the
+`lon_grid` axis, so that axis must be monotonic, and a domain crossing the
 antimeridian is seeded on `170, 175, 180, 185` rather than on
 `170, 175, 180, -175`. On a wrapped axis `shrink_lines` and `hyperbolic_lcs`
 raise `ValueError` out of SciPy; `FlowMap.image` does not raise, and reads the
 axis as if it were sorted, so a query in the wrapped half comes back `NaN` or
-interpolated between the wrong two grid points. Traced tensor lines are not
-bound by the monotonic axis and may cross the antimeridian. The mid-latitude
+interpolated between the wrong two grid points. `UnstructuredAuxiliary*` has no
+axis, and triangulates its grid points in degrees instead, so they must still
+sit on one longitude branch. Traced tensor lines are bound by neither and may
+cross the antimeridian. The mid-latitude
 cosine is a midpoint rule, so the accuracy of a separation is set by the
 separation itself; the error series
 is in [the local east-north frame](numerics.md#the-local-east-north-frame),
@@ -213,7 +221,7 @@ The poles are excluded. Going the other way, from metres to degrees, is what
 $\Delta\lambda = \Delta x / (R\cos\phi)$, which grows without bound as
 $\cos\phi \to 0$. Past $180^\circ$ it aliases through the wrap into an arm on
 the far side of the pole, which is a wrong gradient rather than a NaN, so
-`AuxiliarySeedGrid.from_axes` raises `ValueError` once the offset reaches
+both auxiliary constructors raise `ValueError` once the offset reaches
 $90^\circ$ of longitude. `_step_lonlat_by_meters` divides by the same cosine and
 does not fold latitude at $\pm 90^\circ$: a line stepped past the pole continues
 to latitudes outside $[-90^\circ, 90^\circ]$ instead of folding over the pole.
@@ -268,16 +276,13 @@ $$\frac{\lambda_2}{\lambda_1} < a_{\min}.$$
 terminates early is shorter, and the returned block is NaN-filled past
 termination so every row has equal length.
 
-$w$ is the *side* of the ridge-seed window, which reaches $w/2$ to either side
-of its own grid point, so two seed points can be about $w/2$ apart, not $w$.
-`window_m` never denotes a seed separation. `ftle_ridge_seeds` reports the
-separation its window implies on the grid it was given as the
-`min_seed_separation_m` attribute of the dataset it returns, alongside the odd
-per-dimension cell counts $w$ was rounded to and the
-median grid spacings that rounding used. The reported separation is taken off
-the grid's *smallest* cell rather than its median one, so it is a floor; it
-bounds strict maxima, since a plateau of exactly equal values makes every one of
-its cells a windowed maximum.
+$w$ is the *diameter* of the ridge-seed neighbourhood, which reaches $w/2$ from
+its own grid point, so two seed points are $w/2$ apart, not $w$. `window_m` is
+therefore not itself a seed separation, though the separation it implies is
+exactly half of it. `ftle_ridge_seeds` reports that half as the
+`min_seed_separation_m` attribute of the dataset it returns. It bounds strict
+maxima, since a plateau of exactly equal values makes every one of its points a
+neighbourhood maximum.
 
 $\Lambda_{\min}$ is the magnitude floor the FTLE at a seed must also clear.
 `quantile` states it as a quantile of the field at hand and is the default at
@@ -304,34 +309,36 @@ dimensions, not as scalar variables (`F11, F12, …`):
 
 | Object | Code name | Dims | Component coords |
 |---|---|---|---|
-| diagnostic grid points $x_{\mathrm{grid}}$ (coords; seed + flow map, both stencils) | `lon_grid`, `lat_grid` | `(i, j)` |  |
-| reference release positions $x_0$ (coords; seed + flow map) | `lon_0`, `lat_0` | `(i, j)`; `(i, j, displacement)` for the `Auxiliary*` classes |  |
+| diagnostic grid points $x_{\mathrm{grid}}$ (coords; seed + flow map, every pair) | `lon_grid`, `lat_grid` | the grid dims |  |
+| reference release positions $x_0$ (coords; seed + flow map) | `lon_0`, `lat_0` | the grid dims, plus `displacement` on the auxiliary classes |  |
 | advected flow map $F_{t_0}^{t_1}(x_0)$ (data vars; flow map only) | `lon`, `lat` | same dims as `lon_0`/`lat_0` |  |
-| flow map image of the grid points (flow map only) | `grid_image` (`lon`, `lat`) | `(i, j)` |  |
+| flow map image of the grid points (flow map only) | `grid_image` (`lon`, `lat`) | the grid dims |  |
 | release time $t_0$ / signed window $T$ (scalar coords; flow map only) | `t0`, `T` | scalar |  |
 | auxiliary-grid stencil axis |  | `(displacement,)` | `displacement = ['east','north','west','south']` |
-| deformation gradient $\nabla F$ | `gradF` | `i, j, row, col` (set, order not contractual) | `row, col = ['x', 'y']` |
-| Cauchy–Green $C$ | `C` | `i, j, row, col` (set, order not contractual) | `row, col = ['x', 'y']` |
-| eigenvalues $\lambda_i$ | `lambda` | `(i, j, eig)` |  |
-| eigenvectors $\xi_i$ | `xi` | `(i, j, comp, eig)` | `comp = ['x', 'y']` |
-| FTLE $\Lambda$ | `ftle` | `(i, j)` |  |
+| deformation gradient $\nabla F$ | `gradF` | the grid dims plus `row, col` (set, order not contractual) | `row, col = ['x', 'y']` |
+| Cauchy–Green $C$ | `C` | the grid dims plus `row, col` (set, order not contractual) | `row, col = ['x', 'y']` |
+| eigenvalues $\lambda_i$ | `lambda` | the grid dims plus `eig` |  |
+| eigenvectors $\xi_i$ | `xi` | the grid dims plus `comp, eig` | `comp = ['x', 'y']` |
+| FTLE $\Lambda$ | `ftle` | the grid dims |  |
 | shrink-line polylines $\dot r = \xi_1$ | `lon`, `lat` (in the `shrink_lines` dataset) | `(line, point)` |  |
 
-Logical grid dims are `i, j`. The `comp` coordinate labels vector/tensor
+The **grid dims** are the dims the diagnostic grid points carry: `i, j` on
+`Neighbor*` and `Auxiliary*`, and on `UnstructuredAuxiliary*` the dims of the
+arrays handed to `from_points`, or `grid_point` if those were plain 1-D arrays.
+The `comp` coordinate labels vector/tensor
 components `['x', 'y']`; `row`/`col` (dimension coordinates valued `['x', 'y']`)
 index the two axes of a $2\times 2$ tensor; `eig` indexes the two eigenpairs.
 The dims listed above are a *set*, not a memory layout: the package is
 label-based throughout, so the axis order a given call happens to return is not
 part of the contract and must never be relied on. Select with `.sel` / `.isel`
 and named dims; call `.transpose(...)` yourself if you need a specific layout
-(as `shrink_lines` does before handing the tensor to SciPy). For
-the `Auxiliary*` classes the reference release positions
-`lon_0(i, j, displacement)` / `lat_0(i, j, displacement)` *are* the explicit
-stencil arms and (on a flow map) the advected arms `lon(i, j, displacement)` /
-`lat(i, j, displacement)` share those dims; the diagnostic grid points
-`lon_grid(i, j)` / `lat_grid(i, j)` are kept separately. The `displacement` dim
-is differenced away by `deformation_gradient`, so $\nabla F$ and everything
-downstream are back on `(i, j)`, labelled by `lon_grid`/`lat_grid`. A single
+(as the interpolators do before handing an array to SciPy). For the auxiliary
+classes the reference release positions `lon_0` / `lat_0` *are* the explicit
+stencil arms and (on a flow map) the advected arms `lon` / `lat` share those
+dims; the diagnostic grid points `lon_grid` / `lat_grid` are kept separately.
+The `displacement` dim is differenced away by `deformation_gradient`, so
+$\nabla F$ and everything downstream are back on the grid dims, labelled by
+`lon_grid`/`lat_grid`. A single
 `FlowMap` carries scalar `t0`/`T`; assembling a release series promotes them to
 extra $t_0$ / $T$ axes that broadcast on top of these.
 

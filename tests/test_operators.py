@@ -23,6 +23,7 @@ from conftest import (
     EARTH_RADIUS_M,
     advected_flowmap,
     advected_flowmap_f,
+    advected_scattered_flowmap,
     analytic_gradient,
     apply_map_to_lonlat,
     local_frame_gradient,
@@ -524,3 +525,45 @@ def test_nan_propagates_through_chain(lon_axis, lat_axis):
     # the whole chain and did not leak to any neighbour.
     assert bool(ftle.sel(i=0, j=1).isnull())
     assert int(ftle.isnull().sum()) == 1
+
+
+# --- the same stencil on an unstructured layout ----------------------------
+
+
+def test_auxiliary_diagnostics_do_not_read_the_layout(lon_axis, lat_axis):
+    """The same points give the same gradient laid out as axes or as a set.
+
+    The four-arm stencil is differenced against a grid point's own arms and never
+    against another grid point, so nothing between ``deformation_gradient`` and
+    ``ftle`` has a layout to read. Measured rather than asserted: the flat
+    results are the structured ones ravelled, exactly.
+    """
+    structured = advected_flowmap(
+        AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
+    scattered = advected_scattered_flowmap(
+        lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
+
+    for name, flat in (
+        ("deformation_gradient", scattered.deformation_gradient()),
+        ("cauchy_green", scattered.cauchy_green()),
+    ):
+        grid = getattr(structured, name)().transpose("i", "j", "row", "col")
+        np.testing.assert_array_equal(
+            grid.values.reshape(-1, 2, 2), flat.transpose("grid_point", "row", "col")
+        )
+    np.testing.assert_array_equal(
+        structured.ftle().transpose("i", "j").values.ravel(), scattered.ftle()
+    )
+
+
+def test_unstructured_gradient_matches_the_local_frame(lon_axis, lat_axis):
+    """grad F on a point set is the analytic local-frame answer, not just the
+    structured one repeated: both paths could share a mistake."""
+    fm = advected_scattered_flowmap(lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
+
+    expected = analytic_gradient(M, flowmap=fm, origin=seed_origin(fm))
+    gradF = fm.deformation_gradient().transpose(*expected.dims)
+
+    assert float(np.abs(gradF - expected).max()) < 1e-9

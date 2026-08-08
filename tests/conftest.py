@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from lcs_parcels import UnstructuredAuxiliarySeedGrid
+
 EARTH_RADIUS_M = 6_371_000.0
 DEG = np.pi / 180.0
 
@@ -110,16 +112,17 @@ def local_frame_gradient(flat_jacobian, *, lat_grid, lat_advected, lat_origin):
     ----------
     flat_jacobian : xr.DataArray
         The map's Jacobian in the ``origin`` tangent frame, dims ``(row, col)``
-        valued ``['x', 'y']``, optionally also varying over ``(i, j)``.
+        valued ``['x', 'y']``, optionally also varying over the grid points.
     lat_grid, lat_advected : xr.DataArray
-        Release and arrival latitudes of the grid points (degrees), on ``(i, j)``.
+        Release and arrival latitudes of the grid points (degrees), on the
+        grid points' own dims.
     lat_origin : float
         Latitude (degrees) of the tangent frame the map was applied in.
 
     Returns
     -------
     xr.DataArray
-        ``grad F`` with dims ``(i, j, row, col)``, ``row``/``col`` valued
+        ``grad F`` with the grid points' dims plus ``row``/``col``, valued
         ``['x', 'y']``.
     """
     c = np.cos(lat_origin * DEG)
@@ -128,7 +131,7 @@ def local_frame_gradient(flat_jacobian, *, lat_grid, lat_advected, lat_origin):
     right = xr.concat([c / np.cos(lat_grid * DEG), one], dim="col")
     scaled = left * flat_jacobian * right
     return scaled.assign_coords(row=["x", "y"], col=["x", "y"]).transpose(
-        "i", "j", "row", "col"
+        *lat_grid.dims, "row", "col"
     )
 
 
@@ -194,6 +197,34 @@ def advected_flowmap_f(seed_cls, lon_axis, lat_axis, f, t0, t1):
     seed = seed_cls.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
     lon_out, lat_out = apply_map_to_pset(lon, lat, f, seed_origin(seed))
+    return seed.pset_to_flowmap(lon=lon_out, lat=lat_out, t0=t0, t1=t1)
+
+
+def scattered_points(lon_axis, lat_axis):
+    """The outer product of two 1-D axes, as a flat ``(lon, lat)`` point pair.
+
+    The points a structured grid over the same axes would have, in the same
+    order, so one region can be put through either layout.
+    """
+    lon_grid, lat_grid = xr.broadcast(
+        xr.DataArray(np.asarray(lon_axis, dtype=float), dims="i"),
+        xr.DataArray(np.asarray(lat_axis, dtype=float), dims="j"),
+    )
+    return lon_grid.values.ravel(), lat_grid.values.ravel()
+
+
+def advected_scattered_flowmap(lon_axis, lat_axis, M, t0, t1):
+    """:func:`advected_flowmap` with the grid points as a set rather than axes.
+
+    Seeds an :class:`UnstructuredAuxiliarySeedGrid` through
+    :meth:`~lcs_parcels.UnstructuredAuxiliarySeedGrid.from_points` over
+    :func:`scattered_points`, so its diagnostics are the structured ones
+    flattened.
+    """
+    lon_points, lat_points = scattered_points(lon_axis, lat_axis)
+    seed = UnstructuredAuxiliarySeedGrid.from_points(lon=lon_points, lat=lat_points)
+    lon, lat = seed.to_parcels_pset()
+    lon_out, lat_out = apply_linear_map_to_pset(lon, lat, M, seed_origin(seed))
     return seed.pset_to_flowmap(lon=lon_out, lat=lat_out, t0=t0, t1=t1)
 
 

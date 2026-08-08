@@ -12,9 +12,14 @@ rectilinear field ``image`` reads).
 
 import numpy as np
 import xarray as xr
-from conftest import advected_flowmap, apply_linear_map_to_pset
+from conftest import (
+    advected_flowmap,
+    advected_scattered_flowmap,
+    apply_linear_map_to_pset,
+)
 
 from lcs_parcels import AuxiliarySeedGrid, NeighborSeedGrid
+from lcs_parcels.grids import _wrap_lon
 
 RELEASE_TIME = np.datetime64("2020-01-01")
 END_TIME = np.datetime64("2020-01-02")
@@ -170,3 +175,42 @@ def test_image_auxiliary_lost_arm_maps_to_nan(lon_axis, lat_axis):
     out = fm.image(lon_0=fm.ds["lon_grid"], lat_0=fm.ds["lat_grid"])
     assert bool(out["lon"].isel(i=1, j=2).isnull())  # the crippled grid point
     assert bool(out["lon"].isel(i=2, j=2).notnull())  # an intact neighbour
+
+
+def test_image_on_an_unstructured_flowmap(lon_axis, lat_axis):
+    """``image`` reads the flow map between grid points that carry no axes.
+
+    The map is linear, so a linear interpolant is exact whether it reads the
+    field along two axes or over a triangulation: the answer at a grid point is
+    that point's own stored image, and at the midpoint of two the average.
+    """
+    fm = advected_scattered_flowmap(lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
+    image = fm.grid_image
+    a, b = 0, 1 + lat_axis.size  # two points on neither the same row nor column
+
+    at_nodes = fm.image(lon_0=fm.lon_grid, lat_0=fm.lat_grid)
+    # Compared as a difference, because the image comes back re-anchored on each
+    # grid point's branch and the advected positions arrive wrapped.
+    assert np.allclose(_wrap_lon(at_nodes["lon"] - image["lon"]), 0.0)
+    assert np.allclose(at_nodes["lat"], image["lat"])
+
+    midpoint = fm.image(
+        lon_0=fm.lon_grid.isel(grid_point=[a, b]).mean().expand_dims("param"),
+        lat_0=fm.lat_grid.isel(grid_point=[a, b]).mean().expand_dims("param"),
+    )
+    assert np.allclose(
+        midpoint["lat"], float(image["lat"].isel(grid_point=[a, b]).mean()), atol=1e-6
+    )
+
+
+def test_image_outside_the_convex_hull_is_nan(lon_axis, lat_axis):
+    """A reference point the grid points do not enclose maps to NaN, the
+    scattered counterpart of falling off a rectilinear grid."""
+    fm = advected_scattered_flowmap(lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
+
+    out = fm.image(
+        lon_0=xr.DataArray([float(lon_axis[0]) - 50.0], dims="param"),
+        lat_0=xr.DataArray([float(lat_axis[0])], dims="param"),
+    )
+
+    assert bool(out["lon"].isnull().all())

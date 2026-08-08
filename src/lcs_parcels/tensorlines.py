@@ -13,87 +13,26 @@ backward :class:`~lcs_parcels.FlowMap` gives them.
 
 Two functions compose the workflow. :func:`ftle_ridge_seeds` picks seed points
 and :func:`shrink_lines` integrates the tensor lines through them. Both take the
-gridded xarray outputs of a :class:`~lcs_parcels.FlowMap`, and
+xarray outputs of a :class:`~lcs_parcels.FlowMap`, and
 :meth:`~lcs_parcels.FlowMap.hyperbolic_lcs` runs the pair in one call.
 
-Rectilinear grids only. The tensor is interpolated on axis-aligned
-``lon_grid``/``lat_grid`` axes (``lon_grid`` varying along ``i``, ``lat_grid``
-along ``j``), and the ``lon_grid`` axis must be monotonic, so a domain crossing
-the antimeridian is seeded on ``170, 175, 180, 185`` rather than ``170, 175,
-180, -175``. Only the axis is constrained. A traced line may cross the
-antimeridian, though it terminates where it leaves the grid.
+Neither function reads the layout of the diagnostic grid points. Seeds are
+picked over a neighbourhood measured on the sphere, and the tensor is read
+between grid points by the flow map's own interpolator, so what a flow map's
+grid points have to look like is stated on its class. A traced line is not
+bound by either and may cross the antimeridian, though it terminates where it
+leaves the field.
 """
 
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 
 import numpy as np
 import xarray as xr
-from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels.grids import _M_PER_DEG, _separation_m
-
-
-def _odd_cells(window_m: float, spacing_m: float) -> int:
-    """Number of cells covering ``window_m`` at spacing ``spacing_m``, made odd.
-
-    An odd count has a middle cell, which is what lets the rolling window sit
-    centred on its own grid point. The count is rounded to nearest and then
-    dropped by one if even, so the window it spans is within a cell of
-    ``window_m`` except where the floor of one cell raises it.
-    """
-    cells = round(window_m / spacing_m)
-    if cells % 2 == 0:
-        cells -= 1
-    return max(1, cells)
-
-
-def _window_geometry(ftle: xr.DataArray, window_m: float) -> dict[str, float]:
-    """Convert a window in metres into cell counts on this field's grid.
-
-    The rolling window is counted in cells, so ``window_m`` has to be divided by
-    a cell size, and the two returned quantities need different ones.
-
-    The cell counts use the **median** adjacent-point separation, the size most
-    of the grid has. ``min_seed_separation_m``, the closest two seeds can be,
-    uses the **minimum** instead, since that is where seeds get closest. A window
-    of ``cells`` reaches ``(cells - 1) // 2`` cells either side, so the nearest
-    competing maximum is one cell beyond that.
-
-    The bound holds for strict maxima only. Selection is ``ftle >= rolling max``,
-    so every cell of a plateau of equal values ties and adjacent cells can all be
-    seeds.
-    """
-    lon_grid, lat_grid = ftle["lon_grid"], ftle["lat_grid"]
-    dx, _ = _separation_m(
-        lon_a=lon_grid.shift(i=1),
-        lat_a=lat_grid.shift(i=1),
-        lon_b=lon_grid,
-        lat_b=lat_grid,
-    )
-    _, dy = _separation_m(
-        lon_a=lon_grid.shift(j=1),
-        lat_a=lat_grid.shift(j=1),
-        lon_b=lon_grid,
-        lat_b=lat_grid,
-    )
-    dx, dy = np.abs(dx), np.abs(dy)
-    spacing_i = float(dx.median())
-    spacing_j = float(dy.median())
-    cells_i = _odd_cells(window_m, spacing_i)
-    cells_j = _odd_cells(window_m, spacing_j)
-    return {
-        "window_m": float(window_m),
-        "window_cells_i": cells_i,
-        "window_cells_j": cells_j,
-        "grid_spacing_i_m": spacing_i,
-        "grid_spacing_j_m": spacing_j,
-        "min_seed_separation_m": min(
-            ((cells_i - 1) // 2 + 1) * float(dx.min()),
-            ((cells_j - 1) // 2 + 1) * float(dy.min()),
-        ),
-    }
+from lcs_parcels._spatial import _M_PER_DEG, neighborhood_maximum
 
 
 def ftle_ridge_seeds(
@@ -105,35 +44,34 @@ def ftle_ridge_seeds(
 ) -> xr.Dataset:
     """Seed points at strong local maxima of an FTLE field.
 
-    A grid point is a seed when its FTLE is the maximum over a window
-    ``window_m`` wide in total, centred on it (a windowed local maximum on the
-    raw value) *and* is at or above a magnitude floor. The floor is either a
-    ``quantile`` of this field or an absolute ``ftle_min``, and it tests the
-    magnitude of the value rather than its contrast against the surrounding
-    cells. NaN cells (e.g., the :class:`~lcs_parcels.NeighborFlowMap` edge) never
-    qualify.
+    A grid point is a seed when its FTLE is the maximum over every grid point
+    within ``window_m / 2`` of it (a local maximum on the raw value) *and* is at
+    or above a magnitude floor. The floor is either a ``quantile`` of this field
+    or an absolute ``ftle_min``, and it tests the magnitude of the value rather
+    than its contrast against the surrounding points. NaN points (e.g., the
+    :class:`~lcs_parcels.NeighborFlowMap` edge) never qualify, and a NaN
+    neighbour does not deny its neighbours a maximum.
 
-    A window of side ``window_m`` reaches only ``window_m / 2`` to either side of
-    its own grid point, so two seeds can sit about ``window_m / 2`` apart, not
-    ``window_m``. The returned ``min_seed_separation_m`` attribute is that floor
-    computed on this grid. It bounds *strict* maxima only, so a plateau of
-    exactly equal values ties and can return adjacent seeds.
+    The neighbourhood is a disc of *diameter* ``window_m``, so two seeds are at
+    least ``window_m / 2`` apart, half the value passed in rather than all of it.
+    That is what the returned ``min_seed_separation_m`` attribute reports. It
+    bounds *strict* maxima only, so a plateau of exactly equal values ties and
+    can return adjacent seeds.
 
-    Warns when ``window_m`` spans fewer than three cells in either dimension,
-    because a one-cell window makes every point a windowed maximum, so the
-    local-maximum test stops selecting and only the magnitude floor is left.
+    The grid points enter as a set rather than as axes, so the same rule applies
+    to any layout. Warns when most grid points have no neighbour inside the
+    radius at all, because the local-maximum test then stops selecting and only
+    the magnitude floor is left.
 
     Parameters
     ----------
     ftle : xr.DataArray
-        FTLE field with dims ``(i, j)`` and ``lon_grid``/``lat_grid``
-        coordinates, e.g., from :meth:`FlowMap.ftle`.
+        FTLE field on any dims, carrying ``lon_grid``/``lat_grid`` coordinates on
+        those dims, e.g., from :meth:`FlowMap.ftle`.
     window_m : float, optional
-        Side of the square window in metres (default 30 km). Converted to an odd
-        cell count per dimension from the field's own grid spacing, so the
-        separation between seeds is a physical distance and does not change with
-        grid resolution. On a 1/25-degree grid at 20 N (about 4.2 km cells) the
-        default is 7 cells.
+        Diameter of the neighbourhood in metres (default 30 km), measured along
+        the great circle. It is a distance rather than a count of grid points, so
+        the separation between seeds does not change with grid resolution.
     quantile : float, optional
         Magnitude floor as a quantile over all finite cells of the field, in
         ``[0, 1]``. Defaults to 0.90 (the top decile) when neither selector is
@@ -150,8 +88,8 @@ def ftle_ridge_seeds(
     -------
     xr.Dataset
         ``lon``/``lat`` (degrees) on a ``seed`` dim, one entry per seed point.
-        The attributes record what ``window_m`` became on this grid: the cell
-        counts used, the median grid spacing, and ``min_seed_separation_m``.
+        The attributes record the floor that was applied, ``window_m``, and the
+        ``min_seed_separation_m`` it implies.
 
     Raises
     ------
@@ -164,30 +102,31 @@ def ftle_ridge_seeds(
         quantile = 0.90
     threshold = float(ftle.quantile(quantile)) if ftle_min is None else float(ftle_min)
 
-    geometry = _window_geometry(ftle, window_m)
-    cells_i = geometry["window_cells_i"]
-    cells_j = geometry["window_cells_j"]
-    if cells_i < 3 or cells_j < 3:
+    lon_grid, lat_grid = ftle["lon_grid"], ftle["lat_grid"]
+    dims = lon_grid.dims
+    peak, neighbors = neighborhood_maximum(
+        ftle.transpose(*dims),
+        lon_grid=lon_grid,
+        lat_grid=lat_grid,
+        radius_m=0.5 * window_m,
+    )
+    # Back onto the grid points' dims, so the comparison below is by label.
+    peak = lon_grid.copy(data=peak.reshape(lon_grid.shape))
+    if np.median(neighbors) <= 1:
         warnings.warn(
-            f"window_m={window_m} spans {cells_i}x{cells_j} cells of this grid "
-            f"({geometry['grid_spacing_i_m']:.0f} x "
-            f"{geometry['grid_spacing_j_m']:.0f} m). A window under three cells "
-            "makes every point a windowed maximum in that dimension, so the "
-            "local-maximum test stops selecting. Consider wider window_m or finer "
-            "grid.",
+            f"window_m={window_m} leaves most grid points with no neighbour "
+            f"within {0.5 * window_m:.0f} m, so they are their own maximum and "
+            "the local-maximum test stops selecting. Consider a wider window_m "
+            "or a finer grid.",
             UserWarning,
             stacklevel=2,
         )
 
-    peak = ftle.rolling(i=cells_i, j=cells_j, center=True, min_periods=1).max()
-    is_seed = (ftle >= peak) & (ftle >= threshold)
-    picked = (
-        xr.Dataset({"lon": ftle["lon_grid"], "lat": ftle["lat_grid"]})
-        .stack(seed=("i", "j"))
-        .where(is_seed.stack(seed=("i", "j")), drop=True)
-    )
-    lon = picked["lon"].values
-    lat = picked["lat"].values
+    # Flat masking rather than a stack, which would build a MultiIndex over
+    # every grid point to index a handful of them.
+    is_seed = ((ftle >= peak) & (ftle >= threshold)).transpose(*dims).values.ravel()
+    lon = lon_grid.values.ravel()[is_seed]
+    lat = lat_grid.values.ravel()[is_seed]
     return xr.Dataset(
         {
             "lon": xr.DataArray(
@@ -218,7 +157,8 @@ def ftle_ridge_seeds(
             "long_name": "seed points at strong local maxima of the FTLE field",
             "selector": "quantile" if ftle_min is None else "ftle_min",
             "ftle_threshold": threshold,
-            **geometry,
+            "window_m": float(window_m),
+            "min_seed_separation_m": 0.5 * float(window_m),
         },
     )
 
@@ -228,7 +168,7 @@ def _shrink_line_tangent(
     lat: np.ndarray,
     heading: np.ndarray,
     *,
-    tensor_interp: RegularGridInterpolator,
+    tensor_interp: Callable[[np.ndarray], np.ndarray],
     min_anisotropy: float,
 ) -> np.ndarray:
     """Unit ``xi_1`` at each ``(lon, lat)``, oriented to ``heading``.
@@ -251,9 +191,10 @@ def _shrink_line_tangent(
         Shape ``(n, 2)``; the running direction each returned vector is aligned
         with. Need not be a unit vector, since only its sign against ``xi_1``
         matters.
-    tensor_interp : RegularGridInterpolator
-        Interpolator over the Cauchy-Green tensor field, returning ``(n, 2, 2)``
-        and ``NaN`` off-grid.
+    tensor_interp : callable
+        Interpolator over the Cauchy-Green tensor field, taking an ``(n, 2)``
+        array of ``(lon, lat)`` and returning ``(n, 2, 2)``, ``NaN`` where the
+        field does not reach.
     min_anisotropy : float
         Well-definedness guard on ``lambda_2 / lambda_1``; see
         :func:`shrink_lines`.
@@ -331,7 +272,7 @@ def _trace_half_line(
     seed_lat: np.ndarray,
     sign: int,
     *,
-    tensor_interp: RegularGridInterpolator,
+    tensor_interp: Callable[[np.ndarray], np.ndarray],
     min_anisotropy: float,
     step_m: float,
     n_steps: int,
@@ -439,8 +380,8 @@ def shrink_lines(
     Parameters
     ----------
     flowmap : FlowMap
-        Advected flow map on a rectilinear grid, supplying ``cauchy_green()`` and
-        the ``lon_grid``/``lat_grid`` axes.
+        Advected flow map, supplying ``cauchy_green()`` and the interpolator
+        that reads it between the diagnostic grid points.
     seed_lon, seed_lat : array_like
         Seed positions (degrees), e.g., from :func:`ftle_ridge_seeds`.
     min_anisotropy : float, optional
@@ -465,16 +406,10 @@ def shrink_lines(
         seed, ordered along the curve. Terminated points are ``NaN``.
     """
     n_steps = max(1, round(line_length_m / (2.0 * step_m)))
-    lon_axis = flowmap.lon_grid.isel(j=0).values
-    lat_axis = flowmap.lat_grid.isel(i=0).values
-    # CG_grid is the Cauchy-Green tensor on the diagnostic grid, not an Arakawa
-    # C-grid.
-    CG_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
-    # The one place this package leaves the label-based xarray API, because the
-    # ODE loop would otherwise build an xarray object per step.
-    tensor_interp = RegularGridInterpolator(
-        (lon_axis, lat_axis), CG_grid, bounds_error=False, fill_value=np.nan
-    )
+    # The flow map's own interpolator, so the layout of its grid points decides
+    # how the tensor is read between them. It leaves the label-based xarray API,
+    # because the ODE loop would otherwise build an xarray object per step.
+    tensor_interp = flowmap._interpolator(flowmap.cauchy_green())
 
     trace_kwargs = {
         "tensor_interp": tensor_interp,

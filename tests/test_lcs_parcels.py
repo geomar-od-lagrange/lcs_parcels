@@ -14,6 +14,8 @@ from lcs_parcels import (
     NeighborFlowMap,
     NeighborSeedGrid,
     SeedGrid,
+    UnstructuredAuxiliaryFlowMap,
+    UnstructuredAuxiliarySeedGrid,
 )
 
 
@@ -34,31 +36,40 @@ def test_version_is_pep440():
 
 
 def test_public_classes_importable():
-    # Both ABCs and all four concrete classes are exported from the top level.
+    # Both ABCs and all six concrete classes are exported from the top level.
     for cls in (
         SeedGrid,
         NeighborSeedGrid,
         AuxiliarySeedGrid,
+        UnstructuredAuxiliarySeedGrid,
         FlowMap,
         NeighborFlowMap,
         AuxiliaryFlowMap,
+        UnstructuredAuxiliaryFlowMap,
     ):
         assert inspect.isclass(cls)
 
 
 def test_seed_hierarchy():
-    # Both concrete seeds subclass the abstract SeedGrid base.
+    # Every concrete seed subclasses the abstract SeedGrid base.
     assert issubclass(NeighborSeedGrid, SeedGrid)
     assert issubclass(AuxiliarySeedGrid, SeedGrid)
+    # The unstructured pair keeps the auxiliary stencil and relaxes only the
+    # layout of the grid points, so it specialises the auxiliary class rather
+    # than restating the arm differencing.
+    assert issubclass(UnstructuredAuxiliarySeedGrid, AuxiliarySeedGrid)
     # They are distinct, first-class types (no default / fallback).
     assert NeighborSeedGrid is not AuxiliarySeedGrid
+    assert UnstructuredAuxiliarySeedGrid is not AuxiliarySeedGrid
 
 
 def test_flowmap_hierarchy():
-    # Both concrete flow maps subclass the abstract FlowMap base.
+    # Every concrete flow map subclasses the abstract FlowMap base.
     assert issubclass(NeighborFlowMap, FlowMap)
     assert issubclass(AuxiliaryFlowMap, FlowMap)
+    assert issubclass(UnstructuredAuxiliaryFlowMap, AuxiliaryFlowMap)
     assert NeighborFlowMap is not AuxiliaryFlowMap
+    assert UnstructuredAuxiliaryFlowMap is not AuxiliaryFlowMap
 
 
 def test_families_are_disjoint():

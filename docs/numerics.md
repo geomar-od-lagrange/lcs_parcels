@@ -89,21 +89,24 @@ The default 1 km auxiliary arms are far inside every one of those limits away
 from the pole; the zonal limit falls to 1 km itself only above about 88 N. A
 larger
 `aux_separation_m`, or the neighbour stencil, should be read off the series at
-the span actually used. The neighbour span is not a tunable and it is not one
+the span actually used. The arms are the same on either auxiliary layout, so
+both read the series at the same span. The neighbour span is not a tunable and it is not one
 grid cell either: `_central_separation_m` differences the $i + 1$ neighbour
 against the $i - 1$ one, so the span is **two** cells, and the series is read at
 twice the grid spacing. For a neighbour stencil on a coarse grid the
 finite-difference truncation of that same two-cell span is the larger term.
 
 The mid-latitude rule is *exact* for a map that is linear in one tangent frame,
-so both stencils reproduce the analytic answer of the synthetic test flow with
+so every stencil reproduces the analytic answer of the synthetic test flow with
 no metric error left. Worst case over the three regions the suite runs (`reference`,
 `antimeridian`, `high_latitude`), the largest absolute deviation of any
 $\nabla F$ component from the analytic value is 1.5e-14 for the neighbour
 stencil, about 20 ulp on components of order 3, which is round-off, and 3.0e-12
 for the auxiliary one. The auxiliary figure is some 4500 ulp, too large for
 round-off; it is cancellation in differencing arms a kilometre apart on a sphere
-6371 km across.
+6371 km across. The unstructured layout carries the auxiliary figure exactly:
+the same points laid out on `(i, j)` and on one flat dim give bitwise-identical
+$\nabla F$, so there is no third number to quote.
 
 ## Wrapping differences, never positions
 
@@ -124,7 +127,8 @@ is a wrap of a quantity already far inside the range.
 Normalising stored positions would have to pick a branch, and any branch has a
 cut that some domain straddles. A seed grid running 350 to 370 degrees east
 would come back torn into two pieces at 0, and its `lon_grid` axis would stop
-being monotone, which `FlowMap.image` needs for its interpolation. Wrapping the
+being monotone, which the rectilinear classes need in order to read a field
+along it. Wrapping the
 difference has no such choice to make: $\mathrm{wrap}(\lambda_b - \lambda_a)$ is
 the shorter of the two ways round for any pair less than 180 degrees apart, in
 any convention, and every pair the package differences (opposite stencil arms,
@@ -203,8 +207,9 @@ at 60 N it is 0.04 m at a 25 km step and 2.6 m at 100 km.
 
 Three truncations remain in a traced line, none of them metric. The midpoint
 scheme is second-order in `step_m` along the direction field.
-`RegularGridInterpolator` reads $C$ between grid points linearly, so the field
-the line follows is piecewise-linear in the grid spacing. $\nabla F$ underneath
+$C$ is read between grid points linearly, so the field the line follows is
+piecewise-linear: in the grid spacing on a rectilinear flow map, and over the
+Delaunay triangles of the grid points on an unstructured one. $\nabla F$ underneath
 it carries the finite-difference truncation of its own stencil. The
 last two are properties of the tensor field the line is traced through, and
 shrinking `step_m` does not reduce them.
@@ -213,12 +218,13 @@ shrinking `step_m` does not reduce them.
 
 The tunable quantities of the tensor-line layer are stated in the units of the
 thing itself (`window_m`, `step_m` and `line_length_m` in metres,
-`min_anisotropy` as a dimensionless eigenvalue ratio) and converted internally
-against the field's own grid spacing, so the same call means the same thing at
-any resolution and over any window. Stated the way they are implemented, the
-two lengths would each depend on something the caller is not asking about: a
-window as a cell count depends on grid resolution, and a line as a step
-count depends on the step size.
+`min_anisotropy` as a dimensionless eigenvalue ratio), so the same call means the
+same thing at any resolution and over any window. Stated the way they are
+implemented, the two lengths would each depend on something the caller is not
+asking about: a window as a cell count depends on grid resolution, and a line as
+a step count depends on the step size. `window_m` needs no conversion at all,
+being compared against distances on the sphere directly; only `line_length_m` is
+still resolved internally, into a step count.
 
 The magnitude floor on ridge selection comes in both forms. `quantile`, the
 default, is relative to the field it is handed, so it means the same thing on
@@ -233,20 +239,30 @@ Both lengths are budgets rather than achieved quantities, and both invite the
 same misreading. `line_length_m` bounds the traced arc: the integrator spends at
 most `line_length_m / (2 * step_m)` steps per direction and a line that
 terminates earlier is shorter, with the returned block NaN-filled past
-termination so every row has equal length. `window_m` is the *side* of the
-window a seed must be the maximum over, which reaches only
-`window_m / 2` to either side of its own grid point, so two seeds can sit about
-`window_m / 2` apart.
+termination so every row has equal length. `window_m` is the *diameter* of the
+neighbourhood a seed must be the maximum over, which reaches only
+`window_m / 2` from its own grid point, so two seeds can sit `window_m / 2`
+apart.
 
-The seed spacing is reported rather than left to that `window_m / 2` estimate,
-as `min_seed_separation_m` on the returned dataset. The window is a count of
-*cells*, so the distance it corresponds to is the cell size times the count, and
-the cell size is not one number: the reported value takes the **smallest** cell
-on the grid, since that is where two seeds get closest. Taking the median instead
-overstates the floor by 11% over a 30-degree band and by a factor of 3 over 75
-degrees, both measured. The bound holds for strict local maxima; selection is
-`ftle >= rolling max`, so every cell of a plateau of exactly equal values ties
-and adjacent cells can all be seeds.
+The seed spacing is reported as `min_seed_separation_m` on the returned dataset,
+and it is exactly `window_m / 2`. The neighbourhood test is symmetric, so two
+seeds within the radius would each be in the other's neighbourhood and their
+values would have to be equal; distinct-valued seeds are therefore strictly
+further apart than half the window. Measured on a band from 20 N to 75 N at
+`window_m = 15_000`, the closest pair sits 12 m beyond the 7500 m bound, one grid
+cell's worth of overshoot, so the bound is tight rather than merely respected.
+It holds for strict local maxima: selection is `ftle >= neighbourhood max`, so
+every point of a plateau of exactly equal values ties and adjacent points can
+all be seeds.
+
+The radius is applied through a k-d tree over Earth-centred Cartesian metres,
+where a great-circle radius $r$ is exactly the chord $2R\sin(r/2R)$, so the
+neighbourhood is the spherical one and not a tangent-plane approximation of it.
+Using $r$ as the Euclidean radius instead would be 128 m out at $r$ = 500 km and
+127 km out at 5000 km. The cost is the query: on a million grid points at a
+15 km radius it runs in about 2.4 s against 0.22 s for the rolling window it
+replaced, most of it in assembling the neighbour lists. Grids of that size are
+what GitHub issue #11 is about.
 
 ## Why the well-definedness guard is an eigenvalue ratio
 

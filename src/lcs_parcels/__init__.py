@@ -19,6 +19,8 @@ from lcs_parcels.grids import (
     NeighborFlowMap,
     NeighborSeedGrid,
     SeedGrid,
+    UnstructuredAuxiliaryFlowMap,
+    UnstructuredAuxiliarySeedGrid,
 )
 from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
 
@@ -33,6 +35,8 @@ __all__ = [
     "NeighborFlowMap",
     "NeighborSeedGrid",
     "SeedGrid",
+    "UnstructuredAuxiliaryFlowMap",
+    "UnstructuredAuxiliarySeedGrid",
     "ftle_ridge_seeds",
     "shrink_lines",
 ]

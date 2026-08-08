@@ -13,6 +13,7 @@ from conftest import advected_flowmap
 from lcs_parcels import (
     AuxiliarySeedGrid,
     NeighborSeedGrid,
+    UnstructuredAuxiliarySeedGrid,
     ftle_ridge_seeds,
     shrink_lines,
 )
@@ -21,13 +22,14 @@ RELEASE_TIME = np.datetime64("2020-01-01")
 END_TIME = np.datetime64("2020-01-02")
 M = np.array([[2.0, 0.5], [0.0, 3.0]])  # generic (sheared) linear map
 
-SEED_CLASSES = [NeighborSeedGrid, AuxiliarySeedGrid]
+SEED_CLASSES = [NeighborSeedGrid, AuxiliarySeedGrid, UnstructuredAuxiliarySeedGrid]
 
 # Coordinates whose values are labels or indices, for which a unit is
 # meaningless; they carry a long_name only.
 UNITLESS = {
     "i",
     "j",
+    "grid_point",
     "displacement",
     "row",
     "col",
@@ -41,22 +43,18 @@ UNITLESS = {
 }
 
 # What ``ftle_ridge_seeds`` records about the selection it made, over and above
-# its own ``long_name``. Read off a returned dataset, these say what ``window_m``
-# became on the grid and which floor was applied.
+# its own ``long_name``: which floor was applied, and how far apart the window it
+# was given puts two seeds.
 RIDGE_ATTRS = {
     "selector",
     "ftle_threshold",
     "window_m",
-    "window_cells_i",
-    "window_cells_j",
-    "grid_spacing_i_m",
-    "grid_spacing_j_m",
     "min_seed_separation_m",
 }
 
-# The fixture grids are 1 degree by 1-2 degrees, so a window of a few cells is
-# several hundred kilometres; 700 km clears three cells in both dimensions in
-# every region, including the 2-degree meridional spacing at 72 N.
+# The fixture grids are 1 degree by 1-2 degrees, so the radius has to be several
+# hundred kilometres before a grid point has a neighbour to lose to; 700 km
+# clears the 2-degree meridional spacing at 72 N.
 RIDGE_WINDOW_M = 700_000.0
 
 

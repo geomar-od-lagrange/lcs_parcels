@@ -8,8 +8,14 @@ and the time coords, yielding a seed grid again.
 
 import numpy as np
 import pytest
+from conftest import scattered_points
 
-from lcs_parcels import AuxiliarySeedGrid, NeighborSeedGrid
+from lcs_parcels import (
+    AuxiliarySeedGrid,
+    NeighborSeedGrid,
+    UnstructuredAuxiliaryFlowMap,
+    UnstructuredAuxiliarySeedGrid,
+)
 
 # Release time and integration end time supplied at ingest; the signed window
 # T = END_TIME - RELEASE_TIME is derived.
@@ -102,3 +108,28 @@ def test_zero_window_raises(lon_axis, lat_axis):
 
     with pytest.raises(ValueError):
         seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=RELEASE_TIME)
+
+
+def test_unstructured_pset_length(lon_axis, lat_axis):
+    lon_points, lat_points = scattered_points(lon_axis, lat_axis)
+    seed = UnstructuredAuxiliarySeedGrid.from_points(lon=lon_points, lat=lat_points)
+    lon, lat = seed.to_parcels_pset()
+
+    assert len(lon) == len(lat) == lon_points.size * 4
+
+
+def test_unstructured_emit_ingest_emit_lossless(lon_axis, lat_axis):
+    """The pairing wiring holds for the third pair too: ingest gives the
+    unstructured flow map, ``to_seed`` gives the unstructured seed back, and the
+    re-emitted particle set is the one that went in."""
+    lon_points, lat_points = scattered_points(lon_axis, lat_axis)
+    seed = UnstructuredAuxiliarySeedGrid.from_points(lon=lon_points, lat=lat_points)
+    lon, lat = seed.to_parcels_pset()
+
+    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
+    assert isinstance(fm, UnstructuredAuxiliaryFlowMap)
+    assert set(fm.ds["lon"].dims) == {"grid_point", "displacement"}
+
+    again = fm.to_seed()
+    assert isinstance(again, UnstructuredAuxiliarySeedGrid)
+    assert again.to_parcels_pset() == (lon, lat)

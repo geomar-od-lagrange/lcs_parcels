@@ -16,6 +16,7 @@ A `SeedGrid` lays out release positions and emits a particle set.
    lcs_parcels.SeedGrid
    lcs_parcels.NeighborSeedGrid
    lcs_parcels.AuxiliarySeedGrid
+   lcs_parcels.UnstructuredAuxiliarySeedGrid
 ```
 
 ## Flow maps
@@ -30,11 +31,12 @@ A `FlowMap` holds the advected positions and computes the diagnostics.
    lcs_parcels.FlowMap
    lcs_parcels.NeighborFlowMap
    lcs_parcels.AuxiliaryFlowMap
+   lcs_parcels.UnstructuredAuxiliaryFlowMap
 ```
 
 ## Tensor lines
 
-Hyperbolic LCS as strain tensor lines, taking the gridded outputs of a
+Hyperbolic LCS as strain tensor lines, taking the xarray outputs of a
 `FlowMap`.
 
 ```{eval-rst}
@@ -48,8 +50,8 @@ Hyperbolic LCS as strain tensor lines, taking the gridded outputs of a
 
 ## Modules
 
-The two modules' own docstrings. Their members are the classes and functions
-above, documented there rather than a second time here.
+The two public modules' own docstrings. Their members are the classes and
+functions above, documented there rather than a second time here.
 
 ```{eval-rst}
 .. automodule:: lcs_parcels.grids

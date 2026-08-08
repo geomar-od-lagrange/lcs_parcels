@@ -10,9 +10,14 @@ coords and ``lon``/``lat`` data vars.
 import numpy as np
 import pytest
 import xarray as xr
-from conftest import advected_flowmap
+from conftest import advected_flowmap, scattered_points
 
-from lcs_parcels import AuxiliarySeedGrid, NeighborFlowMap, NeighborSeedGrid
+from lcs_parcels import (
+    AuxiliarySeedGrid,
+    NeighborFlowMap,
+    NeighborSeedGrid,
+    UnstructuredAuxiliarySeedGrid,
+)
 from lcs_parcels.grids import _separation_m
 
 # Release/end times supplied only at ingest (the seed grid carries no time).
@@ -377,3 +382,108 @@ def test_lonlat_pairs_are_keyword_only(lon_axis, lat_axis):
     fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
     with pytest.raises(TypeError):
         fm.image(fm.ds["lon_0"], fm.ds["lat_0"])
+
+
+# --- unstructured grid points ----------------------------------------------
+
+
+def test_from_points_lays_the_stencil_around_a_flat_point_set(lon_axis, lat_axis):
+    """A plain 1-D pair becomes the ``grid_point`` layout, arms and all."""
+    lon_points, lat_points = scattered_points(lon_axis, lat_axis)
+    seed = UnstructuredAuxiliarySeedGrid.from_points(lon=lon_points, lat=lat_points)
+
+    assert seed.lon_grid.dims == ("grid_point",)
+    assert set(seed.ds["lon_0"].dims) == {"grid_point", "displacement"}
+    assert seed.ds["displacement"].values.tolist() == [
+        "east",
+        "north",
+        "west",
+        "south",
+    ]
+    np.testing.assert_array_equal(seed.lon_grid.values, lon_points)
+    np.testing.assert_array_equal(seed.lat_grid.values, lat_points)
+    assert seed.ds["grid_point"].values.tolist() == list(range(lon_points.size))
+
+
+def test_from_points_keeps_the_callers_dims(lon_axis, lat_axis):
+    """A ``DataArray`` keeps its own dims, so a curvilinear mesh stays a mesh and
+    its diagnostics come back as a field rather than a list."""
+    lon_grid, lat_grid = xr.broadcast(
+        xr.DataArray(lon_axis, dims="y"), xr.DataArray(lat_axis, dims="x")
+    )
+    seed = UnstructuredAuxiliarySeedGrid.from_points(lon=lon_grid, lat=lat_grid)
+
+    assert seed.lon_grid.dims == ("y", "x")
+    assert set(seed.ds["lon_0"].dims) == {"y", "x", "displacement"}
+    assert "grid_point" not in seed.ds.dims
+
+
+def test_from_points_arms_are_at_the_requested_separation(lon_axis, lat_axis):
+    """The arms sit at exactly +/- ``aux_separation_m`` in each point's own local
+    frame, the same placement :meth:`AuxiliarySeedGrid.from_axes` makes."""
+    s = 2_500.0
+    lon_points, lat_points = scattered_points(lon_axis, lat_axis)
+    seed = UnstructuredAuxiliarySeedGrid.from_points(
+        lon=lon_points, lat=lat_points, aux_separation_m=s
+    )
+    lon_0, lat_0 = seed.ds["lon_0"], seed.ds["lat_0"]
+
+    dx, dy = _separation_m(
+        lon_a=lon_0.sel(displacement="west"),
+        lat_a=lat_0.sel(displacement="west"),
+        lon_b=lon_0.sel(displacement="east"),
+        lat_b=lat_0.sel(displacement="east"),
+    )
+    assert np.allclose(dx, 2.0 * s)
+    assert np.allclose(dy, 0.0)
+
+
+def test_from_points_rejects_mismatched_lon_lat(lon_axis, lat_axis):
+    """lon and lat have to describe the same points, or the pairing is silent."""
+    with pytest.raises(ValueError, match="same points"):
+        UnstructuredAuxiliarySeedGrid.from_points(
+            lon=np.asarray(lon_axis), lat=np.asarray(lat_axis)[:2]
+        )
+
+
+def test_from_points_rejects_a_wider_plain_array():
+    """Only a ``DataArray`` can name the dims of a layout wider than a list."""
+    with pytest.raises(ValueError, match="1-D"):
+        UnstructuredAuxiliarySeedGrid.from_points(
+            lon=np.zeros((2, 3)), lat=np.zeros((2, 3))
+        )
+
+
+def test_from_points_rejects_a_dim_the_package_owns():
+    """A caller dim named after one of ours would be aligned against it rather
+    than kept apart, and the wrong answer would be silent."""
+    lon = xr.DataArray([0.0, 1.0, 2.0], dims="seed")
+    with pytest.raises(ValueError, match="seed"):
+        UnstructuredAuxiliarySeedGrid.from_points(lon=lon, lat=lon + 10.0)
+
+
+def test_from_points_rejects_arms_spanning_90_degrees():
+    """The pole guard is the arm placement's, so both constructors carry it."""
+    with pytest.raises(ValueError, match="90 degrees"):
+        UnstructuredAuxiliarySeedGrid.from_points(
+            lon=np.array([0.0]), lat=np.array([89.9999]), aux_separation_m=50_000.0
+        )
+
+
+def test_from_points_pair_is_keyword_only():
+    """Passing the pair positionally raises, so a swap cannot pass silently."""
+    lon, lat = np.array([0.0, 1.0]), np.array([10.0, 11.0])
+    with pytest.raises(TypeError):
+        UnstructuredAuxiliarySeedGrid.from_points(lon, lat)
+
+
+def test_unstructured_repr_reports_a_point_count(lon_axis, lat_axis):
+    """A point set has one size rather than two, and the repr says so instead of
+    inventing an ``i`` and a ``j``."""
+    lon_points, lat_points = scattered_points(lon_axis, lat_axis)
+    seed = UnstructuredAuxiliarySeedGrid.from_points(lon=lon_points, lat=lat_points)
+    lon, lat = seed.to_parcels_pset()
+    fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
+
+    assert f"{lon_points.size} grid" in repr(seed)
+    assert f"{lon_points.size} grid" in repr(fm)

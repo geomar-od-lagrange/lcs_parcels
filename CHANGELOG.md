@@ -9,7 +9,51 @@ deprecation shims: the old form is deleted and every call site updated.
 Changes on `main` since the last tag. This heading becomes the version at
 release time.
 
+### Breaking
+
+- **`ftle_ridge_seeds` picks its seeds over a spherical neighbourhood, not a
+  rolling window.** A grid point is now a seed when it is the FTLE maximum over
+  every grid point within `window_m / 2` of it along the great circle. Nothing in
+  the call changes and nothing raises; the seed set differs. On a uniform
+  mid-latitude grid it differs by a handful of peaks either way. On a domain
+  spanning 20 N to 75 N the old rule resolved `window_m` against one *median*
+  cell size and degenerated to a single cell north of 50 N, returning 9.3 times
+  as many seeds there as the new rule; below 40 N the two agree exactly. If you
+  have tuned `window_m` against a wide-latitude domain, re-check the seed count.
+- **`window_m` is a diameter, and `min_seed_separation_m` is exactly half of
+  it.** The knob keeps its name, its units and its default, and still means "how
+  far apart do I want my seeds, times two". The reported separation no longer
+  depends on the grid: it was 16871.8 m for a 30 km window on the Cabo Verde
+  example, and is now 15000.0 m.
+- **`ftle_ridge_seeds` no longer returns `window_cells_i`, `window_cells_j`,
+  `grid_spacing_i_m` or `grid_spacing_j_m`** in `attrs`, on its own result or on
+  what `hyperbolic_lcs` returns. They described a cell count that no longer
+  exists. Reading one now raises `KeyError`; `window_m` and
+  `min_seed_separation_m` are still there.
+- **The narrow-window `UserWarning` fires on a different condition.** It used to
+  mean "fewer than three grid cells in one dimension" and now means "most grid
+  points have no neighbour inside the radius at all". A
+  `pytest.warns(UserWarning)` around a small `window_m` still passes; one
+  matching the old message text does not.
+
 ### Added
+
+- **`UnstructuredAuxiliarySeedGrid` and `UnstructuredAuxiliaryFlowMap`**, the
+  auxiliary four-arm stencil around grid points that need not lie on a mesh:
+  a flat list, a swath along a ship track, a cluster where the resolution is
+  wanted, or a curvilinear mesh. The stencil makes the deformation gradient
+  well-defined at a grid point on its own, so nothing in the diagnostic chain
+  needed the layout.
+
+  ```python
+  seed = UnstructuredAuxiliarySeedGrid.from_points(lon=track_lon, lat=track_lat)
+  ```
+
+  An `xr.DataArray` keeps its own dims; a plain 1-D array lands on a
+  `grid_point` dim. `FlowMap.image`, `shrink_lines` and `hyperbolic_lcs` all run
+  on the result, reading the field between grid points off their triangulation
+  instead of along axes. `from_axes` is inherited and still gives a rectilinear
+  point set (Closes #20).
 
 - A DOI badge, and the same concept DOI in `CITATION.cff`. It is the
   all-versions DOI, so it resolves to the newest archived release rather than
