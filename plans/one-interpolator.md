@@ -74,6 +74,37 @@ cold cost (0.868 s of 0.891 s at $10^6$); the barycentric evaluation itself is
   0.34 GiB of pair indices at $10^6$. At $10^8$ that is 36 GiB, which is the
   first hard wall in the package and belongs to both layouts.
 
+### How big the amortisation is
+
+One seed grid, $M$ flow maps. Geometry is built once; windowing and tracing are
+paid per map. The per-map workload is a full `hyperbolic_lcs`: one neighbourhood
+maximum over the whole grid, then 300 seeds x 1000 interpolator evaluations.
+
+| | $100^2 = 10^4$ | $140^2 = 1.96\times10^4$ | $1000^2 = 10^6$ |
+|---|---|---|---|
+| Delaunay + transform, once | 0.520 s | 0.984 s | 53.27 s |
+| KDTree, once | 0.001 s | 0.003 s | 0.187 s |
+| per map, windowing | 0.018 s | 0.035 s | 2.538 s |
+| per map, tracing | 0.078 s | 0.088 s | 0.164 s |
+| geometry is worth | 5.4 maps | 8.1 maps | 19.8 maps |
+
+$140^2$ is the closest to the real examples (151x126 = 19 026 grid points).
+There, a session of $M = 10$ takes 2.21 s cached against 11.09 s rebuilt (5.0x),
+and $M = 50$ takes 7.11 s against 55.45 s (7.8x). At $10^6$, $M = 10$ is 80 s
+against 562 s.
+
+Three things follow. The **KDTree amortisation is nil**: 0.003 s to build against
+0.035 s of query per map, so caching the tree saves ~2% of the windowing and is
+not worth designing for. The Delaunay is the whole of it. And at example scale
+the absolute saving is ~9 s over a ten-map session, against ten Parcels legs over
+40 000 particles that run in ~32 s, so caching moves the diagnostic layer from a
+third of the run to a fifth rather than removing it. It becomes structural only
+at $10^6$.
+
+The 300 seeds above are ~5x the 58 lines the real Cabo Verde case produces, so
+realistic tracing is cheaper: the ratios go up (geometry worth ~40 maps at
+$1.96\times10^4$) and the absolute savings go down.
+
 ### `NeighborFlowMap` does not need the rectilinear interpolator
 
 It needs a rectilinear *grid* for its gradient, since `_central_separation_m`
@@ -139,12 +170,16 @@ once already.
 
 1. **Where does the cached `Delaunay` live?** It is geometry, so it belongs to
    the seed grid, but `FlowMap.__init__(ds)` is public and a flow map built from
-   a bare dataset has no seed to ask. Three options, none free: build it lazily
-   on the flow map and cache per instance, which rebuilds it for every one of the
-   $N$ flow maps in a release series and gives up the amortisation; cache it on
+   a bare dataset has no seed to ask. Three options: build it lazily on the flow
+   map and cache per instance, which rebuilds it once per flow map; cache it on
    the seed grid and have `pset_to_flowmap` hand it over, which works for the
    normal path and is absent for the hand-built one; or a module-level cache
-   keyed on the points array, which is a global. Which?
+   keyed on the points array, which is a global.
+
+   The amortisation table above says this is not urgent. Per-instance costs
+   ~1 s per flow map at example scale and only bites at $10^6$ grid points, so
+   the per-instance cache is a defensible default with the seed-grid cache as a
+   later optimisation. Confirm that reading, or pick one now.
 2. **Does `from_axes` survive as its own constructor?** With one class and one
    interpolator it is `from_points` over the outer product of two axes, plus the
    `(i, j)` dims that let a diagnostic plot as a field. The dims are worth
