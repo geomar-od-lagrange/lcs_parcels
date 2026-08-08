@@ -435,12 +435,16 @@ class FlowMap(abc.ABC):
         return self.ds["lat_grid"]
 
     def __repr__(self) -> str:
-        """One-line summary with the grid, the lon/lat extent, ``t0`` and ``T``."""
+        """Two-line summary: the grid and its extent, then ``t0`` and ``T``."""
+        name = type(self).__name__
         shape = f"{self.lon_grid.sizes['i']}x{self.lon_grid.sizes['j']}"
+        # The continuation hangs under the first field, past `<` and the class
+        # name, so the indent is measured rather than written out.
+        indent = " " * (len(name) + 2)
         return (
-            f"<{type(self).__name__} {shape} grid, "
-            f"lon {_extent(self.lon_grid)}, lat {_extent(self.lat_grid)}, "
-            f"t0 {np.datetime64(self.ds['t0'].values, 's')}, "
+            f"<{name} {shape} grid, "
+            f"lon {_extent(self.lon_grid)}, lat {_extent(self.lat_grid)},\n"
+            f"{indent}t0 {np.datetime64(self.ds['t0'].values, 's')}, "
             f"T {self._window_days():+.1f} days>"
         )
 

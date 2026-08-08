@@ -380,6 +380,17 @@ verified against the pinned v4 alpha:
   publish workflow rejects rather than uploading.
 - **A release that breaks a documented call says so in its release notes**, per
   the compatibility rule above: what broke and what to write instead.
+- **`CITATION.cff` is the author list, and it must exist in the tagged commit.**
+  Zenodo reads it from the repository root at the release tag, so adding it to
+  `main` afterwards does nothing for that release. It replaces the GitHub
+  contributor list outright: anyone not named in it is not an author of the
+  record, and the default without it puts each whole GitHub display name into a
+  family name with no ORCID. Zenodo maps `title`, `abstract`, `authors`,
+  `keywords`, `license` and `message` and silently drops everything else,
+  `version` and `date-released` included, so the tag stays the only place a
+  version is written. Do not add a `.zenodo.json`: it disables `CITATION.cff`
+  entirely rather than merging with it. A file Zenodo cannot parse fails the
+  release with no record created, which is why the `build` CI job validates it.
 - **Never pin the version value in a test.** `test_version` asserts a version
   string exists and `test_version_is_pep440` that it parses, neither of which a
   release touches.

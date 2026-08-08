@@ -101,3 +101,20 @@ suppress_warnings = ["mystnb.unknown_mime_type"]
 # No `html_theme`: Sphinx's default (alabaster) applies, and it ships with
 # Sphinx, so the docs environment carries no theme dependency of its own.
 html_title = f"LCS-Parcels {release}"
+
+# The repository link in the sidebar, on every page. Alabaster renders these
+# through `about.html`, which its default `sidebars` already includes, so there
+# is no `html_sidebars` to set. The values are the lowercase strings alabaster
+# compares against, not booleans, and `github_banner` stays unset: that key is
+# the corner ribbon, and any value other than `"false"` turns it on.
+html_theme_options = {
+    "github_user": "geomar-od-lagrange",
+    "github_repo": "lcs_parcels",
+    "github_button": "true",
+    "github_type": "star",
+    "github_count": "false",
+    "extra_nav_links": {
+        "Source on GitHub": "https://github.com/geomar-od-lagrange/lcs_parcels",
+        "Issues": "https://github.com/geomar-od-lagrange/lcs_parcels/issues",
+    },
+}
