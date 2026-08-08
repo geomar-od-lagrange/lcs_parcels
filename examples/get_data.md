@@ -16,12 +16,12 @@ jupyter:
 
 # Download CMEMS data
 
-Run this once. It fetches the CMEMS subset that the three Cabo Verde notebooks
+Run this once. It fetches the CMEMS subset that the four Cabo Verde notebooks
 open from disk and writes it to `data/cabo_verde_currents_hourly.nc`. Re-running
 it is cheap: if the file is already there and opens, nothing is downloaded.
 
 `examples/data/` is gitignored, so the file is never committed and a fresh
-clone has to run this notebook before the three Cabo Verde ones.
+clone has to run this notebook before the Cabo Verde ones.
 
 This assumes
 [`copernicusmarine`](https://help.marine.copernicus.eu/en/collections/9080063-copernicus-marine-toolbox)

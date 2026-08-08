@@ -85,11 +85,9 @@ branch its points sit on.
 On `Neighbor*` and `Auxiliary*` the `lon_grid` **axis** itself must be
 monotonic, which is a stricter requirement: `FlowMap.image` and `shrink_lines`
 read the field along it. Seed a domain crossing the antimeridian on
-`170, 175, 180, 185`, not on `170, 175, 180, -175`. On the latter,
-`hyperbolic_lcs()` raises `ValueError` ("the points in dimension 0 must be
-strictly ascending or descending") out of SciPy, and `image()` does not raise at
-all. It reads the axis as if it were sorted, so a point in the wrapped half of
-the domain comes back `NaN` or interpolated between the wrong two grid points.
+`170, 175, 180, 185`, not on `170, 175, 180, -175`. On the latter, both
+`hyperbolic_lcs()` and `image()` raise `ValueError` ("the points in dimension 0
+must be strictly ascending or descending") out of SciPy.
 
 `UnstructuredAuxiliary*` has no axis and so no monotonicity requirement, but it
 triangulates its grid points in degrees, so they still have to sit on one
@@ -174,8 +172,8 @@ FlowMap.to_seed() -> SeedGrid                                 # concrete (base)
   must be 1-D and lands on a `grid_point` dim. It raises `ValueError` if `lon` and
   `lat` disagree in dims or shape, if a plain array is not 1-D, or if a dim
   carries a name the package builds for itself (`displacement`, `row`, `col`,
-  `col_b`, `comp`, `eig`, `particle`, `seed`, `line`, `point`), which xarray
-  would otherwise align against ours. `from_axes` is inherited and still builds
+  `col_b`, `comp`, `eig`, `particle`, `position`, `seed`, `line`, `point`),
+  which xarray would otherwise align against ours. `from_axes` is inherited and still builds
   a rectilinear point set.
 - **`to_parcels_pset()`** flattens the *reference* release positions to plain
   `(lon, lat)` lists (a 2-tuple) over the `particle` index (the grid dims, plus
@@ -397,8 +395,9 @@ plt.plot(lcs["lon"].T, lcs["lat"].T)
 `lon_grid`/`lat_grid` are non-dimension coords (the layout that lets the grid be
 curvilinear), so a gridded field is drawn against them by passing
 `x="lon_grid", y="lat_grid"`; `.plot()` on its own falls back to the logical
-`i`/`j` axes. A field on a point set has no gridded plot: scatter it against the
-same two coords.
+`i`/`j` axes. A field on a point set has no gridded plot. Scatter it against the
+same two coords, or shade it over the points' own triangulation with
+matplotlib's `tripcolor`, as `cabo_verde_unstructured` does.
 
 Ridge-finding itself takes a *field*, not a flow map, so to pick seed points
 from a smoothed or masked FTLE, run the three steps by hand.

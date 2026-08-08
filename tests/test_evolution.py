@@ -18,7 +18,11 @@ from conftest import (
     apply_linear_map_to_pset,
 )
 
-from lcs_parcels import AuxiliarySeedGrid, NeighborSeedGrid
+from lcs_parcels import (
+    AuxiliarySeedGrid,
+    NeighborSeedGrid,
+    UnstructuredAuxiliarySeedGrid,
+)
 from lcs_parcels.grids import _wrap_lon
 
 RELEASE_TIME = np.datetime64("2020-01-01")
@@ -214,3 +218,56 @@ def test_image_outside_the_convex_hull_is_nan(lon_axis, lat_axis):
     )
 
     assert bool(out["lon"].isnull().all())
+
+
+def test_the_two_interpolators_agree_on_the_same_region(lon_axis, lat_axis):
+    """One region read along two axes and off a triangulation gives one answer.
+
+    ``UnstructuredAuxiliarySeedGrid`` inherits ``from_axes``, so the same grid
+    points can be put through either interpolator. The flow map is linear, so
+    both are exact and the two must agree; nothing else in the suite would catch
+    the scattered path quietly falling back to the rectilinear one, or the seam
+    being handed the wrong array.
+    """
+    structured = advected_flowmap(
+        AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
+    scattered = advected_flowmap(
+        UnstructuredAuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
+    assert type(structured._interpolator(structured.ftle())) is not type(
+        scattered._interpolator(scattered.ftle())
+    )
+
+    # Midway between four grid points, where the two schemes could differ.
+    lon_0 = 0.5 * (structured.lon_grid.isel(i=1) + structured.lon_grid.isel(i=2))
+    lat_0 = 0.5 * (structured.lat_grid.isel(j=1) + structured.lat_grid.isel(j=2))
+    lon_0, lat_0 = xr.broadcast(lon_0.isel(j=1, drop=True), lat_0.isel(i=1, drop=True))
+
+    a = structured.image(lon_0=lon_0, lat_0=lat_0)
+    b = scattered.image(lon_0=lon_0, lat_0=lat_0)
+
+    assert np.allclose(_wrap_lon(a["lon"] - b["lon"]), 0.0, atol=1e-6)
+    assert np.allclose(a["lat"], b["lat"], atol=1e-6)
+
+
+def test_image_does_not_relabel_its_output_from_the_indexers(lon_axis, lat_axis):
+    """Attributes the reference points carried stay off the advected ones.
+
+    Reference points read off a CF dataset bring a ``standard_name`` and an
+    ``axis``, and a returned latitude that inherits the longitude's would tell
+    every CF-aware consumer the wrong thing.
+    """
+    fm = _flowmap(lon_axis, lat_axis)
+    cf = {"standard_name": "longitude", "axis": "X"}
+
+    out = fm.image(
+        lon_0=xr.DataArray([float(lon_axis[1])], dims="param", attrs=cf),
+        lat_0=xr.DataArray([float(lat_axis[1])], dims="param"),
+    )
+
+    for name in ("lon", "lat"):
+        assert "standard_name" not in out[name].attrs
+        assert "axis" not in out[name].attrs
+    assert out["lat"].attrs["units"] == "degrees_north"
+    assert "latitude" in out["lat"].attrs["long_name"]

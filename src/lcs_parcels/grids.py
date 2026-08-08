@@ -198,6 +198,7 @@ _RESERVED_DIMS = frozenset(
         "line",
         "particle",
         "point",
+        "position",
         "row",
         "seed",
     }
@@ -314,9 +315,8 @@ class SeedGrid(abc.ABC):
     ``xr.Dataset`` in :attr:`ds`. It carries no time and no advected positions,
     which enter at ingest through :meth:`pset_to_flowmap`.
 
-    Logical grid dims are ``i, j``, and the 2-D ``lon_grid``/``lat_grid`` can
-    represent curvilinear grids. Subclasses differ only in the stencil laid down
-    around each grid point in :meth:`from_axes`.
+    Subclasses differ in the stencil laid down around each grid point and in
+    what the grid points themselves may look like.
 
     Attributes
     ----------
@@ -335,8 +335,8 @@ class SeedGrid(abc.ABC):
         Parameters
         ----------
         ds : xr.Dataset
-            Dataset with dims ``i, j``, the diagnostic grid coordinates
-            ``lon_grid``/``lat_grid``, and the reference coordinates ``lon_0``,
+            Dataset carrying the diagnostic grid coordinates
+            ``lon_grid``/``lat_grid`` and the reference coordinates ``lon_0``,
             ``lat_0`` (degrees). Subclasses may require additional
             coordinates/dimensions. No data variables, no ``t0``/``T``.
         """
@@ -483,8 +483,9 @@ class FlowMap(abc.ABC):
 
     Both position pairs share the same dims, so
     ``grad F = d(lon, lat) / d(lon_0, lat_0)`` is well-defined. Subclasses differ
-    only in how ``grad F`` is finite-differenced and how the advected positions
-    collapse onto the diagnostic grid (:attr:`grid_image`).
+    in how ``grad F`` is finite-differenced, how the advected positions collapse
+    onto the diagnostic grid (:attr:`grid_image`), and how a field is read
+    between the grid points.
 
     Attributes
     ----------
@@ -507,7 +508,7 @@ class FlowMap(abc.ABC):
         Parameters
         ----------
         ds : xr.Dataset
-            Dataset with dims ``i, j``, the diagnostic grid coordinates
+            Dataset carrying the diagnostic grid coordinates
             ``lon_grid``/``lat_grid``, reference coordinates ``lon_0``/``lat_0``,
             advected data variables ``lon``/``lat`` (degrees), and scalar ``t0``
             and signed ``T`` coordinates. Subclasses may require additional
@@ -517,12 +518,12 @@ class FlowMap(abc.ABC):
 
     @property
     def lon_grid(self) -> xr.DataArray:
-        """Longitude of the diagnostic grid points, ``(i, j)``, degrees east."""
+        """Longitude of the diagnostic grid points, degrees east."""
         return self.ds["lon_grid"]
 
     @property
     def lat_grid(self) -> xr.DataArray:
-        """Latitude of the diagnostic grid points, ``(i, j)``, degrees north."""
+        """Latitude of the diagnostic grid points, degrees north."""
         return self.ds["lat_grid"]
 
     def __repr__(self) -> str:
@@ -779,10 +780,16 @@ class FlowMap(abc.ABC):
         ).reshape(*lon_0.shape, 2)
         # Rebuilt rather than assigned, because a merge cannot tell an incoming
         # `lon` data variable from the dimension a CF dataset names the same.
+        # Built bare rather than from the reference pair, which would stamp any
+        # attribute the caller's longitude carried onto both returned variables.
         return xr.Dataset(
             {
-                "lon": lon_0.copy(data=image[..., 0]).assign_attrs(LON_ATTRS),
-                "lat": lon_0.copy(data=image[..., 1]).assign_attrs(LAT_ATTRS),
+                "lon": xr.DataArray(
+                    image[..., 0], dims=lon_0.dims, coords=lon_0.coords, attrs=LON_ATTRS
+                ),
+                "lat": xr.DataArray(
+                    image[..., 1], dims=lon_0.dims, coords=lon_0.coords, attrs=LAT_ATTRS
+                ),
             },
             coords={
                 "lon_0": lon_0.assign_attrs(LON_0_ATTRS),

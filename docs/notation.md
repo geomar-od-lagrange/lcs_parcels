@@ -205,10 +205,8 @@ special case. Reading a field *between* grid
 points is a separate matter. On `Neighbor*` and `Auxiliary*` it goes along the
 `lon_grid` axis, so that axis must be monotonic, and a domain crossing the
 antimeridian is seeded on `170, 175, 180, 185` rather than on
-`170, 175, 180, -175`. On a wrapped axis `shrink_lines` and `hyperbolic_lcs`
-raise `ValueError` out of SciPy; `FlowMap.image` does not raise, and reads the
-axis as if it were sorted, so a query in the wrapped half comes back `NaN` or
-interpolated between the wrong two grid points. `UnstructuredAuxiliary*` has no
+`170, 175, 180, -175`. On a wrapped axis `shrink_lines`, `hyperbolic_lcs` and
+`FlowMap.image` all raise `ValueError` out of SciPy. `UnstructuredAuxiliary*` has no
 axis, and triangulates its grid points in degrees instead, so they must still
 sit on one longitude branch. Traced tensor lines are bound by neither and may
 cross the antimeridian. The mid-latitude

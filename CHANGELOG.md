@@ -30,6 +30,22 @@ release time.
   what `hyperbolic_lcs` returns. They described a cell count that no longer
   exists. Reading one now raises `KeyError`, while `window_m` and
   `min_seed_separation_m` are still there.
+- **`FlowMap.image` raises on a non-monotonic `lon_grid` axis** rather than
+  reading the axis as if it were sorted and returning `NaN` or a value
+  interpolated between the wrong two grid points. It now goes through the same
+  interpolator `shrink_lines` does, so it raises the same SciPy `ValueError`
+  ("the points in dimension 0 must be strictly ascending or descending"). Seed a
+  domain crossing the antimeridian on `170, 175, 180, 185`, as before.
+- **`FlowMap.image` returns its `lon_0`/`lat_0` coords broadcast against each
+  other.** Two indexers on different dims gave a 1-D `lon_0` beside a 2-D
+  `lon`; both are now the 2-D outer product, so every returned position is
+  paired with the reference position it came from. The `lon`/`lat` data
+  variables are unchanged.
+- **`EARTH_RADIUS_M` moved from `lcs_parcels.grids` to
+  `lcs_parcels._spatial`**, together with the metres-per-degree factor, because
+  the queries taken on the sphere now live there. Write
+  `from lcs_parcels._spatial import EARTH_RADIUS_M`, or just `6_371_000.0`; it
+  is not exported from the package root and never was.
 - **The narrow-window `UserWarning` fires on a different condition.** It used to
   mean "fewer than three grid cells in one dimension" and now means "most grid
   points have no neighbour inside the radius at all". A
@@ -53,7 +69,7 @@ release time.
   `grid_point` dim. `FlowMap.image`, `shrink_lines` and `hyperbolic_lcs` all run
   on the result, reading the field between grid points off their triangulation
   instead of along axes. `from_axes` is inherited and still gives a rectilinear
-  point set (Closes #20).
+  point set.
 
 - A DOI badge, and the same concept DOI in `CITATION.cff`. It is the
   all-versions DOI, so it resolves to the newest archived release rather than

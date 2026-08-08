@@ -151,7 +151,7 @@ already `lon_0`/`lat_0` for the neighbour stencil, and for the auxiliary one,
 where `lon_0` carries a `displacement` dim as well, it needs a second pair. One
 concept under two names forces every downstream consumer to sniff the dataset
 for which name is present, the exact runtime introspection the design rules
-ban. Carrying `lon_grid`/`lat_grid` on both stencils removes the branch by
+ban. Carrying `lon_grid`/`lat_grid` on every class removes the branch by
 construction rather than hiding it behind a helper that branches internally.
 
 `_grid` rather than `_c` for "centre": once the coordinate pair exists on every

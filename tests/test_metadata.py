@@ -233,3 +233,17 @@ def test_hyperbolic_lcs_output_is_labelled(lon_axis, lat_axis):
     # The curves and the field they were seeded from are distinct quantities and
     # must not collide in the one dataset they come back in.
     assert set(lcs.data_vars) == {"lon", "lat", "ftle"}
+
+
+def test_unstructured_grid_point_coord_is_labelled():
+    """The dim ``from_points`` names itself carries a ``long_name``, as ``i`` and
+    ``j`` do. Nothing else in the suite reaches it: the parametrized cases above
+    build the unstructured class through the inherited ``from_axes``, which lands
+    on ``(i, j)``."""
+    seed = UnstructuredAuxiliarySeedGrid.from_points(
+        lon=np.array([-1.0, 0.0, 1.0]), lat=np.array([10.0, 11.0, 12.0])
+    )
+
+    assert seed.ds["grid_point"].attrs["long_name"]
+    assert "units" not in seed.ds["grid_point"].attrs
+    assert_labelled(seed.ds)

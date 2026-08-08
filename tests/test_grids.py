@@ -454,11 +454,14 @@ def test_from_points_rejects_a_wider_plain_array():
         )
 
 
-def test_from_points_rejects_a_dim_the_package_owns():
+@pytest.mark.parametrize("dim", ["seed", "position", "displacement", "row"])
+def test_from_points_rejects_a_dim_the_package_owns(dim):
     """A caller dim named after one of ours would be aligned against it rather
-    than kept apart, and the wrong answer would be silent."""
-    lon = xr.DataArray([0.0, 1.0, 2.0], dims="seed")
-    with pytest.raises(ValueError, match="seed"):
+    than kept apart. ``position`` is the one the diagnostics never build, so only
+    ``image`` would trip over it, and then with an error naming neither the dim
+    nor the call that chose it."""
+    lon = xr.DataArray([0.0, 1.0, 2.0], dims=dim)
+    with pytest.raises(ValueError, match=dim):
         UnstructuredAuxiliarySeedGrid.from_points(lon=lon, lat=lon + 10.0)
 
 
