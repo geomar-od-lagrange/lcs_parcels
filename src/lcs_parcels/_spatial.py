@@ -1,11 +1,7 @@
-"""The sphere the package measures on, and the queries taken over it.
+"""Queries over the diagnostic grid points, taken on the sphere.
 
-Two operations need to know where the diagnostic grid points sit relative to one
-another. Interpolating a field sampled at them comes in two forms, one reading
-the points as two monotonic axes and one reading them as a point set with no
-structure. The neighbourhood maximum has only the second form.
-
-This is the one module that imports SciPy.
+Two interpolator builders, one reading the grid points as two monotonic axes and
+one as a point set with no structure, and a neighbourhood maximum.
 """
 
 from __future__ import annotations
@@ -104,9 +100,8 @@ def neighborhood_maximum(
     """Maximum of ``values`` over the grid points within ``radius_m``, per point.
 
     Returns the maxima and the neighbourhood sizes, both flat over the grid
-    points in the order ``lon_grid`` carries them. NaN values are skipped, so a
-    lost point neither wins a maximum nor spoils its neighbours', and a point
-    whose whole neighbourhood is NaN comes back NaN.
+    points in the order ``lon_grid`` carries them. NaN values are skipped, and a
+    point whose whole neighbourhood is NaN comes back NaN.
 
     Parameters
     ----------
@@ -120,8 +115,7 @@ def neighborhood_maximum(
     Returns
     -------
     tuple[np.ndarray, np.ndarray]
-        ``(maximum, count)``, each of length the number of grid points. Every
-        point lies in its own neighbourhood, so ``count`` is at least 1.
+        ``(maximum, count)``, each of length the number of grid points.
     """
     tree = KDTree(_sphere_xyz(lon_grid, lat_grid))
     # A great-circle radius becomes the chord of the same arc in the embedding.

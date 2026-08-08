@@ -13,8 +13,9 @@ from lcs_parcels import (
 
 A pair is fixed by two choices: the stencil $\nabla F$ is differenced over, and
 the layout of the diagnostic grid points. `Neighbor*` and `Auxiliary*` differ in
-the first and both keep a rectilinear `(i, j)` grid; `UnstructuredAuxiliary*`
-takes the auxiliary stencil and drops the layout requirement.
+the first and both keep a rectilinear `(i, j)` grid, and
+`UnstructuredAuxiliary*` takes the auxiliary stencil and drops the layout
+requirement.
 
 Two further functions turn a `FlowMap`'s strain field into hyperbolic-LCS
 curves: `ftle_ridge_seeds` and `shrink_lines` (see
@@ -46,8 +47,9 @@ ingests advected positions; Parcels (external) owns the integration.
 Each object wraps an `xr.Dataset`, held in `.ds`; these are not `xr.Dataset`
 subclasses, so xarray calls go through `.ds`. Logical grid dims are `i, j` on
 the two rectilinear pairs, and whatever the caller gave on
-`UnstructuredAuxiliary*`. A **`SeedGrid` is all-coordinates** (no data variables) and carries no time: it holds the
-diagnostic grid points and the reference release positions $x_0$. A **`FlowMap`
+`UnstructuredAuxiliary*`. A **`SeedGrid` is all-coordinates** (no data
+variables) and carries no time: it holds the diagnostic grid points and the
+reference release positions $x_0$. A **`FlowMap`
 adds the advected positions** as its only data variables, plus scalar `t0`/`T`
 coordinates.
 
@@ -108,7 +110,7 @@ FlowMap.grid_image -> xr.Dataset     # abstract property (per-pair)
 - **`grid_image`** is the flow map image of the diagnostic grid points,
   $F_{t_0}^{t_1}(x_{\mathrm{grid}})$: `lon`/`lat` (degrees) on the grid dims,
   one advected position per grid point whatever stencil it was released with.
-  For `NeighborFlowMap` that is the advected positions unchanged; on both
+  For `NeighborFlowMap` that is the advected positions unchanged, and on both
   auxiliary pairs it is the centroid of the four advected arms, with the
   longitude averaged on the circle so four arms straddling the antimeridian
   average to a position between them, taken with `skipna=False` so a single
@@ -168,8 +170,8 @@ FlowMap.to_seed() -> SeedGrid                                 # concrete (base)
   `UnstructuredAuxiliarySeedGrid` only, takes the grid points directly instead
   of two axes and lays the same four-arm stencil around each of them, guard
   included. An `xr.DataArray` keeps its own dims, so a curvilinear mesh stays
-  two-dimensional and its diagnostics come back as a field; a plain array must
-  be 1-D and lands on a `grid_point` dim. It raises `ValueError` if `lon` and
+  two-dimensional and its diagnostics come back as a field, while a plain array
+  must be 1-D and lands on a `grid_point` dim. It raises `ValueError` if `lon` and
   `lat` disagree in dims or shape, if a plain array is not 1-D, or if a dim
   carries a name the package builds for itself (`displacement`, `row`, `col`,
   `col_b`, `comp`, `eig`, `particle`, `seed`, `line`, `point`), which xarray
@@ -301,8 +303,8 @@ threshold, so it does not.
   `window_m / 2` **metres** of them, measured along the great circle, *and* at or
   above a magnitude floor. `window_m` is the *diameter* of that neighbourhood, so
   two seed points are at least `window_m / 2` apart, half the value passed in
-  rather than all of it; the returned `min_seed_separation_m` attribute is that
-  distance. It bounds *strict* maxima: a plateau of exactly equal values makes
+  rather than all of it, and the returned `min_seed_separation_m` attribute is
+  that distance. It bounds *strict* maxima: a plateau of exactly equal values makes
   every one of its points a neighbourhood maximum, and those can be adjacent. A
   `window_m` that reaches no other grid point emits a `UserWarning`: every point
   is then its own maximum, so the local-maximum test stops selecting and only the
@@ -331,8 +333,8 @@ threshold, so it does not.
   interpolates the tensor $C$ with the flow map's own interpolator (bilinear
   along the axes of a rectilinear grid, linear on the triangulation of a point
   set) and re-diagonalises at each step, which is robust to the eigenvector sign
-  ambiguity, then orients each step to the running heading. `line_length_m` is a **cap**, not the achieved length: it is traced
-  half in each direction, with $n = $ `line_length_m / (2 * step_m)` steps per
+  ambiguity, then orients each step to the running heading. `line_length_m` is a
+  **cap**, not the achieved length: it is traced half in each direction, with $n = $ `line_length_m / (2 * step_m)` steps per
   direction (rounded, at least 1), so a line that runs the full budget has
   $2n + 1$ points. A line stops early where $\xi_1$ stops being a well-defined
   direction, where $\lambda_2 / \lambda_1$ falls below `min_anisotropy`, or
@@ -425,8 +427,8 @@ FlowMap.image(*, lon_0, lat_0) -> xr.Dataset
   (land/edge) cell, or NaN themselves map to NaN. It reads the field through the
   flow map's own interpolator, so "does not reach" means outside the axes on a
   rectilinear grid and outside the convex hull on a point set, which is the
-  weaker of the two: a bay bitten out of a point set is inside its hull and
-  interpolates across.
+  weaker of the two, since a concavity in a point set is still inside its hull
+  and interpolates across.
 
   The advected longitudes may arrive on any branch. Each is re-anchored on the
   branch of the grid point it came from before the interpolation, so an
@@ -482,8 +484,8 @@ The coordinates carry the same metadata, set once at construction
 | `point` | point index along the shrink line |  |
 
 The index and label coords (`i`, `j`, `grid_point`, `displacement`, `row`,
-`col`, `comp`, `eig`, `seed`, `line`, `point`) carry no `units`: their values are logical indices or
-string labels, so there is no unit to give. `t0` and `T` carry none either,
+`col`, `comp`, `eig`, `seed`, `line`, `point`) carry no `units`: their values
+are logical indices or string labels, so there is no unit to give. `t0` and `T` carry none either,
 they are `datetime64`/`timedelta64`, so the dtype already holds the unit.
 
 ## References

@@ -105,7 +105,7 @@ examples`) and a CMEMS currents file you save yourself. The
 ## Scope
 
 Away from the poles. `NeighborSeedGrid` and `AuxiliarySeedGrid` need a
-rectilinear grid with a monotonic `lon_grid` axis;
+rectilinear grid with a monotonic `lon_grid` axis, while
 `UnstructuredAuxiliarySeedGrid` takes the grid points as they come, on one
 longitude branch. The limits, and the accuracy of a separation, are in the
 [API guide](https://lcs-parcels.readthedocs.io/page/api.html) and the

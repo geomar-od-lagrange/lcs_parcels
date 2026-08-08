@@ -90,8 +90,8 @@ from the pole; the zonal limit falls to 1 km itself only above about 88 N. A
 larger
 `aux_separation_m`, or the neighbour stencil, should be read off the series at
 the span actually used. The arms are the same on either auxiliary layout, so
-both read the series at the same span. The neighbour span is not a tunable and it is not one
-grid cell either: `_central_separation_m` differences the $i + 1$ neighbour
+both read the series at the same span. The neighbour span is not a tunable and
+it is not one grid cell either: `_central_separation_m` differences the $i + 1$ neighbour
 against the $i - 1$ one, so the span is **two** cells, and the series is read at
 twice the grid spacing. For a neighbour stencil on a coarse grid the
 finite-difference truncation of that same two-cell span is the larger term.
@@ -104,9 +104,9 @@ $\nabla F$ component from the analytic value is 1.5e-14 for the neighbour
 stencil, about 20 ulp on components of order 3, which is round-off, and 3.0e-12
 for the auxiliary one. The auxiliary figure is some 4500 ulp, too large for
 round-off; it is cancellation in differencing arms a kilometre apart on a sphere
-6371 km across. The unstructured layout carries the auxiliary figure exactly:
-the same points laid out on `(i, j)` and on one flat dim give bitwise-identical
-$\nabla F$, so there is no third number to quote.
+6371 km across. The unstructured layout carries the auxiliary figure exactly,
+since the same points laid out on `(i, j)` and on one flat dim give
+bitwise-identical $\nabla F$.
 
 ## Wrapping differences, never positions
 
@@ -223,8 +223,8 @@ same thing at any resolution and over any window. Stated the way they are
 implemented, the two lengths would each depend on something the caller is not
 asking about: a window as a cell count depends on grid resolution, and a line as
 a step count depends on the step size. `window_m` needs no conversion at all,
-being compared against distances on the sphere directly; only `line_length_m` is
-still resolved internally, into a step count.
+being compared against distances on the sphere directly, and only
+`line_length_m` is still resolved internally, into a step count.
 
 The magnitude floor on ridge selection comes in both forms. `quantile`, the
 default, is relative to the field it is handed, so it means the same thing on
@@ -241,16 +241,16 @@ most `line_length_m / (2 * step_m)` steps per direction and a line that
 terminates earlier is shorter, with the returned block NaN-filled past
 termination so every row has equal length. `window_m` is the *diameter* of the
 neighbourhood a seed must be the maximum over, which reaches only
-`window_m / 2` from its own grid point, so two seeds can sit `window_m / 2`
-apart.
+`window_m / 2` from its own grid point, so two seeds can sit as close as
+`window_m / 2`.
 
 The seed spacing is reported as `min_seed_separation_m` on the returned dataset,
 and it is exactly `window_m / 2`. The neighbourhood test is symmetric, so two
 seeds within the radius would each be in the other's neighbourhood and their
-values would have to be equal; distinct-valued seeds are therefore strictly
+values would have to be equal, so distinct-valued seeds are strictly
 further apart than half the window. Measured on a band from 20 N to 75 N at
 `window_m = 15_000`, the closest pair sits 12 m beyond the 7500 m bound, one grid
-cell's worth of overshoot, so the bound is tight rather than merely respected.
+cell's worth of overshoot.
 It holds for strict local maxima: selection is `ftle >= neighbourhood max`, so
 every point of a plateau of exactly equal values ties and adjacent points can
 all be seeds.
@@ -261,8 +261,7 @@ neighbourhood is the spherical one and not a tangent-plane approximation of it.
 Using $r$ as the Euclidean radius instead would be 128 m out at $r$ = 500 km and
 127 km out at 5000 km. The cost is the query: on a million grid points at a
 15 km radius it runs in about 2.4 s against 0.22 s for the rolling window it
-replaced, most of it in assembling the neighbour lists. Grids of that size are
-what GitHub issue #11 is about.
+replaced, most of it in assembling the neighbour lists.
 
 ## Why the well-definedness guard is an eigenvalue ratio
 

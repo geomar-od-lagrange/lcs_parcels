@@ -106,14 +106,13 @@ identical, so the unstructured pair inherits them and overrides only
 `_interpolator` and, on the seed side, adds `from_points`.
 
 `from_axes` comes along with the inheritance and builds the rectilinear point
-set the parent builds. That is not an accident to apologise for: it is how one
-region is put through both interpolators, which is what the equivalence tests
-do.
+set the parent builds, which is how one region is put through both
+interpolators in the equivalence tests.
 
 The direction of the inheritance is the general case specialising the narrow
 one, which is the reverse of the usual reading. The alternative, making
-`AuxiliaryFlowMap` the subclass, would rename the class every existing call
-site names in order to gain nothing measurable.
+`AuxiliaryFlowMap` the subclass, would rename the class every existing call site
+names, and the two arrangements are measurably identical.
 
 ### Why the interpolation seam is abstract on `FlowMap`
 
@@ -134,7 +133,7 @@ unchanged and `image` ravels its indexers and reshapes the result.
 The method is abstract rather than concrete-with-an-override, so no layout is
 the base class's default and each concrete class states its own. It is private,
 because it is how `image` and the tensor lines are implemented rather than
-something a caller composes with; `.ds` remains the escape hatch.
+something a caller composes with, and `.ds` remains the escape hatch.
 
 A free function dispatching on the dataset was the alternative, and it is the
 runtime introspection the design rules ban: it would have to sniff for an `i`
@@ -155,7 +154,8 @@ for which name is present, the exact runtime introspection the design rules
 ban. Carrying `lon_grid`/`lat_grid` on both stencils removes the branch by
 construction rather than hiding it behind a helper that branches internally.
 
-`_grid` rather than `_c` for "centre": once the pair exists on every pair,
+`_grid` rather than `_c` for "centre": once the coordinate pair exists on every
+class,
 "centre" is a misnomer for the neighbour case, which has no arms to be the
 centre of. `_grid` names the point without reference to the auxiliary arms, and
 that name appears on every plot axis and in every repr.
@@ -368,7 +368,7 @@ independently callable.
 
 Taking a field is also why the seeding rule cannot dispatch on the layout the
 way `shrink_lines` does, and so why there is one rule for every layout rather
-than a rolling window on the grids that have axes; see
+than a rolling window on the grids that have axes. See
 [why the seeding rule is a radius](#why-the-seeding-rule-is-a-radius) below.
 
 `hyperbolic_lcs()` returns the curves *and* the FTLE field they were seeded from
@@ -407,12 +407,12 @@ three queries taken over it: the two interpolator builders behind
 `FlowMap._interpolator`, and the neighbourhood maximum behind
 `ftle_ridge_seeds`. It is the only module that imports SciPy, and it imports
 nothing from the rest of the package, so the dependency sits at one named
-boundary rather than at the edge of the geometric layer, where it used to.
+boundary.
 
 The module exists because the interpolation seam is reached from both `grids`
 and `tensorlines`, and `grids` cannot import `tensorlines` at module level. It
-is private: the package's public modules are `grids` and `tensorlines`, and
-nothing in `_spatial` is a concept a caller composes with.
+is private, because the package's public modules are `grids` and `tensorlines`
+and nothing in `_spatial` is a concept a caller composes with.
 
 ### Why the seeding rule is a radius
 
@@ -426,14 +426,13 @@ point set with no seeding function at all.
 So there is one rule for every layout. A grid point is a candidate when its FTLE
 is the maximum over the grid points within `window_m / 2` of it, taken along the
 great circle. The grid points go into a k-d tree in Earth-centred Cartesian
-metres, where a great-circle radius is exactly the chord `2 R sin(r / 2R)`, so
+metres, where a great-circle radius $r$ is exactly the chord $2R\sin(r/2R)$, so
 the query needs no chart, no branch cut and no monotonic axis.
 
-The structured path gives up its rolling window in the exchange, and gains
-correctness for it. The old rule resolved `window_m` against one *median* cell
-size for the whole grid, so on a domain from 20 N to 75 N its seven zonal cells
-spanned 73 km at the equatorward edge and 20 km at the poleward one, against the
-60 km asked for. North of 50 N the window degenerated to one cell and returned
+The old rule resolved `window_m` against one *median* cell size for the whole
+grid, so on a domain from 20 N to 75 N its seven zonal cells spanned 73 km at
+the equatorward edge and 20 km at the poleward one, against the 60 km asked
+for. North of 50 N the window degenerated to one cell and returned
 9.3 times as many seeds as the radius rule does. Below 40 N, where the cell size
 is near the median, the two rules agree exactly.
 
@@ -457,12 +456,11 @@ number is exactly `window_m / 2` and no longer depends on the grid: the ball tes
 is symmetric, so if two seeds sat within the radius each would be in the other's
 neighbourhood and their values would have to be equal. Distinct-valued seeds are
 therefore strictly further apart than half the window, which is the bound rather
-than an estimate of it. It is reported anyway, because the misreading it answers
-is what the attribute exists for.
+than an estimate of it. It is reported anyway, since the attribute exists to
+answer the misreading.
 
-Measuring it is what showed the bound is tight rather than merely true: on a wide
-band at `window_m = 15_000` the closest pair sits 12 m beyond 7500 m, one grid
-cell's worth of overshoot.
+On a wide band at `window_m = 15_000` the closest pair sits 12 m beyond 7500 m,
+one grid cell's worth of overshoot, so the bound is tight.
 
 The `UserWarning` for a `window_m` that reaches no other grid point is the same
 concern. Every point is then its own maximum, so `ftle >= peak` is satisfied

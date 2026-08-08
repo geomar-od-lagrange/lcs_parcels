@@ -203,7 +203,8 @@ _RESERVED_DIMS = frozenset(
     }
 )
 """Dim names the package builds for itself, so a caller's grid points may not use
-them. A collision is silent: xarray would align the caller's axis against ours."""
+them. A collision is silent, because xarray would align the caller's axis against
+ours."""
 
 
 def _grid_points(values, attrs: dict) -> xr.DataArray:
@@ -572,10 +573,6 @@ class FlowMap(abc.ABC):
     def _interpolator(self, field: xr.DataArray):
         """Interpolator for a field sampled at the diagnostic grid points.
 
-        The layout seam. It is what lets ``F(x_0)`` and the strain tensor be
-        read between grid points, and subclasses differ in what their grid
-        points support.
-
         Parameters
         ----------
         field : xr.DataArray
@@ -769,14 +766,11 @@ class FlowMap(abc.ABC):
         )
         interpolate = self._interpolator(field.transpose(*self.lon_grid.dims, ...))
 
-        # Broadcasting first makes indexers on different dims an outer product
-        # and indexers on shared dims pointwise, which is what xarray's own
-        # vectorized interpolation does.
+        # Broadcast first, so indexers on different dims give an outer product
+        # and indexers on shared dims are read pointwise.
         lon_0, lat_0 = xr.broadcast(lon_0, lat_0)
-        # The result is labelled by the reference positions and by nothing else,
-        # so the grid coords the pair may have arrived with go. So do coords
-        # under the four returned names, which a CF dataset gives its own axes
-        # and which would then collide with the variables built from them.
+        # A coord under one of the four returned names would collide with the
+        # variable built from it, which is what a CF dataset's own axes do.
         labels = ["lon", "lat", "lon_0", "lat_0"]
         lon_0 = lon_0.reset_coords(drop=True).drop_vars(labels, errors="ignore")
         lat_0 = lat_0.reset_coords(drop=True).drop_vars(labels, errors="ignore")
@@ -1047,7 +1041,7 @@ class UnstructuredAuxiliarySeedGrid(AuxiliarySeedGrid):
     between the grid points off their triangulation rather than along axes.
 
     The inherited :meth:`AuxiliarySeedGrid.from_axes` still builds a rectilinear
-    point set, which is how one region is put through both interpolators.
+    point set.
     """
 
     @classmethod

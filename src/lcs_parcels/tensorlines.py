@@ -16,12 +16,9 @@ and :func:`shrink_lines` integrates the tensor lines through them. Both take the
 xarray outputs of a :class:`~lcs_parcels.FlowMap`, and
 :meth:`~lcs_parcels.FlowMap.hyperbolic_lcs` runs the pair in one call.
 
-Neither function reads the layout of the diagnostic grid points. Seeds are
-picked over a neighbourhood measured on the sphere, and the tensor is read
-between grid points by the flow map's own interpolator, so what a flow map's
-grid points have to look like is stated on its class. A traced line is not
-bound by either and may cross the antimeridian, though it terminates where it
-leaves the field.
+Neither function reads the layout of the diagnostic grid points, so what a flow
+map's grid points have to look like is stated on its own class. A traced line
+may cross the antimeridian, and terminates where it leaves the field.
 """
 
 from __future__ import annotations
@@ -406,9 +403,8 @@ def shrink_lines(
         seed, ordered along the curve. Terminated points are ``NaN``.
     """
     n_steps = max(1, round(line_length_m / (2.0 * step_m)))
-    # The flow map's own interpolator, so the layout of its grid points decides
-    # how the tensor is read between them. It leaves the label-based xarray API,
-    # because the ODE loop would otherwise build an xarray object per step.
+    # Leaves the label-based xarray API, because the ODE loop would otherwise
+    # build an xarray object per step.
     tensor_interp = flowmap._interpolator(flowmap.cauchy_green())
 
     trace_kwargs = {

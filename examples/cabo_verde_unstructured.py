@@ -25,16 +25,14 @@
 # What makes that possible is the auxiliary stencil. Four arms are released
 # `aux_separation_m` around each grid point, and $\nabla F$ is differenced
 # across a grid point's *own* arms, never against another grid point. The
-# gradient at a point therefore knows nothing about where the other points are,
-# so the points are free. `UnstructuredAuxiliarySeedGrid.from_points` takes them
-# as two flat arrays.
+# gradient at a point therefore does not depend on where the other points are.
+# `UnstructuredAuxiliarySeedGrid.from_points` takes them as two flat arrays.
 #
-# Two consequences worth watching for below. The FTLE is exactly as accurate in
-# the sparse half as in the dense half, because the arms are 1 km apart in both;
-# what the point density sets is how finely the field is *sampled*, not how well
-# each sample is measured. And reading the field *between* grid points, which
-# `shrink_lines` and `FlowMap.image` both do, goes over the Delaunay
-# triangulation of the points instead of along two axes.
+# Two consequences worth watching for below. The FTLE is as accurate in the
+# sparse half as in the dense half, because the arms are 1 km apart in both, and
+# the point density sets how finely the field is sampled. Reading the field
+# *between* grid points, which `shrink_lines` and `FlowMap.image` both do, goes
+# over the Delaunay triangulation of the points instead of along two axes.
 
 # %% tags=["remove-output"]
 # Importing Parcels pulls in the holoviews/bokeh bootstrap and prints an
@@ -185,13 +183,12 @@ ftle_forward
 # There are no axes to shade the field over, so it is shaded over the Delaunay
 # triangulation of the grid points instead: the same triangulation the package
 # interpolates $C$ on when it traces the tensor lines below. The patch samples
-# the same filaments about three times more finely than the surrounding cloud,
-# which is a statement about the sampling and not about the diagnostic; the
-# gradient at every one of these points was measured over the same 1 km arms.
+# the same filaments about three times more finely than the surrounding cloud.
+# The gradient at every one of these points was measured over the same 1 km arms.
 #
 # Triangles with a lost grid point at a corner are masked out, which is where
-# the islands come from. That is also exactly where the interpolator returns
-# NaN, so the white is the shape of the hole a traced line would stop at.
+# the islands come from. The interpolator returns NaN over the same triangles,
+# so a traced line stops at the white.
 
 # %%
 triangulation = mtri.Triangulation(

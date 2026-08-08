@@ -21,19 +21,19 @@ release time.
   as many seeds there as the new rule; below 40 N the two agree exactly. If you
   have tuned `window_m` against a wide-latitude domain, re-check the seed count.
 - **`window_m` is a diameter, and `min_seed_separation_m` is exactly half of
-  it.** The knob keeps its name, its units and its default, and still means "how
-  far apart do I want my seeds, times two". The reported separation no longer
+  it.** The knob keeps its name, its units and its default, and still means twice
+  the seed separation wanted. The reported separation no longer
   depends on the grid: it was 16871.8 m for a 30 km window on the Cabo Verde
   example, and is now 15000.0 m.
 - **`ftle_ridge_seeds` no longer returns `window_cells_i`, `window_cells_j`,
   `grid_spacing_i_m` or `grid_spacing_j_m`** in `attrs`, on its own result or on
   what `hyperbolic_lcs` returns. They described a cell count that no longer
-  exists. Reading one now raises `KeyError`; `window_m` and
+  exists. Reading one now raises `KeyError`, while `window_m` and
   `min_seed_separation_m` are still there.
 - **The narrow-window `UserWarning` fires on a different condition.** It used to
   mean "fewer than three grid cells in one dimension" and now means "most grid
   points have no neighbour inside the radius at all". A
-  `pytest.warns(UserWarning)` around a small `window_m` still passes; one
+  `pytest.warns(UserWarning)` around a small `window_m` still passes, but one
   matching the old message text does not.
 
 ### Added
@@ -49,7 +49,7 @@ release time.
   seed = UnstructuredAuxiliarySeedGrid.from_points(lon=track_lon, lat=track_lat)
   ```
 
-  An `xr.DataArray` keeps its own dims; a plain 1-D array lands on a
+  An `xr.DataArray` keeps its own dims, and a plain 1-D array lands on a
   `grid_point` dim. `FlowMap.image`, `shrink_lines` and `hyperbolic_lcs` all run
   on the result, reading the field between grid points off their triangulation
   instead of along axes. `from_axes` is inherited and still gives a rectilinear

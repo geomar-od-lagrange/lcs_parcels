@@ -199,8 +199,9 @@ deformation.
 
 Every flow map differences through the same `_separation_m`, and both auxiliary
 seed grids place their arms by inverting the same relation at each grid point's
-own latitude, so an arm span is $2s$ metres wherever the grid point sits. No separation carries a domain-size limit, and
-none treats the antimeridian as a special case. Reading a field *between* grid
+own latitude, so an arm span is $2s$ metres wherever the grid point sits. No
+separation carries a domain-size limit, and none treats the antimeridian as a
+special case. Reading a field *between* grid
 points is a separate matter. On `Neighbor*` and `Auxiliary*` it goes along the
 `lon_grid` axis, so that axis must be monotonic, and a domain crossing the
 antimeridian is seeded on `170, 175, 180, 185` rather than on
@@ -277,8 +278,8 @@ terminates early is shorter, and the returned block is NaN-filled past
 termination so every row has equal length.
 
 $w$ is the *diameter* of the ridge-seed neighbourhood, which reaches $w/2$ from
-its own grid point, so two seed points are $w/2$ apart, not $w$. `window_m` is
-therefore not itself a seed separation, though the separation it implies is
+its own grid point, so two seed points are at least $w/2$ apart, not $w$.
+`window_m` is therefore not itself a seed separation, though the separation it implies is
 exactly half of it. `ftle_ridge_seeds` reports that half as the
 `min_seed_separation_m` attribute of the dataset it returns. It bounds strict
 maxima, since a plateau of exactly equal values makes every one of its points a
