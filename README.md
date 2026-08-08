@@ -4,6 +4,7 @@
 [![Docs](https://readthedocs.org/projects/lcs-parcels/badge/)](https://lcs-parcels.readthedocs.io/)
 [![CI](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/geomar-od-lagrange/lcs_parcels/actions/workflows/ci.yml?query=branch%3Amain)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21851048.svg)](https://doi.org/10.5281/zenodo.21851048)
 
 Lagrangian coherent structure (LCS) diagnostics on top of
 [Parcels](https://parcels-code.org/): deformation gradient `grad F`,

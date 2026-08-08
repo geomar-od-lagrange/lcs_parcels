@@ -4,6 +4,17 @@ Versions are CalVer, `YYYY.M.D.N`. The API breaks whenever the design improves,
 so each entry says what broke and what to write instead. There are no
 deprecation shims: the old form is deleted and every call site updated.
 
+## Unreleased
+
+Changes on `main` since the last tag. This heading becomes the version at
+release time.
+
+### Added
+
+- A DOI badge, and the same concept DOI in `CITATION.cff`. It is the
+  all-versions DOI, so it resolves to the newest archived release rather than
+  pinning to one, and it carries no version of its own.
+
 ## 2026.8.8.1
 
 The flow-map repr, a repository link on the documentation site, and citation
