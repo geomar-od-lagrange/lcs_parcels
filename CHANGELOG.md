@@ -4,6 +4,32 @@ Versions are CalVer, `YYYY.M.D.N`. The API breaks whenever the design improves,
 so each entry says what broke and what to write instead. There are no
 deprecation shims: the old form is deleted and every call site updated.
 
+## 2026.8.8.1
+
+The flow-map repr, a repository link on the documentation site, and citation
+metadata. No signature changed, so no call has to be rewritten. A doctest or a
+test that compares `repr(flowmap)` against a stored one-line string does not
+match any more.
+
+### Changed
+
+- `FlowMap.__repr__` is two lines rather than one. The single line ran to 101
+  columns and scrolled sideways in a Markdown code block on GitHub and on PyPI.
+  The grid and its extent stay on the first line, `t0` and `T` move to a second
+  hanging under the first field, and no field was dropped or rounded. The
+  `SeedGrid` repr already fitted and is unchanged.
+- The README states the FTLE metadata point without the sentence about
+  keyword-only lon/lat pairs, which the example above it already shows.
+
+### Added
+
+- Every page of the documentation site carries a link to the repository, as a
+  GitHub button and plain "Source on GitHub" and "Issues" links in the
+  alabaster sidebar. The README names the repository too, which is what a
+  reader arriving on PyPI sees.
+- `CITATION.cff`, which GitHub reads for its "Cite this repository" widget and
+  Zenodo reads for the author list of an archived release.
+
 ## 2026.8.6.1
 
 Links, badges and notebook output. Nothing in the API changed, so no call has

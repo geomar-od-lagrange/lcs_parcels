@@ -388,17 +388,24 @@ both raises a `ValueError` rather than following a precedence rule: "quantile
 
 ## Reprs
 
-`SeedGrid` and `FlowMap` carry terse one-line reprs, defined on the base classes
-and reading the `lon_grid`/`lat_grid` accessors, so neither concrete class
-overrides anything and a future stencil gets a correct repr for free. Each base
-class writes its own string out rather than sharing a helper: the two differ
-only by the flow map's trailing `t0`/`T`, and a shared opener would have to hand
-each caller an unclosed `<...` to finish.
+`SeedGrid` and `FlowMap` carry terse reprs, defined on the base classes and
+reading the `lon_grid`/`lat_grid` accessors, so neither concrete class overrides
+anything and a future stencil gets a correct repr for free. Each base class
+writes its own string out rather than sharing a helper: the two differ only by
+the flow map's trailing `t0`/`T`, and a shared opener would have to hand each
+caller an unclosed `<...` to finish.
 
 ```text
 <NeighborSeedGrid 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00>
-<NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00, t0 2020-01-01T00:00:00, T +7.0 days>
+<NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00,
+                 t0 2020-01-01T00:00:00, T +7.0 days>
 ```
+
+The seed grid gets one line and the flow map two. On one line the flow map ran
+to 101 columns, which scrolls sideways in a Markdown code block on the forge and
+on PyPI, so the time half moves to a second line hanging under the first field.
+The indent is measured from the class name rather than written out as a
+constant, so `AuxiliaryFlowMap` stays aligned as well.
 
 They are summaries rather than dataset dumps: `.ds` remains how the dataset is
 displayed, and a repr that does not look like an xarray repr signals that these

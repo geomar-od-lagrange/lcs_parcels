@@ -311,15 +311,32 @@ def test_flowmap_repr_adds_the_release_time_and_signed_window(lon_axis, lat_axis
         seed.pset_to_flowmap(lon=lon, lat=lat, t0=END_TIME, t1=RELEASE_TIME)
     )
 
-    assert "\n" not in forward
-    assert "NeighborFlowMap" in forward
-    assert "4x5 grid" in forward
-    assert "t0 2020-01-01T00:00:00" in forward
+    grid_line, time_line = forward.split("\n")
+    assert "NeighborFlowMap" in grid_line
+    assert "4x5 grid" in grid_line
+    assert time_line.strip().startswith("t0 2020-01-01T00:00:00")
     assert forward.endswith("T +1.0 days>")
     assert backward.endswith("T -1.0 days>")
     for text in (forward, backward):
         assert "repelling" not in text
         assert "attracting" not in text
+
+
+@pytest.mark.parametrize("seed_cls", [NeighborSeedGrid, AuxiliarySeedGrid])
+def test_flowmap_repr_fits_a_readme_code_block(seed_cls, lon_axis, lat_axis):
+    """Two lines, each under 80 columns, with the second hanging under the first
+    field. The one-line form it replaces was 101 columns and scrolled sideways
+    wherever it was pasted."""
+    seed = seed_cls.from_axes(lon=lon_axis, lat=lat_axis)
+    lon, lat = seed.to_parcels_pset()
+    flowmap = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
+    text = repr(flowmap)
+
+    grid_line, time_line = text.split("\n")
+    assert max(len(grid_line), len(time_line)) < 80
+    # the continuation starts past `<` and the class name
+    assert time_line.startswith(" " * (len(type(flowmap).__name__) + 2))
+    assert time_line.lstrip().startswith("t0 ")
 
 
 def test_repr_survives_an_all_nan_grid(lon_axis, lat_axis):

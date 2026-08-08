@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using these metadata."
+title: LCS-Parcels
+abstract: >-
+  Lagrangian coherent structure (LCS) diagnostics on top of Parcels: the
+  deformation gradient, the Cauchy-Green strain tensor, its eigen-analysis, and
+  the finite-time Lyapunov exponent (FTLE), following Haller (2015). The package
+  contains no Parcels code. It emits a particle set to release and ingests the
+  advected positions to diagnose.
+type: software
+authors:
+  - given-names: Henry
+    family-names: Owusu Adjei
+    affiliation: >-
+      West African Science Service Centre on Climate Change and Adapted Land Use
+      (WASCAL), Universidade Técnica do Atlântico (UTA), Mindelo, São Vicente,
+      Cabo Verde
+    orcid: https://orcid.org/0009-0000-1452-7928
+  - given-names: Willi
+    family-names: Rath
+    affiliation: GEOMAR Helmholtz Centre for Ocean Research Kiel
+    orcid: https://orcid.org/0000-0003-1951-8494
+repository-code: https://github.com/geomar-od-lagrange/lcs_parcels
+url: https://lcs-parcels.readthedocs.io/
+license: MIT
+keywords:
+  - lagrangian
+  - coherent-structures
+  - lcs
+  - ftle
+  - oceanography
+  - parcels
+  - xarray

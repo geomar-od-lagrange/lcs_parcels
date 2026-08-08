@@ -12,7 +12,9 @@ finite-time Lyapunov exponent (FTLE), following Haller (2015),
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
 
 The documentation is at
-[lcs-parcels.readthedocs.io](https://lcs-parcels.readthedocs.io/).
+[lcs-parcels.readthedocs.io](https://lcs-parcels.readthedocs.io/) and the source
+at
+[github.com/geomar-od-lagrange/lcs_parcels](https://github.com/geomar-od-lagrange/lcs_parcels).
 
 **This package contains no Parcels code.** It *emits* a particle set to release
 and *ingests* the advected positions to diagnose. You run Parcels (or anything
@@ -68,8 +70,7 @@ ftle = flowmap.ftle()  # xr.DataArray of the FTLE (1/s) on the (i, j) grid
 lcs = flowmap.hyperbolic_lcs()
 ```
 
-Lon/lat pairs are keyword-only throughout, so a transposed call raises
-`TypeError`. Every returned array carries `long_name` and `units`, so
+Every returned array carries `long_name` and `units`, so
 `ftle.plot(x="lon_grid", y="lat_grid")` labels itself.
 
 `print(flowmap)` gives a one-line summary and `flowmap.ds` gives the dataset
@@ -77,7 +78,8 @@ itself:
 
 ```pycon
 >>> print(flowmap)
-<NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00, t0 2020-01-01T00:00:00, T +7.0 days>
+<NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00,
+                 t0 2020-01-01T00:00:00, T +7.0 days>
 ```
 
 ## Examples

@@ -145,6 +145,13 @@ jobs:
       - name: Check the distributions
         run: uvx twine check --strict dist/*
 
+      # Zenodo reads `CITATION.cff` from the tagged commit for the archived
+      # record's authors, and a file it cannot parse fails the whole release
+      # rather than falling back. cffconvert 2.0.0 needs an interpreter it
+      # supports, hence the pin.
+      - name: Validate the citation metadata
+        run: uvx --python 3.11 cffconvert --validate -i CITATION.cff
+
       # A source distribution that cannot build and test itself is not a source
       # distribution. This also catches an exclude that drops `src/` or `tests/`.
       - name: Install the sdist and run its tests

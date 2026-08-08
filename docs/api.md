@@ -97,14 +97,15 @@ FlowMap.grid_image -> xr.Dataset     # abstract property (per-stencil)
   average to a position between them, taken with `skipna=False` so a single
   lost arm makes the whole grid point `NaN`.
 
-Both `SeedGrid` and `FlowMap` have a terse one-line `repr`; display `.ds` to see the
-dataset itself.
+Both `SeedGrid` and `FlowMap` have a terse `repr`, one line for the seed grid and
+two for the flow map; display `.ds` to see the dataset itself.
 
 ```pycon
 >>> seed
 <NeighborSeedGrid 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00>
 >>> flowmap
-<NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00, t0 2020-01-01T00:00:00, T +7.0 days>
+<NeighborFlowMap 6x5 grid, lon -25.00..-20.00, lat 15.00..20.00,
+                 t0 2020-01-01T00:00:00, T +7.0 days>
 ```
 
 ## Constructors and round-trip
