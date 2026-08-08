@@ -166,7 +166,15 @@ that reader.
   (run it end-to-end and keep the cell outputs) so the rendered example is
   self-demonstrating on the forge; the `.py` and `.md` stay the clean, reviewable
   source. After re-syncing from an edited `.py` (which regenerates a clean
-  `.ipynb`), re-execute before committing.
+  `.ipynb`), re-execute before committing. Execute with
+  `pixi run -e examples jupytext --sync --execute <name>.py` and **without**
+  setting `MPLBACKEND`: the kernel default captures figures, while `Agg` runs the
+  cells fine and commits a notebook with no plots in it. `MPLBACKEND=Agg` belongs
+  to `tests/test_examples.py`, which runs the `.py` as a script and wants no
+  figures. Count the `image/png` outputs before committing if the notebook plots.
+
+  Editing only a markdown cell needs a plain `jupytext --sync`, which keeps the
+  outputs the code cells already have.
 - **Notebooks are human-facing, not scripts.** Lay them out as a sequence of
   small, well-scoped code cells, each doing one step, so the inquisitive user can
   run and follow them top to bottom. Don't dump the whole example into one
