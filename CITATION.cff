@@ -22,6 +22,9 @@ authors:
     orcid: https://orcid.org/0000-0003-1951-8494
 repository-code: https://github.com/geomar-od-lagrange/lcs_parcels
 url: https://lcs-parcels.readthedocs.io/
+# The concept DOI, which resolves to the newest archived release. A version DOI
+# would be a second place a version is written.
+doi: 10.5281/zenodo.21851048
 license: MIT
 keywords:
   - lagrangian
