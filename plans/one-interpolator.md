@@ -1,9 +1,18 @@
 # Plan: one interpolator, four classes
 
-Collapse the layout axis PR #47 introduced. Delete `rectilinear_interpolator`,
-delete the `UnstructuredAuxiliary*` pair, make `FlowMap._interpolator` a single
-concrete method, and move `from_points` onto `AuxiliarySeedGrid`. Six public
-classes become four and one abstract member goes.
+Two separable pieces. The first is a defect fix and is not in question: the
+scattered interpolator should compute its own barycentric weights on a cached
+`Delaunay` instead of calling `LinearNDInterpolator`, and should warm-start the
+simplex search from the previous step. That is 30x to 1620x faster with
+bit-identical results.
+
+The second is the collapse the fix makes thinkable: delete
+`rectilinear_interpolator`, delete the `UnstructuredAuxiliary*` pair, make
+`FlowMap._interpolator` a single concrete method, and move `from_points` onto
+`AuxiliarySeedGrid`. Six public classes become four and one abstract member goes.
+**The collapse is no longer a recommendation.** It rests on the scattered path
+being ~2x bilinear at any size, which holds at a fixed neighbour count and fails
+at basin scale; see "Basin scale changes which term grows" below.
 
 ## How this arose
 
@@ -105,6 +114,49 @@ The 300 seeds above are ~5x the 58 lines the real Cabo Verde case produces, so
 realistic tracing is cheaper: the ratios go up (geometry worth ~40 maps at
 $1.96\times10^4$) and the absolute savings go down.
 
+### Basin scale changes which term grows
+
+A basin-wide grid at 1/200 degree is about $10^8$ points, and that is on the
+roadmap. Basin scaling is a *fixed domain at finer resolution*, not a bigger
+domain at fixed resolution, so the window in cells grows and with it the
+neighbour count $k$, as the square. Over a fixed 40x40 degree domain with a
+15 km ridge-seed window:
+
+| resolution | points | window in cells | $k$ | pair list | rolling | kd-tree |
+|---|---|---|---|---|---|---|
+| 1/25 | $10^6$ | 7 | 43 | 0.32 GiB | 0.14 s | 2.5 s |
+| 1/50 | $4\times10^6$ | 13 | 169 | 5.05 GiB | 1.07 s | 48 s |
+| 1/100 | $1.6\times10^7$ | 27 | 673 | ~86 GiB | | out of memory |
+
+At 1/200 degree, $w \approx 54$ cells and $k \approx 2900$, so at $10^8$ points
+the pair list is ~2 TB.
+
+**The rolling window PR #47 removed is $O(nw)$; the kd-tree that replaced it is
+$O(nw^2)$ in both time and memory**, because it materialises every pair. At
+1/25 degree $w^2$ is 49 and nobody notices. At 1/200 degree it is 2900. Measured
+window dependence of the rolling max at $4\times10^6$ points: 0.57 / 1.05 / 2.30
+/ 6.12 / 18.0 s for windows of 7, 13, 27, 55, 109 cells, so linear in $w$.
+`bottleneck` is not installed in the default environment; with it `move_max` is a
+deque and the rolling max becomes $O(n)$, independent of the window.
+
+Interpolation at $10^8$ diverges the same way. Bilinear is $O(1)$ and builds
+nothing. The Delaunay is ~21 GiB and roughly an hour.
+
+Spatial parallelism is needed at $10^8$ regardless, since $4\times10^8$ arm
+particles is a cluster job before any diagnostic runs, but it changes memory
+rather than the exponent: tiling divides the pair list and the wall clock and
+leaves the $2.7\times10^{11}$ pair operations. It also treats the three
+structures differently. A rolling window tiles with a $w/2$ halo and a radius
+query with an $r$ halo, both cleanly. A Delaunay does not: each tile has to be
+triangulated with a halo and its boundary simplices discarded, or tensor lines
+seam at tile edges.
+
+There is a way to keep the layout-free seeding without the $w^2$: bin the points
+into cells of side $r$, take per-bin maxima, and use that a point can only be a
+neighbourhood maximum if it is the maximum of its own 3x3 bin block. The filter
+is $O(n)$ and leaves a candidate set $m \ll n$ for the exact radius test. It
+works on scattered points too.
+
 ### `NeighborFlowMap` does not need the rectilinear interpolator
 
 It needs a rectilinear *grid* for its gradient, since `_central_separation_m`
@@ -204,3 +256,16 @@ once already.
 8. **Is the ~2x tracing cost worth stating as a knob?** A caller who knows their
    grid is rectilinear can no longer ask for bilinear. Nobody has asked for it,
    and adding the option back rebuilds the seam this plan deletes.
+9. **Does the collapse survive $10^8$?** At basin resolution the rectilinear path
+   builds nothing and is $O(1)$, while the Delaunay is ~21 GiB, roughly an hour,
+   and the only one of the three structures that does not tile cleanly. Deleting
+   it would remove the path that handles the grid on the roadmap. Keep both and
+   fix only the scattered one?
+10. **The kd-tree windowing is the more urgent question**, and it is already in
+    `main`'s path rather than in this plan. It is $O(nw^2)$ where the rolling
+    window it replaced was $O(nw)$, and it dies at 1/100 degree over a
+    40x40 degree domain on this machine. Options: bin-and-prune (keeps one rule
+    for both layouts, $O(n)$ filter), chunk the query (fixes memory, keeps the
+    work), add `bottleneck` and restore a rolling window for rectilinear grids
+    (fastest, reintroduces a layout branch), or accept it and require tiling.
+    Decide this before the collapse.
