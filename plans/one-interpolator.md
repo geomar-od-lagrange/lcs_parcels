@@ -180,6 +180,79 @@ where both are defined the curves agree to 19.8 m median and 0.1 km maximum.
 
 Results move. That is accepted: this is greenfield and the release notes carry it.
 
+## A gradient from the Delaunay ring, and why not
+
+Since the Delaunay is being built anyway, `grad F` could be fitted from a point's
+Delaunay-adjacent neighbours by weighted least squares, with no auxiliary arms at
+all. That would cost $n$ advected particles instead of $4n$, which at $10^8$ grid
+points is the dominant term in the whole pipeline. Measured, it does not work as
+a replacement.
+
+**The truncation order drops from two to one.** Expanding the fit,
+
+$$G - \nabla F = \tfrac12 \Big[\sum_j w_j H[d_j, d_j]\, d_j^\top\Big] M^{-1} + O(h^2),
+\qquad M = \sum_j w_j d_j d_j^\top,$$
+
+so the leading error is the **third moment** of the neighbour offsets over $M$,
+which is $O(h)$ unless the stencil is centrally symmetric. The four arms are
+exact antipodal pairs and the $(i \pm 1, j \pm 1)$ difference is symmetric on a
+mesh uniform in metres, so both have a vanishing third moment. A Delaunay ring
+does not. Measured log-log slopes on a sinusoidal map over a fixed domain refined
+from 8 km to 0.5 km:
+
+| scheme | 8 km | 1 km | 0.5 km | slope |
+|---|---|---|---|---|
+| arms, $s$ = 1 km | 1.94e-5 | 1.91e-5 | 1.91e-5 | 0.00 |
+| arms, $s = h/2$ | 3.10e-4 | 4.78e-6 | 1.19e-6 | 2.00 |
+| neighbour $(i\pm1, j\pm1)$ | 1.24e-3 | 1.91e-5 | 4.77e-6 | 2.00 |
+| ring, linear fit | 3.58e-3 | 4.49e-4 | 2.25e-4 | **1.00** |
+| ring, quadratic fit | 1.24e-3 | 1.91e-5 | 4.77e-6 | 2.00 |
+
+A ring on a *rectilinear* lattice does not escape it: the four axis neighbours
+pair up but Qhull splits each co-circular cell arbitrarily, and one unpaired
+diagonal is enough. Measured third moment 0.051 rectilinear, 0.079 jittered,
+0.134 Poisson, with the error tracking it.
+
+**There is no crossover in any range anyone will run.** The ring linear fit
+matches 1 km arms at a grid spacing of 43 m on a lattice and 19 m on a Poisson
+cloud. At 1/25 degree it is 94x worse than 1 km arms, at 1/200 degree still 12x
+worse. On the two-density cloud of `cabo_verde_unstructured`, which is the layout
+the idea exists to serve, it is 800x worse in the coarse half, and its error
+varies 3.5x across the domain purely because the spacing does.
+
+**The knob stops being metre-valued.** A 1-ring is a topological stencil the
+caller cannot set. A **radius-$r$ neighbourhood** puts it back, is second order in
+$r$ (4.51e-4 / 1.10e-4 / 2.69e-5 at $r$ = 8 / 4 / 2 km), and makes $r$ worth arms
+of $s \approx r/1.4$. That variant is defensible at basin resolution and nowhere
+else: a 1 km radius finds a median of 0 neighbours at 4.4 km spacing, 2 at 1 km,
+and 8 at 556 m, so it needs about 1/200 degree before it is possible at all.
+Below the point spacing only the arms work, because they are extra particles.
+
+Where the ring wins: lost particles. At a 5% loss rate 4.95% of grid points lose
+their gradient against 18.55% for the arms, since a dropped neighbour removes a
+row rather than invalidating the point.
+
+Three further findings worth keeping whatever is decided.
+
+- **`_separation_m` is not a general separation helper.** It frames each pair on
+  that pair's own mid-latitude, which is exact for a leg that is pure east or pure
+  north and wrong for an oblique one, so a ring fit built on it cannot reproduce
+  even a linear map (3.6e-5 in `reference`, 4.6e-4 in `high_latitude`). Framing
+  every leg of one ring on the centre point instead makes the same fit exact to
+  6e-14. The per-pair frame is right for a stencil that differences pairs and
+  insufficient for one that fits over a ring.
+- **Inverse-distance-squared weighting is mandatory**, not a refinement. Worst-case
+  condition number of $M$ on a random cloud is 18.1 weighted against 8396 uniform.
+- **The FTLE tail is what moves.** At 1/200 degree the ring's median FTLE error
+  beats 1 km arms (6.86e-6 against 2.13e-5 per day) while its 95th percentile is
+  14x worse and its maximum 34x. Ridges live in the tail.
+
+Recommendation: do not replace the arms with a 1-ring fit. Keep the radius-$r$
+variant on the table as a basin-scale-only alternative with a stated floor on the
+grid spacing, and note that it does not collapse a class either. It would be a
+fourth pair, since it seeds one particle per grid point and so has its own
+flow-map contract, which runs against the collapse this plan argues for.
+
 ## The change
 
 1. `_spatial.scattered_interpolator` returns a closure over a cached `Delaunay`
@@ -261,7 +334,17 @@ once already.
    and the only one of the three structures that does not tile cleanly. Deleting
    it would remove the path that handles the grid on the roadmap. Keep both and
    fix only the scattered one?
-10. **The kd-tree windowing is the more urgent question**, and it is already in
+10. **Does the radius-$r$ ring gradient earn a place at basin scale?** It cuts
+    $4\times10^8$ particles to $10^8$ where that is the binding constraint, at
+    second order in $r$, but needs about 1/200 degree spacing before a 1 km
+    neighbourhood exists, wants a well-definedness guard below about five
+    neighbours, and is knife-edged at a radius that lands on lattice points
+    (error 1.91e-5 at $r$ = 1.5 km against 4.78e-4 at 2.0 km on a 1 km lattice,
+    because 0.5% variation in $\cos\phi$ flips two neighbours in or out).
+11. **Where does a centre-framed separation helper live?** It belongs beside
+    `_separation_m` in `grids`, and the two are correct for different stencils
+    with no way to tell from the call site which one a caller wanted.
+12. **The kd-tree windowing is the more urgent question**, and it is already in
     `main`'s path rather than in this plan. It is $O(nw^2)$ where the rolling
     window it replaced was $O(nw)$, and it dies at 1/100 degree over a
     40x40 degree domain on this machine. Options: bin-and-prune (keeps one rule
