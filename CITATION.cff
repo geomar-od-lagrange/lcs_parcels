@@ -11,7 +11,10 @@ type: software
 authors:
   - given-names: Henry
     family-names: Owusu Adjei
-    affiliation: GEOMAR Helmholtz Centre for Ocean Research Kiel
+    affiliation: >-
+      West African Science Service Centre on Climate Change and Adapted Land Use
+      (WASCAL), Universidade Técnica do Atlântico (UTA), Mindelo, São Vicente,
+      Cabo Verde
     orcid: https://orcid.org/0009-0000-1452-7928
   - given-names: Willi
     family-names: Rath
