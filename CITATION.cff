@@ -12,9 +12,11 @@ authors:
   - given-names: Henry
     family-names: Owusu Adjei
     affiliation: GEOMAR Helmholtz Centre for Ocean Research Kiel
+    orcid: https://orcid.org/0009-0000-1452-7928
   - given-names: Willi
     family-names: Rath
     affiliation: GEOMAR Helmholtz Centre for Ocean Research Kiel
+    orcid: https://orcid.org/0000-0003-1951-8494
 repository-code: https://github.com/geomar-od-lagrange/lcs_parcels
 url: https://lcs-parcels.readthedocs.io/
 license: MIT
