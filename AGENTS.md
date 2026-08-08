@@ -202,7 +202,7 @@ that reader.
   the current one builds on, never at one of the same rank, so the reading order
   stays linear and no two examples explain themselves by each other. The ranks:
   `example_grid_pset` is standalone; `cabo_verde_ftle` < `cabo_verde_lcs` <
-  `cabo_verde_lcs_evolution`.
+  `cabo_verde_lcs_evolution` < `cabo_verde_unstructured`.
 - **No claimed result you haven't seen.** Never write a summary/conclusion cell
   (or "this shows X" prose) without actually running the notebook and reading the
   real output first. State what the run produced, not what you expect it to.
