@@ -19,11 +19,13 @@ from lcs_parcels.grids import (
     NeighborFlowMap,
     NeighborSeedGrid,
     SeedGrid,
+    UnstructuredAuxiliaryFlowMap,
+    UnstructuredAuxiliarySeedGrid,
 )
 from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
 
-#: Read from the installed distribution, whose version hatch-vcs derived from the
-#: git tag at build time. Nothing in the source tree carries a version literal.
+#: hatch-vcs derives the version from the git tag at build time. Nothing in the
+#: source tree carries a version literal.
 __version__ = importlib.metadata.version("lcs_parcels")
 
 __all__ = [
@@ -33,6 +35,8 @@ __all__ = [
     "NeighborFlowMap",
     "NeighborSeedGrid",
     "SeedGrid",
+    "UnstructuredAuxiliaryFlowMap",
+    "UnstructuredAuxiliarySeedGrid",
     "ftle_ridge_seeds",
     "shrink_lines",
 ]

@@ -2,7 +2,7 @@
 
 MyST reads the `docs/*.md` sources as they are, so the four written documents
 are the same files whether read on the forge or on the built site. Nothing here
-maintains a second copy of any prose: the home page includes `README.md`, the
+maintains a second copy of any prose. The home page includes `README.md`, the
 examples land on `examples/README.md` and the executed notebooks themselves, and
 the API reference is generated from the docstrings. What is duplicated is
 generated at build time and gitignored, so no copy is maintained by hand.
@@ -27,7 +27,7 @@ extensions = [
     "sphinx.ext.viewcode",
 ]
 
-# `dollarmath` is what makes the `$...$` the docs are written with render; the
+# `dollarmath` is what makes the `$...$` the docs are written with render. The
 # rest are used by the written documents (tables, footnotes) or make links
 # between them easier to write.
 myst_enable_extensions = [
@@ -98,15 +98,16 @@ _stage_examples()
 nitpicky = False
 suppress_warnings = ["mystnb.unknown_mime_type"]
 
-# No `html_theme`: Sphinx's default (alabaster) applies, and it ships with
-# Sphinx, so the docs environment carries no theme dependency of its own.
+# `html_theme` is unset, so Sphinx's default (alabaster) applies. It ships
+# with Sphinx itself, so the docs environment needs no theme dependency.
 html_title = f"LCS-Parcels {release}"
 
-# The repository link in the sidebar, on every page. Alabaster renders these
-# through `about.html`, which its default `sidebars` already includes, so there
-# is no `html_sidebars` to set. The values are the lowercase strings alabaster
-# compares against, not booleans, and `github_banner` stays unset: that key is
-# the corner ribbon, and any value other than `"false"` turns it on.
+# `html_theme_options` sets the repository link in the sidebar, on every page.
+# Alabaster renders these through `about.html`, which its default `sidebars`
+# already includes, so there is no `html_sidebars` to set. The values are the
+# lowercase strings alabaster compares against, not booleans, and
+# `github_banner` stays unset. That key is the corner ribbon, and any value
+# other than `"false"` turns it on.
 html_theme_options = {
     "github_user": "geomar-od-lagrange",
     "github_repo": "lcs_parcels",

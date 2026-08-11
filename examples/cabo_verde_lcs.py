@@ -22,18 +22,18 @@
 # are tensor lines of the strain tensor. Haller (2015, §5.1 / Table 1,
 # [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322))
 # constructs those curves directly from the Cauchy–Green strain tensor
-# $C = (\nabla F)^\top \nabla F$, whose eigenpairs satisfy
+# $C = (\nabla F)^\top \nabla F$. Its eigenpairs satisfy
 # $C\,\xi_i = \lambda_i\,\xi_i$ with $0 < \lambda_1 \le \lambda_2$ and
-# $\xi_1 \perp \xi_2$. A **repelling** LCS is a *shrink line* — a curve tangent
+# $\xi_1 \perp \xi_2$. A repelling LCS is a *shrink line* — a curve tangent
 # to $\xi_1$, i.e. orthogonal to the strong-stretch direction $\xi_2$ that the
 # FTLE ridge marks. It solves the ODE $\dot r = \xi_1(r)$.
 #
 # Attracting LCS come from the forward–backward duality (Haller & Sapsis 2011,
-# [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)): an **attracting**
+# [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)). An attracting
 # LCS is a repelling LCS of the *backward* flow. The notebook therefore advects
 # the same seed grid both ways and takes the $\xi_1$ shrink lines of each flow
-# map: the forward map gives the repelling LCS, the backward map the attracting
-# ones.
+# map. The forward map gives the repelling LCS, and the backward map the
+# attracting ones.
 
 # %% tags=["remove-output"]
 # Importing Parcels pulls in the holoviews/bokeh bootstrap and prints an
@@ -50,7 +50,7 @@ from lcs_parcels import NeighborSeedGrid, ftle_ridge_seeds, shrink_lines
 # %% [markdown]
 # ## Currents
 #
-# The local file that `get_data` writes.
+# This cell opens the local file that `get_data` writes.
 
 # %%
 currents = xr.open_dataset("data/cabo_verde_currents_hourly.nc").load()
@@ -59,7 +59,7 @@ currents
 # %% [markdown]
 # ## Parcels v4 field set
 #
-# `copernicusmarine_to_sgrid` tags the CMEMS A-grid with SGRID metadata;
+# `copernicusmarine_to_sgrid` tags the CMEMS A-grid with SGRID metadata, and
 # `from_sgrid_conventions` wraps it as a spherical `FieldSet`.
 
 # %%
@@ -70,10 +70,10 @@ z_surface = float(currents["depth"].values[0])
 # %% [markdown]
 # ## Seed grid and window
 #
-# $t_0$ sits at the middle of the window the local file covers, and the runs are
-# $\pm 5$ d, so the forward and the backward advection both stay inside the
-# data. A rectilinear `NeighborSeedGrid` puts one particle on every diagnostic grid
-# point; $\nabla F$ is then differenced against the grid neighbours.
+# $t_0$ sits at the middle of the window the local file covers. The runs are
+# $\pm 5$ d, so the forward and backward advection both stay inside the data.
+# A rectilinear `NeighborSeedGrid` puts one particle on every diagnostic grid
+# point, and $\nabla F$ is then differenced against the grid neighbours.
 
 # %%
 t0 = np.datetime64("2025-08-06")
@@ -92,9 +92,9 @@ seed
 #
 # Particles that leave the domain or hit land are turned into `NaN` in place
 # (Parcels would otherwise abort the run), so losses propagate as `NaN` through
-# every diagnostic below. `StatusCode.EndofLoop` rather than
-# `StatusCode.Delete`: deleting shrinks the particle array and breaks the
-# alignment with the seed order.
+# every diagnostic below. The kernel uses `StatusCode.EndofLoop` rather than
+# `StatusCode.Delete`, because deleting shrinks the particle array and breaks
+# the alignment with the seed order.
 
 
 # %%
@@ -108,8 +108,8 @@ def set_lost_to_nan(particles, fieldset):
 # %% [markdown]
 # ## Advect forward
 #
-# `to_parcels_pset` emits the flat `(lon, lat)` pair; the finals go back in via
-# `pset_to_flowmap`, which takes both times and derives the signed window
+# `to_parcels_pset` emits the flat `(lon, lat)` pair, and the finals go back in
+# via `pset_to_flowmap`, which takes both times and derives the signed window
 # $T = t_1 - t_0$.
 
 # %%
@@ -128,8 +128,8 @@ forward
 # %% [markdown]
 # ## Advect backward
 #
-# The same seed grid, same $t_0$, negative `dt`, and $t_1 = t_0 - T$ so the
-# stored window is negative.
+# The backward run keeps the same seed grid and $t_0$, with a negative `dt`
+# and $t_1 = t_0 - T$ so the stored window is negative.
 
 # %%
 lon, lat = seed.to_parcels_pset()
@@ -155,14 +155,15 @@ ftle_forward = forward.ftle()
 ftle_forward
 
 # %% [markdown]
-# `ftle_ridge_seeds` picks seed points at the ridge tops: grid points that are
-# the maximum over a square window centred on them and lie in the top `quantile`
-# of the field. `window_m` is the full side of that window, so two seeds can be
-# about half of it apart. The target here is neighbouring filaments about
-# 15 km apart in this eddy field, so the window is 30 km. The top decile keeps
-# the seeds on the pronounced ridges of *this* field. The alternative selector,
-# `ftle_min`, is an absolute floor in 1/s; use it when several regions or
-# windows have to be compared against one threshold.
+# `ftle_ridge_seeds` picks seed points at the ridge tops. Those are grid points
+# that are the maximum over every grid point within `window_m / 2` of them and
+# lie in the top `quantile` of the field. `window_m` is the diameter of that
+# neighbourhood, so two seeds end up at least half of it apart. The target here
+# is neighbouring filaments about 15 km apart in this eddy field, so the window
+# is 30 km. The top decile keeps the seeds on the pronounced ridges of *this*
+# field. The alternative selector, `ftle_min`, is an absolute floor in 1/s.
+# Use it when several regions or windows have to be compared against one
+# threshold.
 
 # %%
 # Ridge selection.
@@ -173,8 +174,8 @@ repelling_seeds = ftle_ridge_seeds(ftle_forward, window_m=window_m, quantile=qua
 repelling_seeds
 
 # %% [markdown]
-# The seed dataset records how the window came out on this grid. The distance
-# below is the closest two seeds can be: half the window, not the window.
+# The distance below is the closest two seeds can be: half the window, not the
+# window.
 
 # %%
 repelling_seeds.attrs["min_seed_separation_m"]
@@ -184,11 +185,11 @@ repelling_seeds.attrs["min_seed_separation_m"]
 # length either way. The 3 km step is below the seed-grid cell of about 4.4 km,
 # so the RK2 trace samples every cell it crosses. The 1500 km cap is longer than
 # the box diagonal, so a curve ends by leaving the grid, by hitting a NaN cell,
-# or by dropping below `min_anisotropy`, the floor on $\lambda_2 / \lambda_1$
-# below which $\xi_1$ is no longer a well-defined direction. That floor is a
-# ratio, so it does not depend on the window or on the stretching rate of the
-# flow, and the default of 1.15 also applies to a longer window or a faster
-# flow.
+# or by dropping below `min_anisotropy`. That parameter floors
+# $\lambda_2 / \lambda_1$, the ratio below which $\xi_1$ is no longer a
+# well-defined direction. That floor is a ratio, so it does not depend on the
+# window or on the stretching rate of the flow. The default of 1.15 also
+# applies to a longer window or a faster flow.
 
 # %%
 # Line integration.
@@ -207,14 +208,14 @@ repelling_lcs
 
 # %% [markdown]
 # The lines come back as a fixed `(line, point)` rectangle, NaN-padded past
-# termination: every line has the same number of columns, and the curves have
+# termination. Every line has the same number of columns, and the curves have
 # different lengths.
 
 # %%
 repelling_lcs["lon"].isnull().sum("point")
 
 # %% [markdown]
-# Rows that are NaN in every column traced no curve. About a quarter of the
+# Rows that are NaN in every column traced no curve. Close to a third of the
 # seeds here sit close to land, so the interpolated tensor is NaN at the seed
 # and no curve is produced.
 
@@ -226,9 +227,9 @@ int(untraceable.sum()), repelling_lcs.sizes["line"]
 # ## Attracting LCS, in one call
 #
 # The backward flow map runs the same three steps, and `hyperbolic_lcs` packs
-# them into one call: it computes the FTLE once, hands it to the ridge finder,
+# them into one call. It computes the FTLE once, hands it to the ridge finder,
 # and returns the curves together with the field the seeds were picked from.
-# *Hyperbolic* because elliptic LCS are a different family.
+# The LCS are *hyperbolic* because elliptic LCS are a different family.
 
 # %%
 attracting_lcs = backward.hyperbolic_lcs(
@@ -262,8 +263,8 @@ plt.show()
 # %% [markdown]
 # ## Attracting LCS over the backward FTLE
 #
-# Same picture for the backward flow map, straight out of the one dataset
-# `hyperbolic_lcs` returned.
+# The plot repeats the same picture for the backward flow map, straight out of
+# the one dataset `hyperbolic_lcs` returned.
 
 # %%
 fig, ax = plt.subplots()
@@ -278,8 +279,8 @@ plt.show()
 # %% [markdown]
 # ## Both families together
 #
-# Both families over the forward FTLE in one frame. Where a repelling and an
-# attracting curve cross, the flow is locally hyperbolic.
+# Both families appear over the forward FTLE in one frame. Where a repelling
+# and an attracting curve cross, the flow is locally hyperbolic.
 
 # %%
 fig, ax = plt.subplots()

@@ -1,10 +1,10 @@
 # Examples
 
 The notebooks are listed in increasing scope and are read in that order. The
-three Cabo Verde ones build on each other; `example_grid_pset` stands on its own
-and can be read at any point.
+four Cabo Verde ones build on each other, but `example_grid_pset` stands on its
+own and can be read at any point.
 
-- [`get_data`](get_data.ipynb) downloads the CMEMS subset the three Cabo Verde
+- [`get_data`](get_data.ipynb) downloads the CMEMS subset the Cabo Verde
   notebooks read. Run it once, before them.
 - [`example_grid_pset`](example_grid_pset.ipynb) illustrates the seed grid and
   flow map structures without any advection.
@@ -14,8 +14,10 @@ and can be read at any point.
   repelling and attracting LCS as strain tensor lines.
 - [`cabo_verde_lcs_evolution`](cabo_verde_lcs_evolution.ipynb) advects an
   extracted LCS as a material curve.
+- [`cabo_verde_unstructured`](cabo_verde_unstructured.ipynb) runs the same
+  chain over grid points that are not a grid, dense where the eddies are.
 
 Each notebook is a jupytext triplet. The `.py` (py:percent) is the source of
-truth; the `.md` and `.ipynb` are generated with `jupytext --sync`, and the
+truth. The `.md` and `.ipynb` are generated with `jupytext --sync`, and the
 `.ipynb` is committed executed, so the rendered notebook shows real output.
 Edit the `.py`, never the `.md` or `.ipynb`.

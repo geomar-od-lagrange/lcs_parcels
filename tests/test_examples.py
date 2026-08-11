@@ -1,6 +1,6 @@
 """Broken examples are treated as failing tests.
 
-The `.py` third of each jupytext triplet is an ordinary Python script which we
+The `.py` third of each jupytext triplet is an ordinary Python script that we
 run to verify the notebooks execute end to end.
 """
 
@@ -55,3 +55,8 @@ def test_cabo_verde_lcs():
 @pytest.mark.needs_creds
 def test_cabo_verde_lcs_evolution():
     run_example("cabo_verde_lcs_evolution")
+
+
+@pytest.mark.needs_creds
+def test_cabo_verde_unstructured():
+    run_example("cabo_verde_unstructured")

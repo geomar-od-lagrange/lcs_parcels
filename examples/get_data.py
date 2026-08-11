@@ -17,14 +17,14 @@
 # %% [markdown]
 # # Download CMEMS data
 #
-# Run this once. It fetches the CMEMS subset that the three Cabo Verde notebooks
+# Run this once. It fetches the CMEMS subset that the four Cabo Verde notebooks
 # open from disk and writes it to `data/cabo_verde_currents_hourly.nc`. Re-running
-# it is cheap: if the file is already there and opens, nothing is downloaded.
+# it is cheap. It downloads nothing if the file is already there and opens.
 #
 # `examples/data/` is gitignored, so the file is never committed and a fresh
-# clone has to run this notebook before the three Cabo Verde ones.
+# clone has to run this notebook before the Cabo Verde ones.
 #
-# This assumes
+# The notebook assumes
 # [`copernicusmarine`](https://help.marine.copernicus.eu/en/collections/9080063-copernicus-marine-toolbox)
 # has credentials.
 
@@ -37,13 +37,14 @@ import xarray as xr
 # %% [markdown]
 # ## The subset
 #
-# Hourly surface velocity (`uo`, `vo`) from Global Ocean Physics Analysis and
-# Forecast, `GLOBAL_ANALYSISFORECAST_PHY_001_024`,
+# The subset is hourly surface velocity (`uo`, `vo`) from Global Ocean Physics
+# Analysis and Forecast, `GLOBAL_ANALYSISFORECAST_PHY_001_024`,
 # [doi:10.48670/moi-00016](https://doi.org/10.48670/moi-00016), dataset
-# `cmems_mod_glo_phy_anfc_0.083deg_PT1H-m`. A box around Cabo Verde, first depth
-# level only. The examples release particles between 2025-08-01 and 2025-08-11
-# inside a smaller box; the extra day at each end and the margin in longitude and
-# latitude are there so trajectories stay inside the data.
+# `cmems_mod_glo_phy_anfc_0.083deg_PT1H-m`. It covers a box around Cabo Verde,
+# at the first depth level only. The examples release particles between
+# 2025-08-01 and 2025-08-11 inside a smaller box. The extra day at each end and
+# the margin in longitude and latitude are there so trajectories stay inside
+# the data.
 
 # %%
 target = Path("data/cabo_verde_currents_hourly.nc")
