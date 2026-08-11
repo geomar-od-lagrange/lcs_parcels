@@ -28,11 +28,11 @@
 # gradient at a point therefore does not depend on where the other points are.
 # `UnstructuredAuxiliarySeedGrid.from_points` takes them as two flat arrays.
 #
-# Two consequences worth watching for below. The FTLE is as accurate in the
-# sparse half as in the dense half, because the arms are 1 km apart in both, and
-# the point density sets how finely the field is sampled. Reading the field
-# *between* grid points, which `shrink_lines` and `FlowMap.image` both do, goes
-# over the Delaunay triangulation of the points instead of along two axes.
+# Two consequences follow. The FTLE is as accurate in the sparse half as in
+# the dense half, because the arms are 1 km apart in both. The point density
+# instead sets how finely the field is sampled. `shrink_lines` and
+# `FlowMap.image` both read the field *between* grid points over the Delaunay
+# triangulation of the points, instead of along two axes.
 
 # %% tags=["remove-output"]
 # Importing Parcels pulls in the holoviews/bokeh bootstrap and prints an
@@ -50,7 +50,7 @@ from lcs_parcels import UnstructuredAuxiliarySeedGrid
 # %% [markdown]
 # ## Currents
 #
-# The local file that `get_data` writes.
+# The cell below loads the local file that `get_data` writes.
 
 # %%
 currents = xr.open_dataset("data/cabo_verde_currents_hourly.nc").load()
@@ -58,7 +58,7 @@ currents = xr.open_dataset("data/cabo_verde_currents_hourly.nc").load()
 # %% [markdown]
 # ## Parcels v4 field set
 #
-# `copernicusmarine_to_sgrid` tags the CMEMS A-grid with SGRID metadata;
+# `copernicusmarine_to_sgrid` tags the CMEMS A-grid with SGRID metadata, and
 # `from_sgrid_conventions` wraps it as a spherical `FieldSet`.
 
 # %%
@@ -69,10 +69,11 @@ z_surface = float(currents["depth"].values[0])
 # %% [markdown]
 # ## A point set with two densities
 #
-# The same release box as the other Cabo Verde notebooks, sampled twice: a
-# coarse cloud over all of it, and a fine cloud over the two degrees square in
-# the middle where the eddy field is busiest. Both are drawn at random from a
-# seeded generator, so the layout is reproducible without being a lattice.
+# The notebook samples the same release box as the other Cabo Verde notebooks
+# twice. A coarse cloud covers all of it, and a fine cloud covers the two
+# degrees square in the middle where the eddy field is busiest. Both are drawn
+# at random from a seeded generator, so the layout is reproducible without
+# being a lattice.
 
 # %%
 t0 = np.datetime64("2025-08-06")
@@ -96,7 +97,7 @@ print(seed)
 seed.ds
 
 # %% [markdown]
-# The mean spacing comes out near 9 km in the coarse cloud and near 3 km in the
+# The mean spacing is near 9 km in the coarse cloud and near 3 km in the
 # patch, against the 1 km arms that measure the gradient at each point.
 
 # %%
@@ -117,9 +118,9 @@ for name, lon, lat in (
 #
 # Particles that leave the domain or hit land are turned into `NaN` in place
 # (Parcels would otherwise abort the run), so losses propagate as `NaN` through
-# every diagnostic below. `StatusCode.EndofLoop` rather than
-# `StatusCode.Delete`: deleting shrinks the particle array and breaks the
-# alignment with the seed order.
+# every diagnostic below. The kernel uses `StatusCode.EndofLoop` rather than
+# `StatusCode.Delete`, because deleting shrinks the particle array and breaks
+# the alignment with the seed order.
 
 
 # %%
@@ -133,10 +134,11 @@ def set_lost_to_nan(particles, fieldset):
 # %% [markdown]
 # ## Advect to each horizon
 #
-# Four arms per grid point, so the particle set is four times the point count.
+# Each grid point releases four arms, so the particle set is four times the
+# point count.
 # The horizons are reached one leg at a time, each leg starting a new
-# `ParticleSet` from where the previous one ended, because Parcels interpolates
-# a particle set on the assumption that every particle shares one clock and a
+# `ParticleSet` from where the previous one ended. Parcels interpolates a
+# particle set on the assumption that every particle shares one clock, and a
 # beached particle's clock stays behind.
 
 # %%
@@ -173,18 +175,20 @@ forward
 # %% [markdown]
 # ## The FTLE on a point set
 #
-# One value per grid point, on the `grid_point` dim the flat arrays became.
+# Each grid point carries one value, on the `grid_point` dim the flat arrays
+# became.
 
 # %%
 ftle_forward = forward.ftle()
 ftle_forward
 
 # %% [markdown]
-# There are no axes to shade the field over, so it is shaded over the Delaunay
-# triangulation of the grid points instead: the same triangulation the package
-# interpolates $C$ on when it traces the tensor lines below. The patch samples
-# the same filaments about three times more finely than the surrounding cloud.
-# The gradient at every one of these points was measured over the same 1 km arms.
+# The field has no axes to shade over, so it is shaded over the Delaunay
+# triangulation of the grid points instead. That is the same triangulation the
+# package interpolates $C$ on when it traces the tensor lines below. The patch
+# samples the same filaments approximately three times more finely than the
+# surrounding cloud. The gradient at every one of these points was measured
+# over the same 1 km arms.
 #
 # Triangles with a lost grid point at a corner are masked out, which is where
 # the islands come from. The interpolator returns NaN over the same triangles,
@@ -214,8 +218,8 @@ plt.show()
 # %% [markdown]
 # ## LCS from the same point set
 #
-# `hyperbolic_lcs` runs the FTLE, the ridge seeding and the tensor lines in one
-# call, and none of the three needs a mesh. Seeds are picked over a
+# `hyperbolic_lcs` runs the FTLE, the ridge seeding, and the tensor lines in
+# one call, and none of the three needs a mesh. Seeds are picked over a
 # neighbourhood measured on the sphere, so `window_m` means the same 30 km in
 # the sparse half as in the dense half. The lines are traced through $C$ read
 # off the triangulation, and stop where they leave its convex hull.
@@ -258,9 +262,10 @@ plt.show()
 #
 # An extracted LCS is a material curve, so `FlowMap.image` carries it to each
 # horizon without re-diagnosing it (see `cabo_verde_lcs_evolution`). On a point
-# set `image` reads the advected-position field off the triangulation, which is
-# the one thing in the chain that the layout changes: a curve leaving the convex
-# hull of the grid points terminates there rather than at a box edge.
+# set, `image` reads the advected-position field off the triangulation. That
+# step is the one thing in the chain that the layout changes. A curve leaving
+# the convex hull of the grid points terminates there, rather than at a box
+# edge.
 #
 # Each family is evolved in its coherent direction, the attracting curve by the
 # forward maps and the repelling curve by the backward ones.
@@ -297,8 +302,8 @@ repelling_evo
 # %% [markdown]
 # ## Snapshots
 #
-# Each family day by day, with its own $t_0$ position drawn faintly in every
-# panel for reference.
+# Each family appears day by day, with its own $t_0$ position drawn faintly in
+# every panel for reference.
 
 # %%
 fig, axes = plt.subplots(2, len(offset_days), figsize=(16, 6), sharex=True, sharey=True)

@@ -1,6 +1,6 @@
 # API reference
 
-Generated from the docstrings, so it cannot drift from the code. For prose that
+The reference is generated from the docstrings, so it cannot drift from the code. For prose that
 says which of these to reach for and why, read [the API guide](api.md); for the
 symbols they are written in, [the notation](notation.md).
 
@@ -36,8 +36,8 @@ A `FlowMap` holds the advected positions and computes the diagnostics.
 
 ## Tensor lines
 
-Hyperbolic LCS as strain tensor lines, taking the xarray outputs of a
-`FlowMap`.
+These functions build hyperbolic LCS as strain tensor lines, taking the xarray
+outputs of a `FlowMap`.
 
 ```{eval-rst}
 .. autosummary::
@@ -50,7 +50,7 @@ Hyperbolic LCS as strain tensor lines, taking the xarray outputs of a
 
 ## Modules
 
-The two public modules' own docstrings. Their members are the classes and
+This section shows the two public modules' own docstrings. Their members are the classes and
 functions above, documented there rather than a second time here.
 
 ```{eval-rst}

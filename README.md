@@ -6,11 +6,12 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21851048.svg)](https://doi.org/10.5281/zenodo.21851048)
 
-Lagrangian coherent structure (LCS) diagnostics on top of
-[Parcels](https://parcels-code.org/): deformation gradient `grad F`,
-Cauchy-Green tensor `(grad F)^T grad F`, its eigen-analysis, and the
-finite-time Lyapunov exponent (FTLE), following Haller (2015),
+LCS-Parcels computes Lagrangian coherent structure (LCS) diagnostics on top of
+[Parcels](https://parcels-code.org/), following Haller (2015),
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
+It returns the deformation gradient `grad F`, the Cauchy-Green tensor
+`(grad F)^T grad F`, its eigen-analysis, and the finite-time Lyapunov
+exponent (FTLE).
 
 The documentation is at
 [lcs-parcels.readthedocs.io](https://lcs-parcels.readthedocs.io/) and the source
@@ -86,7 +87,7 @@ itself:
 ## Examples
 
 - [`get_data`](https://lcs-parcels.readthedocs.io/page/examples/get_data.html) downloads the CMEMS subset the
-  Cabo Verde notebooks read. Run once, before them. Needs CMEMS credentials.
+  Cabo Verde notebooks read. Run once, before them. It needs CMEMS credentials.
 - [`example_grid_pset`](https://lcs-parcels.readthedocs.io/page/examples/example_grid_pset.html) exercises the package API
   on its own, without Parcels.
 - [`cabo_verde_ftle`](https://lcs-parcels.readthedocs.io/page/examples/cabo_verde_ftle.html) shows the Parcels v4 wiring
@@ -104,8 +105,8 @@ examples`) and a CMEMS currents file you save yourself. The
 
 ## Scope
 
-Away from the poles. `NeighborSeedGrid` and `AuxiliarySeedGrid` need a
-rectilinear grid with a monotonic `lon_grid` axis, while
+LCS-Parcels works away from the poles. `NeighborSeedGrid` and
+`AuxiliarySeedGrid` need a rectilinear grid with a monotonic `lon_grid` axis, while
 `UnstructuredAuxiliarySeedGrid` takes the grid points as they come, on one
 longitude branch. The limits, and the accuracy of a separation, are in the
 [API guide](https://lcs-parcels.readthedocs.io/page/api.html) and the

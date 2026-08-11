@@ -1,7 +1,8 @@
 """Emit / ingest round-trip: SeedGrid.to_parcels_pset <-> SeedGrid.pset_to_flowmap.
 
-The seed grid carries no time, and the window enters only at ingest as ``t0`` (release
-time) and ``t1`` (end time), from which the signed ``T = t1 - t0`` is derived.
+The seed grid carries no time. The window enters only at ingest, as ``t0``
+(release time) and ``t1`` (end time), from which the signed ``T = t1 - t0`` is
+derived.
 ``FlowMap.to_seed`` is the lossless inverse that drops the advected positions
 and the time coords, yielding a seed grid again.
 """
@@ -17,8 +18,8 @@ from lcs_parcels import (
     UnstructuredAuxiliarySeedGrid,
 )
 
-# Release time and integration end time supplied at ingest; the signed window
-# T = END_TIME - RELEASE_TIME is derived.
+# Release time and integration end time are supplied at ingest. The signed
+# window T = END_TIME - RELEASE_TIME is derived.
 RELEASE_TIME = np.datetime64("2020-01-01")
 END_TIME = np.datetime64("2020-01-02")
 
@@ -47,11 +48,11 @@ def test_neighbor_roundtrip_identity(lon_axis, lat_axis):
     seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     lon, lat = seed.to_parcels_pset()
 
-    # Reattach the SAME positions (identity flow map): ingest must reproduce the
+    # Reattach the same positions (identity flow map). Ingest must reproduce the
     # seed positions exactly, pinning the lossless stack -> unstack inverse.
     fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
 
-    # Advected positions land in lon/lat; with identity input they equal the
+    # Advected positions land in lon/lat. With identity input they equal the
     # reference seed positions lon_0/lat_0, which are carried through unchanged.
     assert np.allclose(fm.ds["lon"], seed.ds["lon_0"])
     assert np.allclose(fm.ds["lat"], seed.ds["lat_0"])
@@ -70,7 +71,7 @@ def test_auxiliary_emit_ingest_emit_lossless(lon_axis, lat_axis):
     fm = seed.pset_to_flowmap(lon=lon, lat=lat, t0=RELEASE_TIME, t1=END_TIME)
 
     # to_seed drops the advected lon/lat and the time coords, yielding a
-    # seed grid; re-emitting it reproduces the same flat particle set
+    # seed grid. Re-emitting it reproduces the same flat particle set
     # (to_parcels_pset and pset_to_flowmap are lossless inverses).
     reseed = fm.to_seed()
     lon_again, lat_again = reseed.to_parcels_pset()
@@ -119,7 +120,7 @@ def test_unstructured_pset_length(lon_axis, lat_axis):
 
 
 def test_unstructured_emit_ingest_emit_lossless(lon_axis, lat_axis):
-    """The pairing wiring holds for the third pair too: ingest gives the
+    """The pairing wiring holds for the third pair too. Ingest gives the
     unstructured flow map, ``to_seed`` gives the unstructured seed back, and the
     re-emitted particle set is the one that went in."""
     lon_points, lat_points = scattered_points(lon_axis, lat_axis)

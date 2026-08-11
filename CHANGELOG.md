@@ -1,8 +1,8 @@
 # Changelog
 
 Versions are CalVer, `YYYY.M.D.N`. The API breaks whenever the design improves,
-so each entry says what broke and what to write instead. There are no
-deprecation shims: the old form is deleted and every call site updated.
+so each entry says what broke and what to write instead. The package keeps no
+deprecation shims. It deletes the old form and updates every call site.
 
 ## Unreleased
 
@@ -14,19 +14,19 @@ release time.
 - **`ftle_ridge_seeds` picks its seeds over a spherical neighbourhood, not a
   rolling window.** A grid point is now a seed when it is the FTLE maximum over
   every grid point within `window_m / 2` of it along the great circle. Nothing in
-  the call changes and nothing raises; the seed set differs. On a uniform
+  the call changes and nothing raises, but the seed set differs. On a uniform
   mid-latitude grid it differs by a handful of peaks either way. On a domain
-  spanning 20 N to 75 N the old rule resolved `window_m` against one *median*
-  cell size and degenerated to a single cell north of 50 N, returning 9.3 times
-  as many seeds there as the new rule; below 40 N the two agree exactly. If you
+  spanning 20 N to 75 N, the old rule resolved `window_m` against one *median*
+  cell size. North of 50 N it degenerated to a single cell, returning 9.3 times
+  as many seeds there as the new rule. Below 40 N the two agree exactly. If you
   have tuned `window_m` against a wide-latitude domain, re-check the seed count.
 - **`window_m` is a diameter, and `min_seed_separation_m` is exactly half of
-  it.** The knob keeps its name, its units and its default, and still means twice
-  the seed separation wanted. The reported separation no longer
-  depends on the grid: it was 16871.8 m for a 30 km window on the Cabo Verde
-  example, and is now 15000.0 m.
+  it.** The knob keeps its name, its units, and its default, and still means twice
+  the seed separation wanted. The reported separation no longer depends on the
+  grid. For a 30 km window on the Cabo Verde example, it was 16871.8 m and is
+  now 15000.0 m.
 - **`ftle_ridge_seeds` no longer returns `window_cells_i`, `window_cells_j`,
-  `grid_spacing_i_m` or `grid_spacing_j_m`** in `attrs`, on its own result or on
+  `grid_spacing_i_m`, or `grid_spacing_j_m`** in `attrs`, on its own result or on
   what `hyperbolic_lcs` returns. They described a cell count that no longer
   exists. Reading one now raises `KeyError`, while `window_m` and
   `min_seed_separation_m` are still there.
@@ -38,13 +38,13 @@ release time.
   domain crossing the antimeridian on `170, 175, 180, 185`, as before.
 - **`FlowMap.image` returns its `lon_0`/`lat_0` coords broadcast against each
   other.** Two indexers on different dims gave a 1-D `lon_0` beside a 2-D
-  `lon`; both are now the 2-D outer product, so every returned position is
+  `lon`. Both are now the 2-D outer product, so every returned position is
   paired with the reference position it came from. The `lon`/`lat` data
   variables are unchanged.
 - **`EARTH_RADIUS_M` moved from `lcs_parcels.grids` to
   `lcs_parcels._spatial`**, together with the metres-per-degree factor, because
   the queries taken on the sphere now live there. Write
-  `from lcs_parcels._spatial import EARTH_RADIUS_M`, or just `6_371_000.0`; it
+  `from lcs_parcels._spatial import EARTH_RADIUS_M`, or just `6_371_000.0`. It
   is not exported from the package root and never was.
 - **The narrow-window `UserWarning` fires on a different condition.** It used to
   mean "fewer than three grid cells in one dimension" and now means "most grid
@@ -55,18 +55,18 @@ release time.
 ### Added
 
 - **`UnstructuredAuxiliarySeedGrid` and `UnstructuredAuxiliaryFlowMap`**, the
-  auxiliary four-arm stencil around grid points that need not lie on a mesh:
-  a flat list, a swath along a ship track, a cluster where the resolution is
-  wanted, or a curvilinear mesh. The stencil makes the deformation gradient
-  well-defined at a grid point on its own, so nothing in the diagnostic chain
-  needed the layout.
+  auxiliary four-arm stencil around grid points that need not lie on a mesh.
+  The points can be a flat list, a swath along a ship track, a cluster where
+  the resolution is wanted, or a curvilinear mesh. The stencil makes the
+  deformation gradient well-defined at a grid point on its own, so nothing in
+  the diagnostic chain needed the layout.
 
   ```python
   seed = UnstructuredAuxiliarySeedGrid.from_points(lon=track_lon, lat=track_lat)
   ```
 
   An `xr.DataArray` keeps its own dims, and a plain 1-D array lands on a
-  `grid_point` dim. `FlowMap.image`, `shrink_lines` and `hyperbolic_lcs` all run
+  `grid_point` dim. `FlowMap.image`, `shrink_lines`, and `hyperbolic_lcs` all run
   on the result, reading the field between grid points off their triangulation
   instead of along axes. `from_axes` is inherited and still gives a rectilinear
   point set.

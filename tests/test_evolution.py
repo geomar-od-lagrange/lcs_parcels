@@ -3,9 +3,9 @@
 ``image`` maps reference positions ``x_0`` to their advected positions
 ``F_{t0}^{t1}(x_0)``, the primitive that evolves an extracted material curve.
 For a constant linear flow map ``F(x) = M @ x`` the advected-position field is
-linear in ``x_0``, so linear interpolation is *exact*: at a grid node it returns
-the node's stored advected position, and at a midpoint it returns the average of
-the two nodes. ``conftest.advected_flowmap`` builds such a map on a
+linear in ``x_0``, so linear interpolation is *exact*. At a grid node it
+returns the node's stored advected position, and at a midpoint it returns the
+average of the two nodes. ``conftest.advected_flowmap`` builds such a map on a
 ``NeighborSeedGrid`` (its advected positions live on the ``(i, j)`` grid, exactly the
 rectilinear field ``image`` reads).
 """
@@ -47,7 +47,8 @@ def test_image_at_grid_node_returns_stored_position(lon_axis, lat_axis):
 
 
 def test_image_off_node_is_exact_for_linear_map(lon_axis, lat_axis):
-    """A linear flow map interpolates exactly: a midpoint maps to the node average."""
+    """A linear flow map interpolates exactly, so a midpoint maps to the node
+    average."""
     fm = _flowmap(lon_axis, lat_axis)
     a, b = {"i": 1, "j": 2}, {"i": 2, "j": 2}  # neighbours along i (same latitude row)
     lon0_mid = 0.5 * (fm.ds["lon_0"].isel(**a) + fm.ds["lon_0"].isel(**b))
@@ -90,7 +91,7 @@ def test_image_returns_the_reference_points_as_x0(lon_axis, lat_axis):
 
 
 def test_image_off_grid_and_nan_inputs_are_nan(lon_axis, lat_axis):
-    """Off-grid points and NaN inputs map to NaN; valid points stay finite."""
+    """Off-grid points and NaN inputs map to NaN. Valid points stay finite."""
     fm = _flowmap(lon_axis, lat_axis)
     centre_lon = float(fm.ds["lon_0"].mean())
     centre_lat = float(fm.ds["lat_0"].mean())
@@ -107,13 +108,13 @@ def test_image_off_grid_and_nan_inputs_are_nan(lon_axis, lat_axis):
 def test_image_accepts_cf_named_indexer_dims(lon_axis, lat_axis):
     """Reference points whose *dims* are called ``lon``/``lat`` are accepted.
 
-    That is what ``grid["lon"]``, ``grid["lat"]`` hand you off an ordinary
-    rectilinear CF dataset, the most natural way to call ``image``, and it
+    This pattern is what ``grid["lon"]``, ``grid["lat"]`` hand you off an
+    ordinary rectilinear CF dataset, the most natural way to call ``image``. It
     collides with the names of the returned data variables. Building the result
     by merging (``assign``/``assign_coords``) cannot tell an incoming ``lon``
-    data variable from a dimension of the same name and raises ``MergeError``
-    here, so this covers both the outer-product case (two dims, ``lon`` and
-    ``lat``) and a single shared dim named ``lon``.
+    data variable from a dimension of the same name, and raises ``MergeError``
+    here. This test therefore covers both the outer-product case (two dims,
+    ``lon`` and ``lat``) and a single shared dim named ``lon``.
     """
     fm = _flowmap(lon_axis, lat_axis)
     centre_lon = float(fm.ds["lon_0"].mean())
@@ -149,7 +150,7 @@ def test_image_accepts_cf_named_indexer_dims(lon_axis, lat_axis):
 
 def test_image_on_auxiliary_flowmap(lon_axis, lat_axis):
     """image works on the auxiliary (i, j, displacement) layout that shrink_lines
-    supports: it maps the grid point through the flow map (arm centroid)."""
+    supports. It maps the grid point through the flow map (arm centroid)."""
     fm = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
     )
@@ -185,8 +186,8 @@ def test_image_on_an_unstructured_flowmap(lon_axis, lat_axis):
     """``image`` reads the flow map between grid points that carry no axes.
 
     The map is linear, so a linear interpolant is exact whether it reads the
-    field along two axes or over a triangulation: the answer at a grid point is
-    that point's own stored image, and at the midpoint of two the average.
+    field along two axes or over a triangulation. The answer at a grid point is
+    that point's own stored image, and at the midpoint of two, the average.
     """
     fm = advected_scattered_flowmap(lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     image = fm.grid_image
@@ -225,7 +226,7 @@ def test_the_two_interpolators_agree_on_the_same_region(lon_axis, lat_axis):
 
     ``UnstructuredAuxiliarySeedGrid`` inherits ``from_axes``, so the same grid
     points can be put through either interpolator. The flow map is linear, so
-    both are exact and the two must agree; nothing else in the suite would catch
+    both are exact and the two must agree. Nothing else in the suite would catch
     the scattered path quietly falling back to the rectilinear one, or the seam
     being handed the wrong array.
     """

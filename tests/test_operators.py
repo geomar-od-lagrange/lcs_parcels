@@ -1,13 +1,13 @@
 """Operator tests: gradF -> C -> eigen -> FTLE (diagnostics on a FlowMap).
 
-The ``conftest.advected_flowmap`` helper seeds a grid, emits its
-particle set, advects through ``M`` about the seed centroid, and ingests via
-``seed.pset_to_flowmap`` (the signed window ``T = t1 - t0`` lands on the
-``FlowMap``).
+The ``conftest.advected_flowmap`` helper seeds a grid, emits its particle set,
+and advects through ``M`` about the seed centroid. It then ingests via
+``seed.pset_to_flowmap``, and the signed window ``T = t1 - t0`` lands on the
+``FlowMap``.
 
 That advection acts in the one tangent frame at the centroid, while the package
 measures every separation in the local east/north frame of the pair it connects.
-So a constant ``M`` does not give a constant gradF: the expectation is ``M``
+So a constant ``M`` does not give a constant gradF. The expectation is ``M``
 rescaled per grid point by ``conftest.analytic_gradient``, and the whole chain
 downstream of it varies over the grid too.
 
@@ -100,7 +100,7 @@ def test_central_separation_wraps_lon_and_uses_the_mid_latitude():
     dx, dy = _central_separation_m(lon, lat, "i")
     dx_mid = float(dx.isel(i=1, j=0))
 
-    # The pair straddles the antimeridian: 2 degrees apart, not 358.
+    # The pair straddles the antimeridian by 2 degrees, not 358.
     assert dx_mid == pytest.approx(
         2.0 * EARTH_RADIUS_M * np.cos(20.0 * DEG) * DEG, rel=1e-12
     )
@@ -135,7 +135,7 @@ def test_arm_separation_subtracts_opposing_arms_onto_the_grid():
     assert set(dx_ew.dims) == {"i", "j"}
     assert "displacement" not in dx_ew.coords
 
-    # The east/west arms straddle the antimeridian: 2 degrees apart on the
+    # The east/west arms straddle the antimeridian by 2 degrees on the
     # equator, not 358.
     assert np.allclose(dx_ew, 2.0 * EARTH_RADIUS_M * DEG)
     assert np.allclose(dy_ew, 0.0)
@@ -219,7 +219,7 @@ def test_deformation_gradient_matches_local_frame_neighbor(lon_axis, lat_axis):
     expected_interior = expected.isel(i=slice(1, -1), j=slice(1, -1))
     assert float(abs(interior - expected_interior).max()) < 1e-6
 
-    # The expectation is not degenerate: it varies over the grid, and it is far
+    # The expectation is not degenerate. It varies over the grid, and it is far
     # from the constant M the advection was built from.
     spread = expected.max(("i", "j")) - expected.min(("i", "j"))
     assert float(spread.max()) > 0.01
@@ -237,7 +237,7 @@ def test_deformation_gradient_matches_local_frame_auxiliary(lon_axis, lat_axis):
     """AuxiliarySeedGrid: gradF matches the analytic gradient everywhere, edges included.
 
     The per-point auxiliary stencil makes the gradient well-defined at every grid
-    point, so there are no NaN edges to exclude.
+    point, leaving no NaN edges to exclude.
     """
     g = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
@@ -248,22 +248,22 @@ def test_deformation_gradient_matches_local_frame_auxiliary(lon_axis, lat_axis):
     assert bool(gradF.notnull().all())
     assert float(abs(gradF - expected).max()) < 1e-6
 
-    # Not degenerate: the expectation varies over the grid and differs from the
-    # constant M by far more than the tolerance above.
+    # The expectation is not degenerate. It varies over the grid and differs
+    # from the constant M by far more than the tolerance above.
     spread = expected.max(("i", "j")) - expected.min(("i", "j"))
     assert float(spread.max()) > 0.01
     assert float(abs(expected - M_TENSOR).max()) > 0.01
 
 
 def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
-    """AuxiliarySeedGrid: gradF equals a spatially-VARYING analytic Jacobian.
+    """AuxiliarySeedGrid: gradF equals a spatially varying analytic Jacobian.
 
     The map is quadratic in the centroid tangent frame,
-    ``f(dx, dy) = (dx + a*dx**2, dy + b*dy**2)``, whose Jacobian there is
-    ``diag(1 + 2*a*X, 1 + 2*b*Y)`` with ``(X, Y)`` each grid point's meters
+    ``f(dx, dy) = (dx + a*dx**2, dy + b*dy**2)``. Its Jacobian there is
+    ``diag(1 + 2*a*X, 1 + 2*b*Y)``, with ``(X, Y)`` each grid point's meters
     position from the centroid. Central differencing is exact for a quadratic, so
-    gradF must match that Jacobian, rescaled into the local frames, to ~1e-6 --
-    exercising per-point differencing, not the constant-``M`` case.
+    gradF must match that Jacobian, rescaled into the local frames, to ~1e-6.
+    The comparison exercises per-point differencing, not the constant-``M`` case.
     """
     a, b = 1.0e-6, -0.8e-6
 
@@ -281,9 +281,9 @@ def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
     lon_0, lat_0 = seed_origin(g)
 
     # Grid-point positions in the centroid tangent frame, dims (i, j). That frame
-    # uses the origin's cosine throughout, so hold one coordinate fixed per call:
-    # a pair sharing lat_0 has mid-latitude lat_0, and a pair sharing lon_0 has no
-    # east component to scale.
+    # uses the origin's cosine throughout, so each call here holds one coordinate
+    # fixed. A pair sharing lat_0 has mid-latitude lat_0, and a pair sharing
+    # lon_0 has no east component to scale.
     X, _ = _separation_m(lon_a=lon_0, lat_a=lat_0, lon_b=lon_grid, lat_b=lat_0)
     _, Y = _separation_m(lon_a=lon_0, lat_a=lat_0, lon_b=lon_0, lat_b=lat_grid)
 
@@ -305,7 +305,7 @@ def test_deformation_gradient_varying_jacobian_auxiliary(lon_axis, lat_axis):
     )
     assert float(abs(gradF - expected).max()) < 1e-6
 
-    # sanity: the Jacobian genuinely VARIES across the grid (not the constant-M
+    # Sanity: the Jacobian varies across the grid (not the constant-M
     # case), so this test exercises per-point differencing.
     assert float(fxx.max() - fxx.min()) > 0.1
 
@@ -377,7 +377,7 @@ def test_cg_eigen_relation(lon_axis, lat_axis):
 
     Contract ``C``'s ``col`` against ``xi``'s ``comp`` with ``xr.dot``, relabel
     the surviving axis back to ``comp``, and compare to ``lambda * xi``. The
-    eigen-relation is scale-invariant, so pin normalization separately: the Gram
+    eigen-relation is scale-invariant, so pin normalization separately. The Gram
     matrix ``xi^T xi`` must be the identity over ``eig`` (unit-norm, mutually
     orthogonal).
     """
@@ -455,7 +455,7 @@ def test_ftle_pure_stretch_follows_the_local_frame_gradient(lon_axis, lat_axis):
     # match to round-off instead.
     assert float(abs(ftle - expected).max()) < 1e-12
 
-    # Not degenerate: the field genuinely varies, by far more than the tolerance
+    # The field is not degenerate. It varies by far more than the tolerance
     # above, so this is not the old constant log(max(a, b)) / |T| answer.
     assert float(expected.max() - expected.min()) > 1e-9
 
@@ -497,7 +497,7 @@ def test_ftle_backward_equals_forward(lon_axis, lat_axis):
     assert g_fwd.ds["T"] == -g_bwd.ds["T"]
     assert g_bwd.ds["T"] < np.timedelta64(0, "s")
     # The FTLE fields must match value-for-value. (Subtraction drops the
-    # conflicting scalar t0/T coords, leaving a clean (i, j) difference.)
+    # conflicting scalar t0/T coords, leaving a difference indexed by (i, j) alone.)
     assert float(abs(g_fwd.ftle() - g_bwd.ftle()).max()) < 1e-12
 
 
@@ -521,7 +521,7 @@ def test_nan_propagates_through_chain(lon_axis, lat_axis):
     g.ds["lon"] = g.ds["lon"].where(~bad)
 
     ftle = g.ftle()
-    # Exactly one cell is NaN, and it is the corrupted one: the NaN propagated
+    # Exactly one cell is NaN, and it is the corrupted one. The NaN propagated
     # the whole chain and did not leak to any neighbour.
     assert bool(ftle.sel(i=0, j=1).isnull())
     assert int(ftle.isnull().sum()) == 1
@@ -535,8 +535,8 @@ def test_auxiliary_diagnostics_do_not_read_the_layout(lon_axis, lat_axis):
 
     The four-arm stencil is differenced against a grid point's own arms and never
     against another grid point, so nothing between ``deformation_gradient`` and
-    ``ftle`` has a layout to read. Measured rather than asserted: the flat
-    results are the structured ones ravelled, exactly.
+    ``ftle`` has a layout to read. The match is measured rather than asserted.
+    The flat results are the structured ones ravelled, exactly.
     """
     structured = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
@@ -560,7 +560,7 @@ def test_auxiliary_diagnostics_do_not_read_the_layout(lon_axis, lat_axis):
 
 def test_unstructured_gradient_matches_the_local_frame(lon_axis, lat_axis):
     """grad F on a point set is the analytic local-frame answer, not just the
-    structured one repeated: both paths could share a mistake."""
+    structured one repeated. Both paths could share a mistake."""
     fm = advected_scattered_flowmap(lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
 
     expected = analytic_gradient(M, flowmap=fm, origin=seed_origin(fm))

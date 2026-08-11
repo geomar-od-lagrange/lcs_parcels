@@ -1,7 +1,8 @@
 """Queries over the diagnostic grid points, taken on the sphere.
 
-Two interpolator builders, one reading the grid points as two monotonic axes and
-one as a point set with no structure, and a neighbourhood maximum.
+This module provides two interpolator builders, one reading the grid points as
+two monotonic axes and one as a point set with no structure, and a
+neighbourhood maximum.
 """
 
 from __future__ import annotations
@@ -69,9 +70,9 @@ def rectilinear_interpolator(field: xr.DataArray, *, lon_grid, lat_grid):
 def scattered_interpolator(field: xr.DataArray, *, lon_grid, lat_grid):
     """Interpolator for ``field`` sampled at grid points of any layout.
 
-    Linear on the Delaunay triangulation of the points, taken in degrees, so the
-    points have to sit on one longitude branch and three of them may not be
-    collinear.
+    It is linear on the Delaunay triangulation of the points, taken in degrees.
+    The points therefore have to sit on one longitude branch, and three of them
+    may not be collinear.
 
     Parameters
     ----------

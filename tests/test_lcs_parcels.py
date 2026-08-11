@@ -20,7 +20,7 @@ from lcs_parcels import (
 
 
 def test_version():
-    # A version string is exported; don't pin the value (it goes stale on bumps).
+    # A version string is exported. Don't pin the value (it goes stale on bumps).
     assert isinstance(lcs_parcels.__version__, str) and lcs_parcels.__version__
 
 
@@ -30,7 +30,7 @@ def test_version_is_pep440():
     hatch-vcs derives it from the git tag, so a tag PEP 440 cannot express, or a
     checkout with no tags at all, shows up here rather than at upload time.
     Comparing ``__version__`` against the distribution metadata is no longer a
-    test: it *is* that metadata.
+    test, because it *is* that metadata.
     """
     packaging.version.Version(lcs_parcels.__version__)
 
@@ -73,21 +73,21 @@ def test_flowmap_hierarchy():
 
 
 def test_families_are_disjoint():
-    # SeedGrid and FlowMap are sibling families, not an inheritance pair: a FlowMap
-    # is not a kind of SeedGrid (it emits nothing) and vice versa.
+    # SeedGrid and FlowMap are sibling families, not an inheritance pair. A FlowMap
+    # is not a kind of SeedGrid (it emits nothing), and vice versa.
     assert not issubclass(FlowMap, SeedGrid)
     assert not issubclass(SeedGrid, FlowMap)
 
 
 def test_seed_is_abstract():
-    # SeedGrid is an ABC: its abstract method (from_axes) makes it non-instantiable,
+    # SeedGrid is an ABC. Its abstract method (from_axes) makes it non-instantiable,
     # so only the concrete seeds can be built.
     with pytest.raises(TypeError):
         SeedGrid(xr.Dataset())
 
 
 def test_flowmap_is_abstract():
-    # FlowMap is an ABC: its abstract method (deformation_gradient) makes it
+    # FlowMap is an ABC. Its abstract method (deformation_gradient) makes it
     # non-instantiable, so only the concrete flow maps can be built.
     with pytest.raises(TypeError):
         FlowMap(xr.Dataset())

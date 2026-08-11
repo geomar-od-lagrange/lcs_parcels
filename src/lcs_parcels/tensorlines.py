@@ -4,12 +4,13 @@ Haller (2015) §5.1 / Table 1 (n=2), doi:10.1146/annurev-fluid-010313-141322
 (https://doi.org/10.1146/annurev-fluid-010313-141322).
 
 A repelling LCS is a *shrink line* -- a curve tangent to the weak-stretch
-eigenvector ``xi_1`` of the Cauchy-Green tensor ``C`` (equivalently, normal to
-the strong-stretch ``xi_2`` that the FTLE ridge marks). It solves the tensor-line
-ODE ``dr/ds = xi_1(r)``. Attracting LCS need no separate machinery. By the
-forward-backward duality (Haller & Sapsis 2011, https://doi.org/10.1063/1.3579597)
-they are the shrink lines of the *backward* flow, so :func:`shrink_lines` of a
-backward :class:`~lcs_parcels.FlowMap` gives them.
+eigenvector ``xi_1`` of the Cauchy-Green tensor ``C``. Equivalently, it is
+normal to the strong-stretch ``xi_2`` that the FTLE ridge marks. It solves the
+tensor-line ODE ``dr/ds = xi_1(r)``. Attracting LCS need no separate machinery.
+By the forward-backward duality (Haller & Sapsis 2011,
+https://doi.org/10.1063/1.3579597) they are the shrink lines of the *backward*
+flow, so :func:`shrink_lines` of a backward :class:`~lcs_parcels.FlowMap` gives
+them.
 
 Two functions compose the workflow. :func:`ftle_ridge_seeds` picks seed points
 and :func:`shrink_lines` integrates the tensor lines through them. Both take the
@@ -42,12 +43,12 @@ def ftle_ridge_seeds(
     """Seed points at strong local maxima of an FTLE field.
 
     A grid point is a seed when its FTLE is the maximum over every grid point
-    within ``window_m / 2`` of it (a local maximum on the raw value) *and* is at
-    or above a magnitude floor. The floor is either a ``quantile`` of this field
-    or an absolute ``ftle_min``, and it tests the magnitude of the value rather
-    than its contrast against the surrounding points. NaN points (e.g., the
-    :class:`~lcs_parcels.NeighborFlowMap` edge) never qualify, and a NaN
-    neighbour does not deny its neighbours a maximum.
+    within ``window_m / 2`` of it, a local maximum on the raw value. It must
+    also be at or above a magnitude floor. The floor is either a ``quantile`` of
+    this field or an absolute ``ftle_min``, and it tests the magnitude of the
+    value rather than its contrast against the surrounding points. NaN points
+    (e.g., the :class:`~lcs_parcels.NeighborFlowMap` edge) never qualify, and a
+    NaN neighbour does not deny its neighbours a maximum.
 
     The neighbourhood is a disc of *diameter* ``window_m``, so two seeds are at
     least ``window_m / 2`` apart, half the value passed in rather than all of it.
@@ -56,9 +57,9 @@ def ftle_ridge_seeds(
     can return adjacent seeds.
 
     The grid points enter as a set rather than as axes, so the same rule applies
-    to any layout. Warns when most grid points have no neighbour inside the
-    radius at all, because the local-maximum test then stops selecting and only
-    the magnitude floor is left.
+    to any layout. It warns when most grid points have no neighbour inside the
+    radius at all. Then the local-maximum test stops selecting and only the
+    magnitude floor is left.
 
     Parameters
     ----------
@@ -174,11 +175,11 @@ def _shrink_line_tangent(
     material line elements shrink along, and the shrink line is the curve tangent
     to it everywhere.
 
-    Returns ``NaN`` wherever the tangent is **not well defined**, which covers a
-    point off the grid, a point in a NaN cell, and a tensor too close to
-    isotropic for its eigenvectors to be resolved (``min_anisotropy``). Callers
-    read a NaN row as "the line ends here" and do not need to know which of the
-    three fired.
+    Returns ``NaN`` wherever the tangent is not well defined. The three failure
+    cases are a point off the grid, a point in a NaN cell, and a tensor too
+    close to isotropic for its eigenvectors to be resolved (``min_anisotropy``).
+    Callers read a NaN row as "the line ends here" and do not need to know
+    which of the three fired.
 
     Parameters
     ----------
@@ -233,9 +234,9 @@ def _step_lonlat_by_meters(
 
     ``direction`` is a local east/north vector at ``(lon, lat)``, the frame ``C``
     is built in. The step is the exact inverse of the measurement that built it
-    (:func:`~lcs_parcels.grids._separation_m`), so measuring it afterwards
-    returns the vector asked for. A unit ``direction`` moves ``step_m``, and a
-    shorter one moves proportionally less.
+    (:func:`~lcs_parcels.grids._separation_m`). Measuring it afterwards
+    therefore returns the vector asked for. A unit ``direction`` moves
+    ``step_m``, and a shorter one moves proportionally less.
 
     Inverting the measurement, rather than solving the direct great-circle
     problem, is what keeps the traced curve on the direction field. Latitude is
@@ -277,8 +278,9 @@ def _trace_half_line(
     """March every seed ``n_steps`` steps in one of the two ``xi_1`` directions.
 
     Integrates ``dr/ds = xi_1(r)`` with RK2 (the midpoint / modified-Euler
-    scheme): evaluate ``xi_1`` at the current point, half-step along it, evaluate
-    again at that midpoint, and take the full step along the midpoint direction.
+    scheme). Each step evaluates ``xi_1`` at the current point, half-steps along
+    it, evaluates again at that midpoint, and takes the full step along the
+    midpoint direction.
 
     Parameters
     ----------
@@ -359,10 +361,10 @@ def shrink_lines(
     Traces the tensor-line ODE ``dr/ds = xi_1(r)`` both ways from each seed,
     where ``xi_1`` is the weak-stretch eigenvector of ``flowmap.cauchy_green()``.
     A *forward* flow map yields repelling LCS and a *backward* one yields
-    attracting LCS, by the forward-backward duality. The integrator:
+    attracting LCS, by the forward-backward duality. The integrator
 
     - interpolates the tensor ``C`` rather than the eigenvector and
-      re-diagonalises at each point, so it stays smooth through the
+      re-diagonalises at each point, keeping it smooth through the
       near-degenerate spots where ``xi_1`` is otherwise sign-ambiguous;
     - orients each step to the running heading, an eigenvector having no
       intrinsic sign;
@@ -370,8 +372,8 @@ def shrink_lines(
       ``min_anisotropy``, running off the grid, or a NaN cell.
 
     All seeds march together as one array with a midpoint (arc-length) step.
-    ``line_length_m`` is a budget rather than an achieved length, so a line that
-    terminates early is shorter and the returned block is NaN-filled past
+    ``line_length_m`` is a budget rather than an achieved length. A line that
+    terminates early is shorter, and the returned block is NaN-filled past
     termination to keep every row the same length.
 
     Parameters
@@ -382,7 +384,7 @@ def shrink_lines(
     seed_lon, seed_lat : array_like
         Seed positions (degrees), e.g., from :func:`ftle_ridge_seeds`.
     min_anisotropy : float, optional
-        Stop a line where ``lambda_2 / lambda_1`` falls below this (default
+        A line stops where ``lambda_2 / lambda_1`` falls below this (default
         1.15). It is a well-definedness guard on whether ``xi_1`` is a direction
         or numerical noise, not a selector for which structures count as LCS,
         which is what ``quantile`` in :func:`ftle_ridge_seeds` sets. Being a

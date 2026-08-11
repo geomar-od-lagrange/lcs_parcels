@@ -1,9 +1,9 @@
 """Output metadata: every returned array is self-describing.
 
-A displayed dataset and a vanilla ``.plot()`` take their axis labels, titles and
-colorbar captions from ``name``/``long_name``/``units``, so every coordinate,
-data variable and returned field must carry them, and two distinct quantities
-must never come back under the same ``name``.
+A displayed dataset and a vanilla ``.plot()`` take their axis labels, titles,
+and colorbar captions from ``name``/``long_name``/``units``. Every coordinate,
+data variable, and returned field must therefore carry them, and two distinct
+quantities must never come back under the same ``name``.
 """
 
 import numpy as np
@@ -25,7 +25,7 @@ M = np.array([[2.0, 0.5], [0.0, 3.0]])  # generic (sheared) linear map
 SEED_CLASSES = [NeighborSeedGrid, AuxiliarySeedGrid, UnstructuredAuxiliarySeedGrid]
 
 # Coordinates whose values are labels or indices, for which a unit is
-# meaningless; they carry a long_name only.
+# meaningless. They carry a long_name only.
 UNITLESS = {
     "i",
     "j",
@@ -53,7 +53,7 @@ RIDGE_ATTRS = {
 }
 
 # The fixture grids are 1 degree by 1-2 degrees, so the radius has to be several
-# hundred kilometres before a grid point has a neighbour to lose to; 700 km
+# hundred kilometres before a grid point has a neighbour to lose to. 700 km
 # clears the 2-degree meridional spacing at 72 N.
 RIDGE_WINDOW_M = 700_000.0
 
@@ -106,7 +106,7 @@ def test_diagnostics_are_labelled(seed_cls, lon_axis, lat_axis):
 
 @pytest.mark.parametrize("seed_cls", SEED_CLASSES)
 def test_dimensionless_diagnostics_and_ftle_units(seed_cls, lon_axis, lat_axis):
-    """Tensors and eigenpairs are dimensionless; the FTLE is SI (1/s)."""
+    """Tensors and eigenpairs are dimensionless. The FTLE is SI (1/s)."""
     fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     assert fm.deformation_gradient().attrs["units"] == "1"
     assert fm.cauchy_green().attrs["units"] == "1"
@@ -120,10 +120,10 @@ def test_dimensionless_diagnostics_and_ftle_units(seed_cls, lon_axis, lat_axis):
 def test_distinct_quantities_have_distinct_names(seed_cls, lon_axis, lat_axis):
     """No two different diagnostics come back under the same name.
 
-    The two tensors are the case to watch: they are packed by the same helper,
-    which names only the assembled result, so a name that leaked from the
-    component fields would put both under one name and silently collide the
-    moment they were merged into a ``Dataset``.
+    The two tensors are the case to watch. They are packed by the same helper,
+    which names only the assembled result. A name that leaked from a component
+    field would therefore put both tensors under one name. Merging the two into
+    a ``Dataset`` would then silently collide them.
     """
     fm = advected_flowmap(seed_cls, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME)
     eigen = fm.cg_eigen()
@@ -189,11 +189,11 @@ def test_ftle_ridge_seeds_output_is_labelled(lon_axis, lat_axis):
 
 def test_hyperbolic_lcs_carries_the_ridge_selection_attrs(lon_axis, lat_axis):
     """The one-call method reports the ridge selection it made, so
-    ``min_seed_separation_m``, what ``window_m`` actually bought, is readable
-    off the result without rerunning the seed step.
+    ``min_seed_separation_m``, what ``window_m`` bought, is readable off the
+    result without rerunning the seed step.
 
-    The seeds' own ``long_name`` stays behind: it describes the seed points, and
-    this dataset holds the curves and the field.
+    The seeds' own ``long_name`` stays behind, because it describes the seed
+    points, and this dataset holds the curves and the field.
     """
     fm = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
@@ -213,7 +213,7 @@ def test_hyperbolic_lcs_carries_the_ridge_selection_attrs(lon_axis, lat_axis):
 def test_hyperbolic_lcs_output_is_labelled(lon_axis, lat_axis):
     """The one-call method returns curves and the FTLE field in one dataset, so
     both halves, and the grid coords the FTLE brings with it, must be
-    labelled, and the dataset itself must say which kind of LCS it holds."""
+    labelled. The dataset itself must also say which kind of LCS it holds."""
     fm = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
     )
@@ -236,10 +236,10 @@ def test_hyperbolic_lcs_output_is_labelled(lon_axis, lat_axis):
 
 
 def test_unstructured_grid_point_coord_is_labelled():
-    """The dim ``from_points`` names itself carries a ``long_name``, as ``i`` and
-    ``j`` do. Nothing else in the suite reaches it: the parametrized cases above
-    build the unstructured class through the inherited ``from_axes``, which lands
-    on ``(i, j)``."""
+    """The dim that ``from_points`` names itself carries a ``long_name``, as
+    ``i`` and ``j`` do. Nothing else in the suite reaches it. The parametrized
+    cases above build the unstructured class through the inherited
+    ``from_axes``, which lands on ``(i, j)``."""
     seed = UnstructuredAuxiliarySeedGrid.from_points(
         lon=np.array([-1.0, 0.0, 1.0]), lat=np.array([10.0, 11.0, 12.0])
     )

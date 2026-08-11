@@ -19,8 +19,8 @@ positions after advection::
 Pass ``t1`` before ``t0`` for backward integration. A zero window is rejected.
 
 The seed layout fixes the stencil the deformation gradient is differenced over,
-and how the grid points it is reported at are laid out. There are three, one
-pair of classes each:
+and how the grid points it is reported at are laid out. The module provides
+three, one pair of classes each:
 
 * :class:`NeighborSeedGrid` / :class:`NeighborFlowMap` difference against
   neighbouring grid points, on a rectilinear ``(i, j)`` grid.
@@ -36,13 +36,14 @@ returned array carries ``long_name`` and ``units``. Lon/lat pairs are
 keyword-only throughout.
 
 Longitudes are stored in whatever convention they arrive in, and only
-differences and means are wrapped. On the rectilinear classes the ``lon_grid``
-axis itself must still be monotonic, so a domain crossing the antimeridian is
-seeded on ``170, 175, 180, 185`` rather than ``170, 175, 180, -175``.
+differences and means are wrapped. On the rectilinear classes, the
+``lon_grid`` axis itself must still be monotonic. A domain crossing the
+antimeridian is therefore seeded on ``170, 175, 180, 185`` rather than
+``170, 175, 180, -175``.
 
 Positions are differenced in metres, each pair in its own local east/north
-frame, so the accuracy of a separation is set by the distance between the two
-points rather than by the size or the position of the domain.
+frame. The accuracy of a separation is set by the distance between the two
+points, not by the size or the position of the domain.
 
 Notation follows Haller (2015), *Lagrangian Coherent Structures*, Annu. Rev.
 Fluid Mech. 47:137-162, doi:10.1146/annurev-fluid-010313-141322
@@ -124,11 +125,13 @@ def _separation_m(*, lon_a, lat_a, lon_b, lat_b):
     """East/north separation of point ``b`` from point ``a``, in metres.
 
     Takes plain arrays or xarray objects. The pair is differenced in its own
-    local frame, with the longitude difference wrapped and scaled by the cosine
-    of the pair's mid-latitude and the latitude difference by the Earth radius
-    alone. No shared projection and no standard parallel enter, so the accuracy
-    of the result is set by the separation of the pair rather than by the size
-    or the position of the domain.
+    local frame. The longitude difference is wrapped and scaled by the cosine
+    of the pair's mid-latitude, and the latitude difference is scaled by the
+    Earth radius alone.
+
+    No shared projection and no standard parallel enter. The accuracy of the
+    result therefore depends on the separation of the pair, not on the size or
+    the position of the domain.
 
     Returns
     -------
@@ -149,7 +152,7 @@ def _circular_mean_lon(lon: xr.DataArray, dim: str) -> xr.DataArray:
 
     Anchored on the first element along ``dim`` and averaged over wrapped
     offsets from it, so the result stays on the anchor's branch. ``skipna=False``
-    makes the mean NaN if any member is, matching the gradient path, where one
+    makes the mean NaN if any member is, matching the gradient path. There, one
     lost stencil point already invalidates the grid point.
     """
     anchor = lon.isel({dim: 0}, drop=True)
@@ -161,7 +164,7 @@ def _central_separation_m(lon: xr.DataArray, lat: xr.DataArray, dim: str):
     ``dim``, as ``(dx, dy)`` metres.
 
     ``.shift`` fills NaN past both ends, so the first and last index along ``dim``
-    are legitimately NaN: they have no neighbour to difference against.
+    are legitimately NaN, because they have no neighbour to difference against.
     """
     return _separation_m(
         lon_a=lon.shift({dim: +1}),
@@ -212,7 +215,7 @@ def _grid_points(values, attrs: dict) -> xr.DataArray:
     """A grid-point coordinate from a ``DataArray`` or from a plain 1-D array.
 
     A ``DataArray`` keeps its own dims. A plain array lands on ``grid_point``,
-    which needs it to be 1-D, since nothing else names its axes.
+    which needs it to be 1-D. Nothing else names its axes.
     """
     if isinstance(values, xr.DataArray):
         return values.astype(float).assign_attrs(attrs)
@@ -231,8 +234,9 @@ def _auxiliary_arms(
     """Four-arm stencil positions about the grid points, as ``(lon_0, lat_0)``.
 
     The arms go at ``east = (+s, 0)``, ``north = (0, +s)``, ``west = (-s, 0)``,
-    ``south = (0, -s)`` metres in each grid point's own local east/north frame,
-    adding a ``displacement`` dim to whatever dims the grid points carry.
+    ``south = (0, -s)`` metres in each grid point's own local east/north frame.
+    The stencil adds a ``displacement`` dim to whatever dims the grid points
+    carry.
 
     Raises
     ------
@@ -475,7 +479,7 @@ class FlowMap(abc.ABC):
     """A sampled flow map ``F_{t0}^{t1}``, and the deformation diagnostics on it.
 
     Holds where each reference position ``lon_0``/``lat_0`` (``x_0``) started and
-    where it arrived, as the advected positions ``lon``/``lat``, together with
+    where it arrived, as the advected positions ``lon``/``lat``. It also carries
     the release time ``t0`` and the signed window ``T = t1 - t0``. From that pair
     of position fields it computes ``grad F``, the Cauchy-Green tensor, its
     eigenpairs and the FTLE. Produced by :meth:`SeedGrid.pset_to_flowmap`, with
@@ -559,7 +563,7 @@ class FlowMap(abc.ABC):
     def grid_image(self) -> xr.Dataset:
         """The flow map image of the diagnostic grid points, ``F_{t0}^{t1}(x_grid)``.
 
-        The advected positions reduced onto the diagnostic grid points: one
+        The advected positions are reduced onto the diagnostic grid points, one
         ``lon``/``lat`` pair per grid point, whatever the stencil that grid point
         was released with. Subclasses define the reduction.
 
@@ -611,18 +615,19 @@ class FlowMap(abc.ABC):
     def deformation_gradient(self) -> xr.DataArray:
         """Deformation gradient grad F of the flow map. Haller (2015) Eq. 9.
 
-        The 2x2 tensor ``grad F = d(lon, lat) / d(lon_0, lat_0)`` per grid point,
-        finite-differenced as ``(advected separation) / (initial separation)``,
-        each separation taken in metres in its own local east/north frame
-        (:func:`_separation_m`). The denominator comes from the reference
-        ``lon_0``/``lat_0`` and the numerator from the advected ``lon``/``lat``.
+        The 2x2 tensor ``grad F = d(lon, lat) / d(lon_0, lat_0)`` per grid point
+        is finite-differenced as ``(advected separation) / (initial
+        separation)``. Each separation is taken in metres in its own local
+        east/north frame (:func:`_separation_m`). The denominator comes from
+        the reference ``lon_0``/``lat_0`` and the numerator from the advected
+        ``lon``/``lat``.
         Subclasses define the stencil. Cells with a missing stencil point yield
         NaN.
 
         Returns
         -------
         xr.DataArray
-            grad F with dims ``(i, j, row, col)``; ``row`` and ``col`` are
+            grad F with dims ``(i, j, row, col)``. ``row`` and ``col`` are
             dimension coordinates valued ``['x', 'y']``, with
             ``grad F.sel(row=a, col=b) = d F_a / d x0_b`` (dimensionless;
             metres / metres). The tensor carries no ``comp`` coordinate (``comp``
@@ -730,15 +735,15 @@ class FlowMap(abc.ABC):
 
         Interpolates the stored advected-position field ``lon``/``lat`` at the
         reference locations ``lon_0``/``lat_0`` (degrees), giving where those
-        material points sit at ``t1``. This is also how an extracted material
-        curve is evolved. Pass the curve's own ``lon``/``lat`` as its ``x_0`` and
-        read back ``M(t1) = F_{t0}^{t1}(M(t0))`` (Haller 2015 Eq. 5).
+        material points sit at ``t1``. The same interpolation evolves an
+        extracted material curve. Pass the curve's own ``lon``/``lat`` as its
+        ``x_0`` and read back ``M(t1) = F_{t0}^{t1}(M(t0))`` (Haller 2015 Eq. 5).
 
         Vectorized and dim-preserving. ``lon_0``/``lat_0`` are ``DataArray``
         objects on any dims, broadcast against each other, and the output carries
         the dims of the broadcast pair. Points the flow map does not reach, in a
-        NaN (land or edge) cell, or NaN themselves map to NaN, so an evolved
-        curve terminates where the flow map is undefined.
+        NaN (land or edge) cell, or NaN themselves map to NaN. An evolved
+        curve therefore terminates where the flow map is undefined.
 
         The returned longitudes come back on the branch ``lon_0`` was given in.
 
@@ -751,10 +756,10 @@ class FlowMap(abc.ABC):
         -------
         xr.Dataset
             ``lon``/``lat`` (degrees) on the dims of ``lon_0``/``lat_0``, the
-            same structure a :func:`~lcs_parcels.shrink_lines` curve has, so an
-            evolved curve plots the same way and can be passed back into this
-            method. The requested reference positions come back as the
-            ``lon_0``/``lat_0`` coords.
+            same structure a :func:`~lcs_parcels.shrink_lines` curve has. An
+            evolved curve therefore plots the same way and can be passed back
+            into this method. The requested reference positions come back as
+            the ``lon_0``/``lat_0`` coords.
         """
         # Interpolation is arithmetic on the longitudes, so re-anchor each image
         # on its own grid point's branch first. Valid under 180 degrees.
@@ -820,8 +825,8 @@ class FlowMap(abc.ABC):
         window decides which family is returned, and the returned dataset records
         that family in its ``long_name``.
 
-        Every call recomputes the FTLE, which is the expensive step, though within
-        one call it is computed once and handed to the ridge finder. To re-tune
+        Every call recomputes the FTLE, the expensive step. Within one call,
+        though, it is computed once and handed to the ridge finder. To re-tune
         parameters against a fixed field, or to pick ridges from a smoothed or
         masked one, drive the three steps yourself.
 
@@ -840,12 +845,12 @@ class FlowMap(abc.ABC):
         xr.Dataset
             ``lon``/``lat`` (degrees) on dims ``(line, point)``, the LCS curves
             with NaN past termination, together with the ``ftle`` field (1/s) at
-            the grid points the seeds were picked from, so the curves can be
-            plotted over it without recomputing. The ridge-selection attributes
-            of :func:`~lcs_parcels.ftle_ridge_seeds`, including
-            ``min_seed_separation_m``, are copied onto the result.
+            the grid points the seeds were picked from. The curves can
+            therefore be plotted over that field without recomputing it. The
+            ridge-selection attributes of :func:`~lcs_parcels.ftle_ridge_seeds`,
+            including ``min_seed_separation_m``, are copied onto the result.
         """
-        # Deferred import: `tensorlines` imports from this module.
+        # Import deferred because `tensorlines` imports from this module.
         from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
 
         # An explicit None would bind over the callee's default, so unset
@@ -921,12 +926,12 @@ class NeighborSeedGrid(SeedGrid):
 
         See :meth:`SeedGrid.from_axes`. The 1-D axes are broadcast into
         axis-aligned (rectilinear) 2-D fields on ``(i, j)``, with lon varying
-        along ``i`` and lat along ``j``, and stored both as the diagnostic grid
-        ``lon_grid``/``lat_grid`` and as the reference release positions
-        ``lon_0``/``lat_0``, which coincide for this stencil.
+        along ``i`` and lat along ``j``. The result is stored both as the
+        diagnostic grid ``lon_grid``/``lat_grid`` and as the reference release
+        positions ``lon_0``/``lat_0``, which coincide for this stencil.
         """
         # Broadcast the 1-D axes into axis-aligned 2-D fields on (i, j) with the
-        # high-level API; lon varies along i, lat along j.
+        # high-level API, lon varying along i and lat along j.
         lon_axis = xr.DataArray(np.asarray(lon, dtype=float), dims="i")
         lat_axis = xr.DataArray(np.asarray(lat, dtype=float), dims="j")
         lon2d, lat2d = xr.broadcast(lon_axis, lat_axis)
@@ -964,12 +969,12 @@ class AuxiliarySeedGrid(SeedGrid):
 
     Each grid point carries four arms ``east, north, west, south`` at offsets
     ``east = (+s, 0)``, ``north = (0, +s)``, ``west = (-s, 0)``,
-    ``south = (0, -s)`` for ``s = aux_separation_m``, with no centre point and no
-    diagonals. The arms are placed in each grid point's own local east/north
-    frame (see :func:`_separation_m`), so the gradient step is ``s`` rather than
-    the seed grid spacing, at every latitude. The paired
-    :class:`AuxiliaryFlowMap` differences ``grad F`` across the four arms
-    (east-west, north-south).
+    ``south = (0, -s)`` for ``s = aux_separation_m``. The stencil has no centre
+    point and no diagonals. The arms are placed in each grid point's own local
+    east/north frame (see :func:`_separation_m`). The gradient step is
+    therefore ``s`` at every latitude, rather than the seed grid spacing. The
+    paired :class:`AuxiliaryFlowMap` differences ``grad F`` across the four
+    arms (east-west, north-south).
     """
 
     @classmethod
@@ -983,12 +988,12 @@ class AuxiliarySeedGrid(SeedGrid):
         """Build an auxiliary-stencil seed grid from 1-D lon/lat axes.
 
         See :meth:`SeedGrid.from_axes`. The diagnostic grid points ``lon_grid`` /
-        ``lat_grid`` are placed on ``(i, j)`` from the axes, then the four-arm
-        ``displacement = ['east', 'north', 'west', 'south']`` stencil is laid out
-        around each of them at offsets ``east = (+s, 0)``, ``north = (0, +s)``,
-        ``west = (-s, 0)``, ``south = (0, -s)`` metres (``s = aux_separation_m``)
-        and stored as the reference release positions ``lon_0`` / ``lat_0`` on
-        ``(i, j, displacement)``.
+        ``lat_grid`` are placed on ``(i, j)`` from the axes. The four-arm
+        ``displacement = ['east', 'north', 'west', 'south']`` stencil is then
+        laid out around each of them. The offsets are ``east = (+s, 0)``,
+        ``north = (0, +s)``, ``west = (-s, 0)``, ``south = (0, -s)`` metres
+        (``s = aux_separation_m``). The result is stored as the reference
+        release positions ``lon_0`` / ``lat_0`` on ``(i, j, displacement)``.
 
         Parameters
         ----------
@@ -1002,9 +1007,9 @@ class AuxiliarySeedGrid(SeedGrid):
         Raises
         ------
         ValueError
-            If ``s`` spans 90 degrees of longitude or more at any grid point,
-            which happens closer to a pole than ``2 s / pi``, about 0.64 times
-            the arm separation itself.
+            If ``s`` spans 90 degrees of longitude or more at any grid point.
+            The 90-degree threshold falls closer to a pole than ``2 s / pi``,
+            about 0.64 times the arm separation itself.
         """
         # Broadcast the 1-D axes into curvilinear 2-D fields on (i, j), with lon
         # varying along i and lat along j. These are the diagnostic grid points.
@@ -1040,9 +1045,9 @@ class AuxiliarySeedGrid(SeedGrid):
 class UnstructuredAuxiliarySeedGrid(AuxiliarySeedGrid):
     """Auxiliary seed grid whose grid points need not lie on a mesh.
 
-    The four-arm stencil is differenced against a grid point's own arms and
-    never against another grid point, so the grid points themselves carry no
-    structure: they may be a flat list, a swath along a ship track, or a cluster
+    The four-arm stencil is differenced against a grid point's own arms, not
+    against another grid point. The grid points themselves therefore carry no
+    structure. They may be a flat list, a swath along a ship track, or a cluster
     where the resolution is wanted. :meth:`from_points` lays the stencil around
     such a set. The paired :class:`UnstructuredAuxiliaryFlowMap` reads fields
     between the grid points off their triangulation rather than along axes.
@@ -1061,11 +1066,11 @@ class UnstructuredAuxiliarySeedGrid(AuxiliarySeedGrid):
     ) -> Self:
         """Build an auxiliary-stencil seed grid from an arbitrary set of points.
 
-        The points become the diagnostic grid points ``lon_grid``/``lat_grid``,
-        and the four-arm ``displacement = ['east', 'north', 'west', 'south']``
-        stencil goes around each of them at ``+/- s`` metres in that point's own
-        local east/north frame, stored as the reference release positions
-        ``lon_0``/``lat_0``. ``t0`` and ``T`` enter only at
+        The points become the diagnostic grid points ``lon_grid``/``lat_grid``.
+        The four-arm ``displacement = ['east', 'north', 'west', 'south']``
+        stencil then goes around each of them at ``+/- s`` metres in that point's
+        own local east/north frame. The result is stored as the reference release
+        positions ``lon_0``/``lat_0``. ``t0`` and ``T`` enter only at
         :meth:`SeedGrid.pset_to_flowmap`.
 
         Parameters
@@ -1073,7 +1078,7 @@ class UnstructuredAuxiliarySeedGrid(AuxiliarySeedGrid):
         lon, lat : xr.DataArray or array_like
             The grid points (degrees), of matching dims and shape. A
             ``DataArray`` keeps its own dims, so a curvilinear mesh stays
-            two-dimensional and its diagnostics plot as a field; a plain array
+            two-dimensional and its diagnostics plot as a field. A plain array
             must be 1-D and lands on a ``grid_point`` dim.
         aux_separation_m : float, optional
             Auxiliary separation ``s`` in metres, applied to every arm (default
@@ -1089,9 +1094,10 @@ class UnstructuredAuxiliarySeedGrid(AuxiliarySeedGrid):
         Raises
         ------
         ValueError
-            If ``lon`` and ``lat`` disagree in dims or shape, if a plain array is
-            not 1-D, if a dim carries a name the package builds for itself, or if
-            ``s`` spans 90 degrees of longitude or more at any grid point.
+            Raised if ``lon`` and ``lat`` disagree in dims or shape, or if a
+            plain array is not 1-D. It is also raised if a dim carries a name
+            the package builds for itself, or if ``s`` spans 90 degrees of
+            longitude or more at any grid point.
         """
         lon_grid = _grid_points(lon, LON_GRID_ATTRS)
         lat_grid = _grid_points(lat, LAT_GRID_ATTRS)
@@ -1140,7 +1146,7 @@ class NeighborFlowMap(FlowMap):
 
     Axis-aligned grids only. The neighbour gradient divides each tensor column by
     a single axis step and drops the off-diagonal metric terms
-    (``d lon_0 / d j``, ``d lat_0 / d i``), so it is correct only when ``lon_0``
+    (``d lon_0 / d j``, ``d lat_0 / d i``). It is correct only when ``lon_0``
     varies along ``i`` and ``lat_0`` along ``j``. :meth:`SeedGrid.from_axes`
     always builds such a grid, but :meth:`FlowMap.__init__` accepts any dataset,
     so the limitation is latent. Use :class:`AuxiliaryFlowMap` for curvilinear
@@ -1259,7 +1265,7 @@ class UnstructuredAuxiliaryFlowMap(AuxiliaryFlowMap):
     """Advected auxiliary flow map whose grid points need not lie on a mesh.
 
     Differences ``grad F`` across the same four-arm stencil as
-    :class:`AuxiliaryFlowMap`, and reads a field between grid points off their
+    :class:`AuxiliaryFlowMap`. It reads a field between grid points off their
     Delaunay triangulation rather than along axes, so :meth:`FlowMap.image` and
     the tensor lines run on a point set. The triangulation is taken in degrees,
     so the grid points have to sit on one longitude branch and the set has to

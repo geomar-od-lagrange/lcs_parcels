@@ -1,6 +1,6 @@
 """Broken examples are treated as failing tests.
 
-The `.py` third of each jupytext triplet is an ordinary Python script which we
+The `.py` third of each jupytext triplet is an ordinary Python script that we
 run to verify the notebooks execute end to end.
 """
 
