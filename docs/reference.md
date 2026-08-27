@@ -44,6 +44,7 @@ Hyperbolic LCS as strain tensor lines, taking the gridded outputs of a
 
    lcs_parcels.ftle_ridge_seeds
    lcs_parcels.shrink_lines
+   lcs_parcels.prune_shrink_lines
 ```
 
 ## Modules

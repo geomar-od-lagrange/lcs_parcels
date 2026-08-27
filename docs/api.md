@@ -8,8 +8,8 @@ concrete stencils, exported from the package root:
 from lcs_parcels import SeedGrid, NeighborSeedGrid, AuxiliarySeedGrid, FlowMap, NeighborFlowMap, AuxiliaryFlowMap
 ```
 
-Two further functions turn a `FlowMap`'s strain field into hyperbolic-LCS
-curves: `ftle_ridge_seeds` and `shrink_lines` (see
+Three further functions turn a `FlowMap`'s strain field into hyperbolic-LCS
+curves: `ftle_ridge_seeds`, `shrink_lines` and `prune_shrink_lines` (see
 [Hyperbolic LCS: shrink lines](#hyperbolic-lcs-shrink-lines) below), which
 `FlowMap.hyperbolic_lcs()` runs in one call.
 
@@ -225,15 +225,17 @@ A single `NaN` (lost particle or missing stencil point) propagates
 
 ## Hyperbolic LCS: shrink lines
 
-Two module-level functions (in `lcs_parcels.tensorlines`, exported from the
+Three module-level functions (in `lcs_parcels.tensorlines`, exported from the
 package root) turn a `FlowMap`'s strain field into LCS **curves**, following
 Haller (2015) §5.1 / Table 1 ($n = 2$):
 
 ```python
-from lcs_parcels import ftle_ridge_seeds, shrink_lines
+from lcs_parcels import ftle_ridge_seeds, prune_shrink_lines, shrink_lines
 
-seeds = ftle_ridge_seeds(flowmap.ftle())                                 # seed points
+ftle = flowmap.ftle()
+seeds = ftle_ridge_seeds(ftle)                                              # seed points
 lines = shrink_lines(flowmap, seed_lon=seeds["lon"], seed_lat=seeds["lat"])  # curves
+lines = prune_shrink_lines(lines, ftle)                                     # drop duplicates
 ```
 
 A repelling LCS is a **shrink line**, a curve tangent to the weak-stretch
@@ -249,6 +251,7 @@ ftle_ridge_seeds(ftle, *, window_m=30_000.0, quantile=None,
                  ftle_min=None) -> xr.Dataset
 shrink_lines(flowmap, *, seed_lon, seed_lat, min_anisotropy=1.15,
              step_m=3_000.0, line_length_m=1_500_000.0) -> xr.Dataset
+prune_shrink_lines(lines, ftle, *, window_m=30_000.0) -> xr.Dataset
 ```
 
 Every tuning parameter is stated in the units of the thing itself: metres for
@@ -304,6 +307,23 @@ threshold, so it does not.
   `lon`/`lat` on dims `(line, point)`, one `line` per seed point; every row is
   the same length, NaN-filled past termination, and a seed point that cannot be
   traced at all is an all-NaN row.
+- **`prune_shrink_lines(lines, ftle, *, window_m=...)`** drops shrink lines
+  that duplicate a stronger one, which is what several seeds on one ridge
+  produce. Rows that are NaN at every point are dropped first and cover
+  nothing. The remaining lines are ranked by the FTLE integrated along them
+  (`ftle_mean * length_m`, the FTLE interpolated from `ftle` at each line's
+  points) and walked from the strongest down. A candidate is dropped once one
+  of its points falls within `window_m / 2` of an already-kept line's nearest
+  point *and* the arc length of its uncovered stretch is below `window_m`. A
+  line sharing nothing with a stronger line is always kept, whatever its
+  length, and a kept-or-dropped decision is made for the whole line, never a
+  part of it. Returns `lines` restricted to the kept rows, the `line` coord
+  keeping its **original labels**, plus two new variables on `line`:
+  `ftle_mean` (1/s) and `length_m` (m). The attributes `window_m`,
+  `tube_radius_m`, `min_new_length_m`, `n_lines_in` and `n_lines_dropped`
+  record what was run. Why the score is a line integral and why the tube
+  radius and minimum new length are `window_m / 2` and `window_m` are in
+  [`numerics.md`](numerics.md#why-pruning-is-a-run-length-in-a-tube).
 
 **`min_anisotropy`** is a floor on $\lambda_2 / \lambda_1$, the ratio of the two
 Cauchy–Green eigenvalues, and so dimensionless. It is a **well-definedness
@@ -331,23 +351,27 @@ FlowMap.hyperbolic_lcs(*, window_m=None, quantile=None, ftle_min=None,
                        line_length_m=None) -> xr.Dataset
 ```
 
-Runs the three steps (`ftle()`, `ftle_ridge_seeds`, `shrink_lines`) in one
-call, computing the FTLE exactly once. Every parameter is optional and only the
-ones actually passed are forwarded, so the defaults stay in
-`ftle_ridge_seeds`/`shrink_lines`, including the rule that `quantile` and
-`ftle_min` are mutually exclusive, which raises `ValueError` from
-`ftle_ridge_seeds` when both are passed here. There is no direction argument:
-the flow map already carries $\mathrm{sign}(T)$, so a forward map yields
-repelling LCS and a backward one attracting LCS, and the returned dataset says
-which family it holds. `hyperbolic_lcs()` extracts hyperbolic (repelling and
-attracting) LCS only.
+Runs the four steps (`ftle()`, `ftle_ridge_seeds`, `shrink_lines`,
+`prune_shrink_lines`) in one call, computing the FTLE exactly once and pruning
+at the same `window_m` the seeding used. Every parameter is optional and only
+the ones actually passed are forwarded, so the defaults stay in
+`ftle_ridge_seeds`/`shrink_lines`/`prune_shrink_lines`, including the rule that
+`quantile` and `ftle_min` are mutually exclusive, which raises `ValueError`
+from `ftle_ridge_seeds` when both are passed here. There is no direction
+argument: the flow map already carries $\mathrm{sign}(T)$, so a forward map
+yields repelling LCS and a backward one attracting LCS, and the returned
+dataset says which family it holds. `hyperbolic_lcs()` extracts hyperbolic
+(repelling and attracting) LCS only.
 
-The result is the `shrink_lines` dataset, `lon`/`lat` on `(line, point)`,
-carrying along the `ftle` field on `(i, j)` the seed points were picked from, so
-the curves can be plotted over it without recomputing an eigendecomposition.
-The ridge-selection attributes ride along too, so `lcs.attrs["selector"]`,
-`lcs.attrs["ftle_threshold"]` and `lcs.attrs["min_seed_separation_m"]` are
-readable off the result without re-running the seeding:
+The result is the pruned `shrink_lines` dataset, `lon`/`lat` on `(line, point)`
+with no all-NaN row, `ftle_mean` (1/s) and `length_m` (m) on `line`, and the
+`ftle` field on `(i, j)` the seed points were picked from carried along, so the
+curves can be plotted over it without recomputing an eigendecomposition. The
+`line` coordinate labels the seed indices that survived pruning rather than
+every seed's original index. The ridge-selection and pruning attributes ride
+along too, so `lcs.attrs["selector"]`, `lcs.attrs["ftle_threshold"]`,
+`lcs.attrs["min_seed_separation_m"]` and `lcs.attrs["n_lines_dropped"]` are
+readable off the result without re-running the seeding or the pruning:
 
 ```python
 lcs = forward.hyperbolic_lcs()
@@ -361,7 +385,8 @@ grid be curvilinear), so a gridded field is drawn against them by passing
 `i`/`j` axes.
 
 Ridge-finding itself takes a *field*, not a flow map, so to pick seed points
-from a smoothed or masked FTLE, run the three steps by hand.
+from a smoothed or masked FTLE, or to see the lines before pruning, run the
+four steps by hand.
 
 ## Evolving a material curve
 
@@ -414,7 +439,11 @@ rather than against the logical `i`/`j` axes.
 | `image()`, `grid_image` | `lon` / `lat` | longitude/latitude of the advected position F(x_0) | `degrees_east` / `degrees_north` |
 | `ftle_ridge_seeds()` | `lon` / `lat` | longitude/latitude of the FTLE ridge seed | `degrees_east` / `degrees_north` |
 | `shrink_lines()` | `lon` / `lat` | longitude/latitude along the shrink line | `degrees_east` / `degrees_north` |
+| `prune_shrink_lines()` | `ftle_mean` | mean FTLE along the shrink line | `1/s` |
+| `prune_shrink_lines()` | `length_m` | arc length of the shrink line | `m` |
 | `hyperbolic_lcs()` | `lon` / `lat` | longitude/latitude along the repelling (or attracting) LCS | `degrees_east` / `degrees_north` |
+| `hyperbolic_lcs()` | `ftle_mean` | mean FTLE along the shrink line | `1/s` |
+| `hyperbolic_lcs()` | `length_m` | arc length of the shrink line | `m` |
 
 Units are SI: the FTLE is `1/s`, not 1/day. Convert for display in the plotting
 code, where the conversion is visible, and re-set `units` when you do.

@@ -324,3 +324,84 @@ median areal factor is above 1, the two guards agreed almost exactly, which is
 why the bias did not surface during forward-only development. The agreement is a
 property of the window measured rather than of forward flow in general: at other
 windows the two termination rates differ, in both directions.
+
+## Why pruning is a run length in a tube
+
+`ftle_ridge_seeds` puts several seeds on any ridge longer or wider than
+`window_m`, and `shrink_lines` traces each of them into (nearly) the same
+curve. `prune_shrink_lines` has to drop those near-duplicates while keeping two
+lines that only run together over part of their length. The measurements below
+were taken on the Cabo Verde example, forward map, `window_m` 30 km, with 53
+seeds and 38 traceable lines.
+
+### Score: the line integral, not the mean
+
+Every member of a bundle carries the same FTLE at a given arc length, so the
+line integral $\int \mathrm{FTLE}\,\mathrm{d}s$ ranks the bundle by length and
+the longest trace wins. A line is never dropped in favour of one of its own
+sub-segments, since the superset has the larger integral wherever the FTLE is
+non-negative. The mean used by Farazmand & Haller (2012) cannot separate bundle
+members at all, both being the same. Measured as the directed Hausdorff
+distance from each of the 38 lines to the nearest stronger one (the max over its
+points of the distance to that line):
+
+| range | lines |
+|---|---|
+| 0–10 km | 11 |
+| 10–17.5 km | 3 |
+| 17.5–22.5 km | 0 |
+| 22.5–100 km | 18 |
+| over 100 km | 5 |
+
+The cluster below 10 km is RK2 drift plus a few cells across the ridge, and the
+empty band at 17.5–22.5 km separates it cleanly from the tail of lines that run
+apart. The same statistic with the mean distance in place of the max shows no
+such band (13 of 37 below 5 km, then a smear), so a scheme built on the mean
+distance would have no threshold to pick.
+
+### Coverage: chord distance on the unit sphere
+
+A point of a candidate line is covered once its nearest point on the union of
+the already-kept lines is closer than the tube radius `window_m / 2`, measured
+as a chord on the unit sphere scaled by `EARTH_RADIUS_M`, so no projection and
+no standard parallel enter (consistent with
+[the local east-north frame](#the-local-east-north-frame)). At the 30 km scale
+of `window_m` the chord-versus-arc difference is below 1e-6 relative.
+
+### Rule: whole lines, and the sweep that fixed the constants
+
+Lines are walked from the strongest score down. A line is dropped once it has
+at least one covered point *and* the arc length of its uncovered segments (its
+*new length*) is below `window_m`, and a line sharing nothing with a stronger
+line is always kept, whatever its length. Trimming the covered stretch, as LCS Tool
+(Onu, Huhn & Haller 2015,
+[doi:10.1016/j.jocs.2014.05.002](https://doi.org/10.1016/j.jocs.2014.05.002))
+does, was rejected because it would break a line into segments and break the
+`(line, point)` layout along with it. Two curves that run together and then
+separate would come back as fragments rather than as the two whole lines they
+are.
+
+Neither the tube radius nor the minimum new length is a free parameter, since
+both are read off `window_m`, the resolution already declared when the seeds
+were picked. Sweeping both by hand shows the kept count is flat around that
+pair:
+
+| tube radius | min new length | kept |
+|---|---|---|
+| 10 km | 20 km | 24 |
+| 15 km | 15 km | 23 |
+| 15 km | 30 km | 22 |
+| 20 km | 40 km | 18 |
+| 15 km | (max-distance rule) | 25 |
+
+At `(15 km, 30 km)`, the pair `(window_m / 2, window_m)` for the 30 km run, the
+new-length rule drops three lines beyond a rule that only checked the
+max-distance: two with no new length at all and one 525 km line with 27 km of
+new length. Requiring a covered point before a line can be dropped restores one
+6 km stub that shares nothing with any other line, bringing the count at
+`(15 km, 30 km)` to 23 rather than 22.
+
+The bundles that remain at those settings are curves that run together for
+50–150 km and then separate by more than 30 km (a triple at 26.5 W 16.3 N, a fan
+at 24.8 W 16 N, a pair along 22 W). Each is two distinct structures rather than
+one curve traced twice, and the rule keeps them.

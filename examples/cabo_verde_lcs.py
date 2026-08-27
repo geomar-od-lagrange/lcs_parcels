@@ -45,7 +45,12 @@ from parcels import FieldSet, Particle, ParticleSet, StatusCode
 from parcels.convert import copernicusmarine_to_sgrid
 from parcels.kernels import AdvectionRK4
 
-from lcs_parcels import NeighborSeedGrid, ftle_ridge_seeds, shrink_lines
+from lcs_parcels import (
+    NeighborSeedGrid,
+    ftle_ridge_seeds,
+    prune_shrink_lines,
+    shrink_lines,
+)
 
 # %% [markdown]
 # ## Currents
@@ -223,11 +228,57 @@ untraceable = repelling_lcs["lon"].isnull().all("point")
 int(untraceable.sum()), repelling_lcs.sizes["line"]
 
 # %% [markdown]
+# ## Pruning the bundles
+#
+# A ridge longer than `window_m` takes several seeds along it, and a wide ridge
+# takes seeds across it. Those seeds lie on nearly the same tensor line, so the
+# traced set holds bundles of near-copies of one curve.
+
+# %% [markdown]
+# `prune_shrink_lines` ranks the lines by the FTLE integrated along each and
+# walks from the strongest down. A line is dropped when it runs inside a tube of
+# radius `window_m / 2` around a line already kept and the stretch it spends
+# outside that tube is shorter than `window_m`. Rows that traced no curve are
+# dropped before the ranking. Both distances come from the `window_m` the seeds
+# were picked with, which is the only parameter the step takes.
+
+# %%
+repelling_lcs_pruned = prune_shrink_lines(
+    repelling_lcs, ftle_forward, window_m=window_m
+)
+repelling_lcs_pruned
+
+# %% [markdown]
+# Lines kept, against the rows that went in.
+
+# %%
+repelling_lcs_pruned.sizes["line"], repelling_lcs.sizes["line"]
+
+# %% [markdown]
+# The dropped curves in light grey under the kept ones in red.
+
+# %%
+dropped = repelling_lcs.drop_sel(line=repelling_lcs_pruned["line"].values)
+
+# %%
+fig, ax = plt.subplots()
+ftle_forward.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
+ax.plot(dropped["lon"].values.T, dropped["lat"].values.T, color="lightgrey", lw=0.8)
+ax.plot(
+    repelling_lcs_pruned["lon"].values.T,
+    repelling_lcs_pruned["lat"].values.T,
+    color="tab:red",
+    lw=0.8,
+)
+plt.show()
+
+# %% [markdown]
 # ## Attracting LCS, in one call
 #
-# The backward flow map runs the same three steps, and `hyperbolic_lcs` packs
-# them into one call: it computes the FTLE once, hands it to the ridge finder,
-# and returns the curves together with the field the seeds were picked from.
+# The backward flow map runs the same steps, and `hyperbolic_lcs` packs them
+# into one call: it computes the FTLE once, hands it to the ridge finder, prunes
+# the traced lines, and returns the curves together with the field the seeds
+# were picked from. The attracting family therefore arrives pruned already.
 # *Hyperbolic* because elliptic LCS are a different family.
 
 # %%
@@ -243,17 +294,17 @@ attracting_lcs
 # %% [markdown]
 # ## Repelling LCS over the forward FTLE
 #
-# The seed points are dotted, which shows whether they sit on the ridge tops and
-# stay separated. The FTLE gets a greyscale so the coloured curves stand out
-# against it. The dots with no curve through them are the untraceable seeds
-# counted above.
+# The pruned set of curves. The seed points are dotted, which shows whether they
+# sit on the ridge tops and stay separated. The FTLE gets a greyscale so the
+# coloured curves stand out against it. The dots with no curve through them are
+# the untraceable seeds and the seeds whose line was pruned.
 
 # %%
 fig, ax = plt.subplots()
 ftle_forward.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
 ax.plot(
-    repelling_lcs["lon"].values.T,
-    repelling_lcs["lat"].values.T,
+    repelling_lcs_pruned["lon"].values.T,
+    repelling_lcs_pruned["lat"].values.T,
     color="tab:red",
     lw=0.8,
 )
@@ -285,8 +336,8 @@ plt.show()
 fig, ax = plt.subplots()
 ftle_forward.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
 ax.plot(
-    repelling_lcs["lon"].values.T,
-    repelling_lcs["lat"].values.T,
+    repelling_lcs_pruned["lon"].values.T,
+    repelling_lcs_pruned["lat"].values.T,
     color="tab:red",
     lw=0.8,
 )

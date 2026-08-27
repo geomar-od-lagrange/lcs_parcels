@@ -9,8 +9,23 @@ deprecation shims: the old form is deleted and every call site updated.
 Changes on `main` since the last tag. This heading becomes the version at
 release time.
 
+### Changed
+
+- **`FlowMap.hyperbolic_lcs()` now prunes its shrink lines.** Several seeds on
+  one FTLE ridge used to come back as several near-identical lines, and the
+  result now drops all but the strongest of each such bundle. Its returned
+  dataset therefore has no all-NaN row, carries two new variables per line,
+  `ftle_mean` (1/s) and `length_m` (m), and its `line` coordinate labels the
+  seed indices that survived pruning rather than every seed's original index.
+  To get the unpruned lines, call `ftle_ridge_seeds` and `shrink_lines` by hand
+  and leave out `prune_shrink_lines`.
+
 ### Added
 
+- `prune_shrink_lines(lines, ftle, *, window_m=30_000.0)`, which drops shrink
+  lines that duplicate a stronger one traced from a different seed on the same
+  ridge, ranking lines by the FTLE integrated along them and keeping a line
+  whole or not at all.
 - A DOI badge, and the same concept DOI in `CITATION.cff`. It is the
   all-versions DOI, so it resolves to the newest archived release rather than
   pinning to one, and it carries no version of its own.

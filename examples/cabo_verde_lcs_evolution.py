@@ -157,9 +157,9 @@ forward_maps[-1].ds
 # one (forward–backward duality, Haller & Sapsis 2011,
 # [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597)), each seeded at
 # the local maxima of its own FTLE. `FlowMap.hyperbolic_lcs` runs that whole
-# chain (FTLE, ridge seeds, shrink lines) in one call and reads repelling or
-# attracting off the sign of its own window. *Hyperbolic* because elliptic LCS
-# are a different family.
+# chain (FTLE, ridge seeds, shrink lines, pruning of the near-duplicate lines)
+# in one call and reads repelling or attracting off the sign of its own window.
+# *Hyperbolic* because elliptic LCS are a different family.
 
 # %%
 repelling_lcs = forward_maps[-1].hyperbolic_lcs()
