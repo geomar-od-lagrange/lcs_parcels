@@ -4,10 +4,13 @@ Versions are CalVer, `YYYY.M.D.N`. The API breaks whenever the design improves,
 so each entry says what broke and what to write instead. There are no
 deprecation shims: the old form is deleted and every call site updated.
 
-## Unreleased
+## 2026.8.27.1
 
-Changes on `main` since the last tag. This heading becomes the version at
-release time.
+Pruning of the near-duplicate shrink lines that several seeds on one FTLE ridge
+produce. `FlowMap.hyperbolic_lcs()` returns fewer lines than before, with
+`line` labels that are no longer `0..n-1`, so code that indexed its rows by
+position or compared its line count against the seed count has to change. The
+details are under Changed.
 
 ### Changed
 
