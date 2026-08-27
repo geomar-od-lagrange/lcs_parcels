@@ -701,12 +701,14 @@ class FlowMap(abc.ABC):
         step_m: float | None = None,
         line_length_m: float | None = None,
     ) -> xr.Dataset:
-        """Hyperbolic LCS of this flow map: FTLE, ridge seeds, and shrink lines.
+        """Hyperbolic LCS of this flow map: FTLE, ridge seeds, shrink lines, pruning.
 
-        Runs a three-step workflow in one call: compute the FTLE field
+        Runs the workflow in one call: compute the FTLE field
         (:meth:`ftle`), pick seed points at its strong local maxima
-        (:func:`~lcs_parcels.ftle_ridge_seeds`), and integrate the shrink lines
-        through them (:func:`~lcs_parcels.shrink_lines`).
+        (:func:`~lcs_parcels.ftle_ridge_seeds`), integrate the shrink lines
+        through them (:func:`~lcs_parcels.shrink_lines`), and drop the lines
+        that duplicate a stronger one (:func:`~lcs_parcels.prune_shrink_lines`)
+        at the same ``window_m``.
 
         A *forward* flow map (``T > 0``) yields repelling LCS, a *backward* one
         (``T < 0``) attracting LCS, by the forward-backward duality (Haller &
@@ -717,14 +719,15 @@ class FlowMap(abc.ABC):
         Every call recomputes the FTLE, which is the expensive step, though within
         one call it is computed once and handed to the ridge finder. To re-tune
         parameters against a fixed field, or to pick ridges from a smoothed or
-        masked one, drive the three steps yourself.
+        masked one, or to see the unpruned lines, drive the steps yourself.
 
         Parameters
         ----------
         window_m, quantile, ftle_min : float, optional
             Ridge-selection parameters, passed to
             :func:`~lcs_parcels.ftle_ridge_seeds`. ``quantile`` and ``ftle_min``
-            are mutually exclusive.
+            are mutually exclusive. ``window_m`` also goes to
+            :func:`~lcs_parcels.prune_shrink_lines`.
         min_anisotropy, step_m, line_length_m : float, optional
             Integration parameters, passed to
             :func:`~lcs_parcels.shrink_lines`.
@@ -732,15 +735,25 @@ class FlowMap(abc.ABC):
         Returns
         -------
         xr.Dataset
-            ``lon``/``lat`` (degrees) on dims ``(line, point)``, the LCS curves
-            with NaN past termination, together with the ``ftle`` field (1/s) on
-            ``(i, j)`` that the seeds were picked from, so the curves can be
-            plotted over it without recomputing. The ridge-selection attributes
-            of :func:`~lcs_parcels.ftle_ridge_seeds`, including
-            ``min_seed_separation_m``, are copied onto the result.
+            ``lon``/``lat`` (degrees) on dims ``(line, point)``, the pruned LCS
+            curves with NaN past termination and no all-NaN row, with
+            ``ftle_mean`` (1/s) and ``length_m`` (m) per line. The ``line``
+            labels are the seed indices that survived pruning.
+
+            The ``ftle`` field (1/s) on ``(i, j)`` that the seeds were picked
+            from comes along, so the curves can be plotted over it without
+            recomputing.
+
+            The ridge-selection attributes, ``min_seed_separation_m`` included,
+            and the pruning attributes, ``n_lines_dropped`` among them, are on
+            the result.
         """
         # Deferred import: `tensorlines` imports from this module.
-        from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
+        from lcs_parcels.tensorlines import (
+            ftle_ridge_seeds,
+            prune_shrink_lines,
+            shrink_lines,
+        )
 
         # An explicit None would bind over the callee's default, so unset
         # arguments are dropped rather than forwarded.
@@ -761,6 +774,9 @@ class FlowMap(abc.ABC):
                 step_m=step_m,
                 line_length_m=line_length_m,
             ),
+        )
+        lines = prune_shrink_lines(
+            lines, ftle=ftle, **_filter_kwargs(window_m=window_m)
         )
         # The forward-backward duality belongs to the diagnostic, so the LCS
         # family is named here rather than on the flow map.

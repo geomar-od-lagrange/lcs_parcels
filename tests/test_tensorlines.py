@@ -30,7 +30,12 @@ import xarray as xr
 from conftest import advected_flowmap, advected_flowmap_f, seed_origin
 from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels import AuxiliarySeedGrid, ftle_ridge_seeds, shrink_lines
+from lcs_parcels import (
+    AuxiliarySeedGrid,
+    ftle_ridge_seeds,
+    prune_shrink_lines,
+    shrink_lines,
+)
 from lcs_parcels.grids import _M_PER_DEG, _separation_m
 from lcs_parcels.tensorlines import (
     _shrink_line_tangent,
@@ -1170,30 +1175,37 @@ def _wavy_stretch_flowmap(period_m=250_000.0, base=3.0, amp=1.0):
 
 
 def test_hyperbolic_lcs_matches_the_manual_pipeline():
-    """hyperbolic_lcs() is exactly ftle -> ftle_ridge_seeds -> shrink_lines,
-    plus the FTLE field itself."""
+    """hyperbolic_lcs() is exactly ftle -> ftle_ridge_seeds -> shrink_lines ->
+    prune_shrink_lines at one ``window_m``, plus the FTLE field itself. The
+    pruned result has no all-NaN row and its ``line`` labels are seed indices."""
     fm = _wavy_stretch_flowmap()
 
     ftle = fm.ftle()
     seeds = ftle_ridge_seeds(
         ftle, window_m=LCS_KWARGS["window_m"], quantile=LCS_KWARGS["quantile"]
     )
-    manual = shrink_lines(
+    unpruned = shrink_lines(
         fm,
         seed_lon=seeds["lon"],
         seed_lat=seeds["lat"],
         step_m=LCS_KWARGS["step_m"],
         line_length_m=LCS_KWARGS["line_length_m"],
     )
+    manual = prune_shrink_lines(unpruned, ftle=ftle, window_m=LCS_KWARGS["window_m"])
 
     lcs = fm.hyperbolic_lcs(**LCS_KWARGS)
 
-    assert set(lcs.data_vars) == {"lon", "lat", "ftle"}
+    assert set(lcs.data_vars) == {"lon", "lat", "ftle", "ftle_mean", "length_m"}
     # a real, partial seed selection
-    assert lcs.sizes["line"] == seeds.sizes["seed"] > 1
-    for name in ("lon", "lat"):
+    assert seeds.sizes["seed"] > 1
+    assert lcs.sizes["line"] == manual.sizes["line"] > 0
+    np.testing.assert_array_equal(lcs["line"].values, manual["line"].values)
+    for name in ("lon", "lat", "ftle_mean", "length_m"):
         np.testing.assert_array_equal(lcs[name].values, manual[name].values)
     np.testing.assert_array_equal(lcs["ftle"].values, ftle.values)
+    assert bool(lcs["lon"].notnull().any("point").all())
+    assert lcs.attrs["tube_radius_m"] == LCS_KWARGS["window_m"] / 2.0
+    assert lcs.attrs["min_new_length_m"] == LCS_KWARGS["window_m"]
 
 
 def test_hyperbolic_lcs_ridge_parameters_are_forwarded():
@@ -1320,3 +1332,225 @@ def test_shrink_lines_seed_pair_is_keyword_only(lon_axis, lat_axis):
     seed = _centre_seed(fm)
     with pytest.raises(TypeError):
         shrink_lines(fm, seed["seed_lon"], seed["seed_lat"])
+
+
+# --- prune_shrink_lines ----------------------------------------------------
+#
+# The function takes a lines dataset, so the polylines are laid out by hand on
+# a uniform FTLE field rather than traced. Every line sits on or near the
+# equator, where a degree of longitude or latitude is ``_M_PER_DEG`` metres, so
+# a distance in metres converts to degrees by one division.
+
+PRUNE_WINDOW_M = 30_000.0
+PRUNE_TUBE_M = PRUNE_WINDOW_M / 2.0
+
+
+def _deg(metres):
+    """Metres along a great circle in degrees of arc."""
+    return np.asarray(metres, dtype=float) / _M_PER_DEG
+
+
+def _lines_dataset(polylines):
+    """``polylines``, a list of ``(lon, lat)`` pairs of equal-length sequences,
+    as the NaN-padded ``(line, point)`` dataset :func:`shrink_lines` returns."""
+    n_point = max(len(lon) for lon, _ in polylines)
+    lon_lines = np.full((len(polylines), n_point), np.nan)
+    lat_lines = np.full((len(polylines), n_point), np.nan)
+    for row, (lon, lat) in enumerate(polylines):
+        lon_lines[row, : len(lon)] = lon
+        lat_lines[row, : len(lat)] = lat
+    return xr.Dataset(
+        {
+            "lon": xr.DataArray(
+                lon_lines,
+                dims=("line", "point"),
+                attrs={
+                    "long_name": "longitude along the shrink line",
+                    "units": "degrees_east",
+                },
+            ),
+            "lat": xr.DataArray(
+                lat_lines,
+                dims=("line", "point"),
+                attrs={
+                    "long_name": "latitude along the shrink line",
+                    "units": "degrees_north",
+                },
+            ),
+        },
+        coords={
+            "line": xr.DataArray(
+                np.arange(len(polylines)),
+                dims="line",
+                attrs={"long_name": "shrink line index, one per seed point"},
+            ),
+            "point": xr.DataArray(
+                np.arange(n_point),
+                dims="point",
+                attrs={"long_name": "point index along the shrink line"},
+            ),
+        },
+    )
+
+
+def _uniform_ftle(lon_axis=None, lat_axis=None, value=1e-5):
+    """A constant FTLE field on ``(i, j)`` with ``lon_grid``/``lat_grid`` coords,
+    spanning 10 degrees around the origin unless axes are given."""
+    if lon_axis is None:
+        lon_axis = np.linspace(-5.0, 5.0, 101)
+    if lat_axis is None:
+        lat_axis = np.linspace(-5.0, 5.0, 101)
+    values = np.full((lon_axis.size, lat_axis.size), value)
+    return _gridded_field(values, lon_axis, lat_axis)
+
+
+def _zonal_line(start_m, end_m, *, lat_m=0.0, spacing_m=10_000.0):
+    """A ``(lon, lat)`` polyline along a parallel ``lat_m`` metres north of the
+    equator, from ``start_m`` to ``end_m`` metres east of the origin."""
+    along = np.arange(start_m, end_m + 0.5 * spacing_m, spacing_m)
+    return _deg(along), np.full(along.size, _deg(lat_m))
+
+
+def _prune(polylines, **kwargs):
+    """Prune hand-made ``polylines`` on the uniform field at the test window."""
+    return prune_shrink_lines(
+        _lines_dataset(polylines),
+        ftle=_uniform_ftle(),
+        window_m=PRUNE_WINDOW_M,
+        **kwargs,
+    )
+
+
+def test_prune_shrink_lines_drops_an_identical_copy():
+    """Two identical copies of a line leave one, under its original label."""
+    line = _zonal_line(0.0, 100_000.0)
+
+    pruned = _prune([line, line])
+
+    assert pruned.sizes["line"] == 1
+    assert pruned["line"].values[0] in (0, 1)
+    assert pruned.attrs["n_lines_dropped"] == 1
+    np.testing.assert_array_equal(pruned["lon"].isel(line=0).values, line[0])
+
+
+@pytest.mark.parametrize("superset_first", [True, False])
+def test_prune_shrink_lines_keeps_the_superset(superset_first):
+    """A line and a sub-segment of it in a uniform field leave the whole line,
+    whichever row comes first."""
+    whole = _zonal_line(0.0, 100_000.0)
+    part = _zonal_line(30_000.0, 60_000.0)
+    polylines = [whole, part] if superset_first else [part, whole]
+    whole_label = 0 if superset_first else 1
+
+    pruned = _prune(polylines)
+
+    assert pruned["line"].values.tolist() == [whole_label]
+    assert pruned.attrs["n_lines_dropped"] == 1
+
+
+def test_prune_shrink_lines_ranks_by_length_without_ftle():
+    """Without a field the ranking is the arc length alone, the whole line wins
+    over its sub-segment, and no ``ftle_mean`` is added."""
+    whole = _zonal_line(0.0, 100_000.0)
+    part = _zonal_line(30_000.0, 60_000.0)
+
+    pruned = prune_shrink_lines(_lines_dataset([part, whole]), window_m=PRUNE_WINDOW_M)
+
+    assert pruned["line"].values.tolist() == [1]
+    assert "ftle_mean" not in pruned
+    np.testing.assert_allclose(pruned["length_m"].values, 100_000.0, rtol=1e-6)
+
+
+def test_prune_shrink_lines_drops_a_copy_inside_the_tube():
+    """A copy offset by a third of the tube radius all along is one line."""
+    line = _zonal_line(0.0, 100_000.0)
+    offset = _zonal_line(0.0, 100_000.0, lat_m=PRUNE_TUBE_M / 3.0)
+
+    pruned = _prune([line, offset])
+
+    assert pruned.sizes["line"] == 1
+    assert pruned.attrs["n_lines_dropped"] == 1
+
+
+def test_prune_shrink_lines_keeps_lines_outside_the_tube():
+    """Two lines three tube radii apart everywhere are both kept."""
+    line = _zonal_line(0.0, 100_000.0)
+    apart = _zonal_line(0.0, 100_000.0, lat_m=3.0 * PRUNE_TUBE_M)
+
+    pruned = _prune([line, apart])
+
+    assert pruned["line"].values.tolist() == [0, 1]
+    assert pruned.attrs["n_lines_dropped"] == 0
+
+
+def _departing_line(shared_m, north_m, *, spacing_m):
+    """A polyline along the equator for ``shared_m`` metres, then due north for
+    ``north_m`` metres, in steps of ``spacing_m``."""
+    lon_shared, lat_shared = _zonal_line(0.0, shared_m, spacing_m=spacing_m)
+    north = np.arange(spacing_m, north_m + 0.5 * spacing_m, spacing_m)
+    lon = np.concatenate([lon_shared, np.full(north.size, lon_shared[-1])])
+    lat = np.concatenate([lat_shared, _deg(north)])
+    return lon, lat
+
+
+def test_prune_shrink_lines_keeps_a_long_departure():
+    """A line that coincides with a stronger one and then leaves the tube for
+    over twice ``window_m`` of new length is kept whole."""
+    strong = _zonal_line(0.0, 300_000.0)
+    departing = _departing_line(100_000.0, 100_000.0, spacing_m=10_000.0)
+
+    pruned = _prune([strong, departing])
+
+    assert pruned["line"].values.tolist() == [0, 1]
+    assert pruned.attrs["n_lines_dropped"] == 0
+
+
+def test_prune_shrink_lines_drops_a_short_departure():
+    """A line that coincides with a stronger one and leaves the tube for under
+    a third of ``window_m`` of new length is dropped."""
+    strong = _zonal_line(0.0, 300_000.0)
+    departing = _departing_line(100_000.0, 25_000.0, spacing_m=5_000.0)
+
+    pruned = _prune([strong, departing])
+
+    assert pruned["line"].values.tolist() == [0]
+    assert pruned.attrs["n_lines_dropped"] == 1
+
+
+def test_prune_shrink_lines_keeps_a_short_isolated_line():
+    """A line shorter than ``window_m`` that shares nothing with any other line
+    is kept, so pruning is not a length filter."""
+    long = _zonal_line(0.0, 300_000.0)
+    stub = _zonal_line(0.0, 10_000.0, lat_m=200_000.0, spacing_m=5_000.0)
+
+    pruned = _prune([long, stub])
+
+    assert pruned["line"].values.tolist() == [0, 1]
+    assert pruned.attrs["n_lines_dropped"] == 0
+
+
+def test_prune_shrink_lines_drops_all_nan_rows():
+    """An all-NaN row is dropped and leaves the one real line, under its own
+    label."""
+    line = _zonal_line(0.0, 100_000.0)
+    untraceable = (np.full(line[0].size, np.nan), np.full(line[0].size, np.nan))
+
+    pruned = _prune([untraceable, line])
+
+    assert pruned["line"].values.tolist() == [1]
+    assert bool(pruned["lon"].notnull().all())
+
+
+def test_prune_shrink_lines_sees_across_the_antimeridian():
+    """One zonal line crossing the antimeridian, written once on the branch
+    ending at ``180.1`` and once on the branch starting at ``-180.1``, is one
+    line."""
+    lon = np.linspace(179.9, 180.1, 5)
+    lat = np.zeros(lon.size)
+    ftle = _uniform_ftle(lon_axis=np.linspace(170.0, 190.0, 41))
+
+    lines = _lines_dataset([(lon, lat), (lon - 360.0, lat)])
+    pruned = prune_shrink_lines(lines, ftle=ftle, window_m=PRUNE_WINDOW_M)
+
+    assert pruned.sizes["line"] == 1
+    assert pruned.attrs["n_lines_dropped"] == 1

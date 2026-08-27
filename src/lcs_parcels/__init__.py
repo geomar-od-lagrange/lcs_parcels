@@ -20,7 +20,7 @@ from lcs_parcels.grids import (
     NeighborSeedGrid,
     SeedGrid,
 )
-from lcs_parcels.tensorlines import ftle_ridge_seeds, shrink_lines
+from lcs_parcels.tensorlines import ftle_ridge_seeds, prune_shrink_lines, shrink_lines
 
 #: Read from the installed distribution, whose version hatch-vcs derived from the
 #: git tag at build time. Nothing in the source tree carries a version literal.
@@ -34,5 +34,6 @@ __all__ = [
     "NeighborSeedGrid",
     "SeedGrid",
     "ftle_ridge_seeds",
+    "prune_shrink_lines",
     "shrink_lines",
 ]

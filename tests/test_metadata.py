@@ -14,6 +14,7 @@ from lcs_parcels import (
     AuxiliarySeedGrid,
     NeighborSeedGrid,
     ftle_ridge_seeds,
+    prune_shrink_lines,
     shrink_lines,
 )
 
@@ -174,6 +175,40 @@ def test_shrink_lines_output_is_labelled(lon_axis, lat_axis):
     )
 
 
+def test_prune_shrink_lines_output_is_labelled(lon_axis, lat_axis):
+    """The pruned dataset keeps the labelled ``lon``/``lat`` and ``line``, adds
+    ``ftle_mean`` in 1/s and ``length_m`` in metres, and ``length_m`` is the
+    arc length the integrator traced."""
+    fm = advected_flowmap(
+        AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
+    )
+    lines = shrink_lines(
+        fm,
+        seed_lon=lon_axis[1:3],
+        seed_lat=lat_axis[1:3],
+        step_m=1_000.0,
+        line_length_m=6_000.0,
+    )
+    pruned = prune_shrink_lines(lines, ftle=fm.ftle(), window_m=RIDGE_WINDOW_M)
+
+    assert pruned.sizes["line"] > 0
+    assert_labelled(
+        pruned,
+        expected_units={
+            "lon": "degrees_east",
+            "lat": "degrees_north",
+            "ftle_mean": "1/s",
+            "length_m": "m",
+        },
+    )
+    assert pruned.attrs.get("long_name")
+    assert pruned["line"].attrs.get("long_name")
+
+    # Six 1 km steps per line, and the step is the exact inverse of the
+    # separation measurement the length sums.
+    np.testing.assert_allclose(pruned["length_m"].values, 6_000.0, rtol=1e-9)
+
+
 def test_ftle_ridge_seeds_output_is_labelled(lon_axis, lat_axis):
     """The seed points come back as a dataset, so they carry the same metadata as
     every other return: labelled ``lon``/``lat`` and a labelled ``seed`` index."""
@@ -215,7 +250,10 @@ def test_hyperbolic_lcs_carries_the_ridge_selection_attrs(lon_axis, lat_axis):
 def test_hyperbolic_lcs_output_is_labelled(lon_axis, lat_axis):
     """The one-call method returns curves and the FTLE field in one dataset, so
     both halves, and the grid coords the FTLE brings with it, must be
-    labelled, and the dataset itself must say which kind of LCS it holds."""
+    labelled, and the dataset itself must say which kind of LCS it holds.
+
+    ``ftle_mean`` and ``length_m`` are expected because the method prunes its
+    lines and the pruning step adds them."""
     fm = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
     )
@@ -229,9 +267,11 @@ def test_hyperbolic_lcs_output_is_labelled(lon_axis, lat_axis):
             "lon": "degrees_east",
             "lat": "degrees_north",
             "ftle": "1/s",
+            "ftle_mean": "1/s",
+            "length_m": "m",
         },
     )
     assert lcs.attrs.get("long_name")
     # The curves and the field they were seeded from are distinct quantities and
     # must not collide in the one dataset they come back in.
-    assert set(lcs.data_vars) == {"lon", "lat", "ftle"}
+    assert set(lcs.data_vars) == {"lon", "lat", "ftle", "ftle_mean", "length_m"}

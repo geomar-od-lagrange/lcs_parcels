@@ -11,10 +11,12 @@ forward-backward duality (Haller & Sapsis 2011, https://doi.org/10.1063/1.357959
 they are the shrink lines of the *backward* flow, so :func:`shrink_lines` of a
 backward :class:`~lcs_parcels.FlowMap` gives them.
 
-Two functions compose the workflow. :func:`ftle_ridge_seeds` picks seed points
-and :func:`shrink_lines` integrates the tensor lines through them. Both take the
-gridded xarray outputs of a :class:`~lcs_parcels.FlowMap`, and
-:meth:`~lcs_parcels.FlowMap.hyperbolic_lcs` runs the pair in one call.
+The workflow is :func:`ftle_ridge_seeds`, which picks seed points,
+:func:`shrink_lines`, which integrates the tensor lines through them, and
+:func:`prune_shrink_lines`, which drops the near-duplicate lines that several
+seeds on one ridge produce. All take the gridded xarray outputs of a
+:class:`~lcs_parcels.FlowMap`, and :meth:`~lcs_parcels.FlowMap.hyperbolic_lcs`
+runs them in one call.
 
 Rectilinear grids only. The tensor is interpolated on axis-aligned
 ``lon_grid``/``lat_grid`` axes (``lon_grid`` varying along ``i``, ``lat_grid``
@@ -32,7 +34,7 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels.grids import _M_PER_DEG, _separation_m
+from lcs_parcels.grids import _M_PER_DEG, EARTH_RADIUS_M, _separation_m
 
 
 def _odd_cells(window_m: float, spacing_m: float) -> int:
@@ -519,4 +521,132 @@ def shrink_lines(
                 attrs={"long_name": "point index along the shrink line"},
             ),
         },
+    )
+
+
+def _unit_sphere_xyz(lon: xr.DataArray, lat: xr.DataArray) -> xr.DataArray:
+    """Unit-sphere position of ``lon``/``lat`` (degrees), with an ``xyz`` dim."""
+    lon_rad = np.deg2rad(lon)
+    lat_rad = np.deg2rad(lat)
+    return xr.concat(
+        [
+            np.cos(lat_rad) * np.cos(lon_rad),
+            np.cos(lat_rad) * np.sin(lon_rad),
+            np.sin(lat_rad),
+        ],
+        dim="xyz",
+    )
+
+
+def prune_shrink_lines(
+    lines: xr.Dataset,
+    *,
+    ftle: xr.DataArray | None = None,
+    window_m: float = 30_000.0,
+) -> xr.Dataset:
+    """Drop shrink lines that duplicate a stronger one.
+
+    Lines are ranked by the FTLE integrated along them (``ftle_mean`` times
+    ``length_m``), or by ``length_m`` alone when no ``ftle`` is given, and walked
+    from the strongest down. A line is dropped when it touches the
+    ``window_m / 2`` tube of a kept line and adds under ``window_m`` outside it.
+
+    Whole lines are kept or dropped. A line sharing nothing with a stronger line
+    is always kept, whatever its length.
+
+    Rows that are NaN at every point are dropped first and cover nothing. FTLE
+    interpolated as NaN counts as zero.
+
+    Parameters
+    ----------
+    lines : xr.Dataset
+        A :func:`shrink_lines` dataset, ``lon``/``lat`` on ``(line, point)`` with
+        NaN past termination. Other variables on ``line`` pass through.
+    ftle : xr.DataArray, optional
+        The field the seeds were picked from, on ``(i, j)`` with
+        ``lon_grid``/``lat_grid`` coordinates, e.g., from :meth:`FlowMap.ftle`.
+    window_m : float, optional
+        Resolution below which two lines are one line (default 30 km); the
+        ``window_m`` the seeds were picked with. The tube radius is half of it
+        and the minimum new length equals it.
+
+    Returns
+    -------
+    xr.Dataset
+        ``lines`` restricted to the kept rows, the ``line`` coord keeping its
+        original labels, plus ``length_m`` (m) and, with ``ftle``, ``ftle_mean``
+        (1/s) on ``line``. Attributes record ``window_m``, ``tube_radius_m``,
+        ``min_new_length_m``, ``n_lines_in`` and ``n_lines_dropped``.
+    """
+    tube_radius_m = window_m / 2.0
+    min_new_length_m = window_m
+    n_lines_in = lines.sizes["line"]
+
+    lines = lines.isel(line=lines["lon"].notnull().any("point"))
+    lon, lat = lines["lon"], lines["lat"]
+    # Segment from each point to the next, NaN at the last point and past
+    # termination, so `sum` counts the traced arc only.
+    dx, dy = _separation_m(
+        lon_a=lon, lat_a=lat, lon_b=lon.shift(point=-1), lat_b=lat.shift(point=-1)
+    )
+    segment_m = np.hypot(dx, dy)
+    length_m = segment_m.sum("point").assign_attrs(
+        long_name="arc length of the shrink line", units="m"
+    )
+    scores = {"length_m": length_m}
+    if ftle is not None:
+        ftle_axes = ftle.reset_coords(drop=True).assign_coords(
+            i=ftle["lon_grid"].isel(j=0).values, j=ftle["lat_grid"].isel(i=0).values
+        )
+        # `interp` rejects an empty query, which every-row-NaN input produces.
+        ftle_along = (
+            ftle_axes.interp(i=lon, j=lat).drop_vars(["i", "j"])
+            if lon.size
+            else xr.zeros_like(lon)
+        )
+        scores["ftle_mean"] = (
+            ftle_along.fillna(0.0)
+            .where(lon.notnull())
+            .mean("point")
+            .assign_attrs(long_name="mean FTLE along the shrink line", units="1/s")
+        )
+    score = scores["length_m"] * scores.get("ftle_mean", 1.0)
+
+    # `covered[line, other, point]`: the point of `line` lies within the tube of
+    # some point of `other`. Compared as an angle on the unit sphere.
+    xyz = _unit_sphere_xyz(lon, lat)
+    cos_tube = np.cos(tube_radius_m / EARTH_RADIUS_M)
+    kept: list = []
+    # An input with no traced row has nothing to walk, and `concat` of nothing
+    # raises.
+    if lines.sizes["line"]:
+        covered = xr.concat(
+            [
+                xr.dot(xyz, other.rename(point="other_point"), dim="xyz").max(
+                    "other_point"
+                )
+                >= cos_tube
+                for other in xyz.transpose("line", ...)
+            ],
+            dim=xyz["line"].rename(line="other"),
+        )
+    for label in score.sortby(score, ascending=False)["line"].values:
+        if kept:
+            hit = covered.sel(line=label, other=kept).any("other")
+            new_segment = ~hit & ~hit.shift(point=-1, fill_value=True)
+            new_length_m = segment_m.sel(line=label).where(new_segment).sum("point")
+            if bool(hit.any()) and float(new_length_m) < min_new_length_m:
+                continue
+        kept.append(label)
+
+    pruned = lines.isel(line=lines["line"].isin(kept))
+    return pruned.assign(
+        {name: value.sel(line=pruned["line"]) for name, value in scores.items()}
+    ).assign_attrs(
+        long_name="shrink lines with near-duplicates of a stronger line dropped",
+        window_m=float(window_m),
+        tube_radius_m=float(tube_radius_m),
+        min_new_length_m=float(min_new_length_m),
+        n_lines_in=int(n_lines_in),
+        n_lines_dropped=int(n_lines_in - len(kept)),
     )

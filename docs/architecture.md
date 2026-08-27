@@ -275,10 +275,11 @@ rejected with `ValueError`.
 
 Downstream of the FTLE, the geometric layer
 ([`src/lcs_parcels/tensorlines.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/tensorlines.py)) turns the
-strain field into LCS **curves**. The extraction is implemented as two free
+strain field into LCS **curves**. The extraction is implemented as free
 functions that consume a `FlowMap`'s xarray outputs rather than as methods on
 `FlowMap`, which stays a gridded-diagnostics object. That keeps the one new
-external dependency (`scipy`, for grid interpolation) at the boundary:
+external dependency (`scipy`, for grid interpolation) at the
+boundary:
 
 - `ftle_ridge_seeds(ftle)` finds seed points at the FTLE ridge tops (windowed
   local maxima above a magnitude floor), returning an `xr.Dataset` of
@@ -286,7 +287,10 @@ external dependency (`scipy`, for grid interpolation) at the boundary:
   and what `window_m` became on this grid;
 - `shrink_lines(flowmap, seed_lon=..., seed_lat=...)` integrates the $\xi_1$
   tensor lines ($\dot r = \xi_1(r)$, Haller Table 1) through those seeds,
-  returning an `xr.Dataset` of polylines on `(line, point)`.
+  returning an `xr.Dataset` of polylines on `(line, point)`;
+- `prune_shrink_lines(lines, ftle=ftle)` drops the lines that duplicate a stronger
+  one, several seeds on one ridge having traced (nearly) the same curve,
+  returning the same `(line, point)` dataset restricted to the kept rows.
 
 Repelling versus attracting is set by which flow map is passed: forward gives
 repelling LCS, backward gives attracting LCS, by the forward–backward duality of
@@ -304,11 +308,13 @@ would have to be undone when that extraction lands (GitHub issue #8).
 
 `hyperbolic_lcs()` is a convenience wrapper and introduces no new type. It
 evaluates the FTLE once and hands that field to the ridge finder, so a caller
-who only wants the curves need not arrange the three steps. Ridge-finding still
+who only wants the curves need not arrange the steps. Ridge-finding still
 takes a *field* rather than a `FlowMap`: passing the flow map would hide a
 recomputation, and a caller who wants to smooth or mask the FTLE before picking
-ridges must be able to. The three functions underneath therefore stay
-independently callable.
+ridges must be able to. The functions underneath therefore stay
+independently callable, which is also how the unpruned lines are seen. Call
+`ftle_ridge_seeds` and `shrink_lines` by hand and leave out
+`prune_shrink_lines`.
 
 `hyperbolic_lcs()` returns the curves *and* the FTLE field they were seeded from
 in one `Dataset`. The first plot anyone makes is the curves over that field, and
@@ -321,8 +327,10 @@ curves: a caller who never sees the intermediate `Dataset` can still read
 result.
 
 Its parameters all default to `None` and only those the caller set are
-forwarded, so `ftle_ridge_seeds` and `shrink_lines` remain the single owners of
-their defaults. That holds for the mutually exclusive pair too: passing both
+forwarded, so `ftle_ridge_seeds`, `shrink_lines` and `prune_shrink_lines`
+remain the single owners of their defaults. `window_m` is the one parameter
+`prune_shrink_lines` takes, so it is forwarded to both the seeding and the
+pruning step. That holds for the mutually exclusive pair too: passing both
 `quantile` and `ftle_min` here forwards both, and the `ValueError` is raised in
 `ftle_ridge_seeds`, which is where the rule lives. There is no direction
 argument, since the flow map already carries $\mathrm{sign}(T)$, and the returned
@@ -385,6 +393,38 @@ difference needs one threshold held fixed across all of it, which a quantile
 cannot express. The two selectors are therefore mutually exclusive, and passing
 both raises a `ValueError` rather than following a precedence rule: "quantile
 0.9 and 1e-6 1/s" has no reading a caller is likely to have meant.
+
+### Why pruning drops whole lines
+
+`prune_shrink_lines` keeps or drops each candidate line entire and never trims
+the stretch of it that runs close to an already-kept line. The dataset it
+consumes and returns lays `lon`/`lat` out as `(line, point)`, one row per seed.
+A function that trimmed part of a row would have to break that row into pieces,
+turning one seed's line into a variable number of fragments, and every other
+`line`-indexed variable would have to be split or repeated along with it.
+
+The design this rules out is the one LCS Tool takes (Onu, Huhn & Haller 2015,
+[doi:10.1016/j.jocs.2014.05.002](https://doi.org/10.1016/j.jocs.2014.05.002)):
+trim the weaker line wherever it runs within a radius of a stronger one. That
+loses exactly the case pruning is asked to preserve, two curves that run
+together for part of their length and then separate into distinct structures.
+Trimming the shared stretch of the weaker one would hand back a curve shorter
+than the LCS it traces. Keeping the row whole is what lets that case survive
+pruning unchanged, at the cost of keeping bundle members that overlap almost
+entirely wherever the whole-line rule says to.
+
+### Why pruning takes `window_m`
+
+`prune_shrink_lines` takes one tuning parameter, `window_m`, the same knob
+`ftle_ridge_seeds` already takes. Two lines seeded within `window_m` of one
+ridge are the near-duplicates pruning exists to remove, so the tube radius
+(`window_m / 2`) and the minimum new length (`window_m`) it is checked against
+are read off the resolution the seeds were already picked at, rather than
+introduced as a second knob a caller would have to keep in step with the
+first. `FlowMap.hyperbolic_lcs` passes the one `window_m` it is given to both
+steps for the same reason. The measurements behind the two derived constants
+are in
+[`docs/numerics.md`](numerics.md#why-pruning-is-a-run-length-in-a-tube).
 
 ## Reprs
 

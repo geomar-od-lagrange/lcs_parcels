@@ -56,6 +56,9 @@ Rules that fall out of it:
   test: if it sounds like it could be from *The Road Not Taken*, it is wrong.
   This applies to prose everywhere, in docstrings, docs, examples and commit
   messages, and is the rule most often broken in a first draft.
+- **Prose never counts what it lists.** Write "`ftle_ridge_seeds`,
+  `shrink_lines` and `prune_shrink_lines`", never "the three functions" or "the
+  four steps". A count goes stale at the next addition and nothing checks it.
 - **A length budget, and it is a number.** A docstring paragraph explains one
   thing in at most three lines. A code comment is at most two. Over budget means
   the material belongs in `docs/numerics.md` or `docs/architecture.md`, or does
@@ -323,11 +326,13 @@ verified against the pinned v4 alpha:
   against one threshold, but it is opt-in beside a scale-free default
   (`quantile`), and the reason it exists is written down for the developer
   (`docs/architecture.md`, "Why an absolute FTLE floor exists at all").
-- **Same-typed adjacent arguments are keyword-only.** A public entry point that
-  takes a lon/lat pair (or any other run of interchangeable-looking arguments)
-  takes it by keyword, so the trusting user cannot silently transpose them: a
-  swap must raise `TypeError` rather than return a plausible-looking answer at
-  the wrong location.
+- **One positional argument, the object acted on; everything else is
+  keyword-only.** `shrink_lines(flowmap, *, seed_lon, seed_lat)` and
+  `prune_shrink_lines(lines, *, ftle)`, never `prune_shrink_lines(lines, ftle)`,
+  so the trusting user cannot transpose two arguments or guess which of two
+  xarray objects goes first. A swap must raise `TypeError` rather than return a
+  plausible-looking answer at the wrong location. A lon/lat pair is the
+  clearest case and gets no exemption.
 
 ## Process & change discipline
 
