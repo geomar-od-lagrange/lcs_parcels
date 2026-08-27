@@ -275,10 +275,10 @@ rejected with `ValueError`.
 
 Downstream of the FTLE, the geometric layer
 ([`src/lcs_parcels/tensorlines.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/tensorlines.py)) turns the
-strain field into LCS **curves**. The extraction is implemented as three free
+strain field into LCS **curves**. The extraction is implemented as free
 functions that consume a `FlowMap`'s xarray outputs rather than as methods on
 `FlowMap`, which stays a gridded-diagnostics object. That keeps the one new
-external dependency (`scipy`, for grid interpolation and its `cKDTree`) at the
+external dependency (`scipy`, for grid interpolation) at the
 boundary:
 
 - `ftle_ridge_seeds(ftle)` finds seed points at the FTLE ridge tops (windowed
@@ -288,7 +288,7 @@ boundary:
 - `shrink_lines(flowmap, seed_lon=..., seed_lat=...)` integrates the $\xi_1$
   tensor lines ($\dot r = \xi_1(r)$, Haller Table 1) through those seeds,
   returning an `xr.Dataset` of polylines on `(line, point)`;
-- `prune_shrink_lines(lines, ftle)` drops the lines that duplicate a stronger
+- `prune_shrink_lines(lines, ftle=ftle)` drops the lines that duplicate a stronger
   one, several seeds on one ridge having traced (nearly) the same curve,
   returning the same `(line, point)` dataset restricted to the kept rows.
 
@@ -308,10 +308,10 @@ would have to be undone when that extraction lands (GitHub issue #8).
 
 `hyperbolic_lcs()` is a convenience wrapper and introduces no new type. It
 evaluates the FTLE once and hands that field to the ridge finder, so a caller
-who only wants the curves need not arrange the four steps. Ridge-finding still
+who only wants the curves need not arrange the steps. Ridge-finding still
 takes a *field* rather than a `FlowMap`: passing the flow map would hide a
 recomputation, and a caller who wants to smooth or mask the FTLE before picking
-ridges must be able to. The four functions underneath therefore stay
+ridges must be able to. The functions underneath therefore stay
 independently callable, which is also how the unpruned lines are seen. Call
 `ftle_ridge_seeds` and `shrink_lines` by hand and leave out
 `prune_shrink_lines`.

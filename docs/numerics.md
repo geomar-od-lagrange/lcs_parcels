@@ -340,8 +340,9 @@ Every member of a bundle carries the same FTLE at a given arc length, so the
 line integral $\int \mathrm{FTLE}\,\mathrm{d}s$ ranks the bundle by length and
 the longest trace wins. A line is never dropped in favour of one of its own
 sub-segments, since the superset has the larger integral wherever the FTLE is
-non-negative. The mean used by Farazmand & Haller (2012) cannot separate bundle
-members at all, both being the same. Measured as the directed Hausdorff
+non-negative. Without a field the integral reduces to the arc length, which
+is the same ranking within a bundle. The mean used by Farazmand & Haller (2012)
+cannot separate bundle members at all, both being the same. Measured as the directed Hausdorff
 distance from each of the 38 lines to the nearest stronger one (the max over its
 points of the distance to that line):
 
@@ -359,14 +360,23 @@ apart. The same statistic with the mean distance in place of the max shows no
 such band (13 of 37 below 5 km, then a smear), so a scheme built on the mean
 distance would have no threshold to pick.
 
-### Coverage: chord distance on the unit sphere
+### Coverage: an angle on the unit sphere
 
-A point of a candidate line is covered once its nearest point on the union of
-the already-kept lines is closer than the tube radius `window_m / 2`, measured
-as a chord on the unit sphere scaled by `EARTH_RADIUS_M`, so no projection and
-no standard parallel enter (consistent with
-[the local east-north frame](#the-local-east-north-frame)). At the 30 km scale
-of `window_m` the chord-versus-arc difference is below 1e-6 relative.
+A point of a candidate line is covered once some point of an already-kept line
+lies within the tube radius `window_m / 2` of it. The test is on the unit
+sphere, comparing the dot product of the two position vectors against
+$\cos(\text{radius} / R)$, so no projection and no standard parallel enter
+(consistent with [the local east-north frame](#the-local-east-north-frame)).
+The arc length of a line is the sum of its `_separation_m` steps, the same
+measurement the integrator inverts, so the length of a traced line is its step
+count times `step_m`.
+
+Coverage is computed for every pair of lines before the walk, one broadcast
+reduction per line, and the walk is then a boolean reduction over the kept
+lines. That costs $L^2 P^2$ dot products for $L$ lines of $P$ points, well
+under a second for the example. A spatial tree would bring it to
+$L P \log(L P)$ and is the change to make if the line count grows by an order
+of magnitude (GitHub issue #11).
 
 ### Rule: whole lines, and the sweep that fixed the constants
 

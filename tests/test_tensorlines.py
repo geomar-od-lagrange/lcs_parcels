@@ -1191,7 +1191,7 @@ def test_hyperbolic_lcs_matches_the_manual_pipeline():
         step_m=LCS_KWARGS["step_m"],
         line_length_m=LCS_KWARGS["line_length_m"],
     )
-    manual = prune_shrink_lines(unpruned, ftle, window_m=LCS_KWARGS["window_m"])
+    manual = prune_shrink_lines(unpruned, ftle=ftle, window_m=LCS_KWARGS["window_m"])
 
     lcs = fm.hyperbolic_lcs(**LCS_KWARGS)
 
@@ -1414,7 +1414,10 @@ def _zonal_line(start_m, end_m, *, lat_m=0.0, spacing_m=10_000.0):
 def _prune(polylines, **kwargs):
     """Prune hand-made ``polylines`` on the uniform field at the test window."""
     return prune_shrink_lines(
-        _lines_dataset(polylines), _uniform_ftle(), window_m=PRUNE_WINDOW_M, **kwargs
+        _lines_dataset(polylines),
+        ftle=_uniform_ftle(),
+        window_m=PRUNE_WINDOW_M,
+        **kwargs,
     )
 
 
@@ -1443,6 +1446,19 @@ def test_prune_shrink_lines_keeps_the_superset(superset_first):
 
     assert pruned["line"].values.tolist() == [whole_label]
     assert pruned.attrs["n_lines_dropped"] == 1
+
+
+def test_prune_shrink_lines_ranks_by_length_without_ftle():
+    """Without a field the ranking is the arc length alone, the whole line wins
+    over its sub-segment, and no ``ftle_mean`` is added."""
+    whole = _zonal_line(0.0, 100_000.0)
+    part = _zonal_line(30_000.0, 60_000.0)
+
+    pruned = prune_shrink_lines(_lines_dataset([part, whole]), window_m=PRUNE_WINDOW_M)
+
+    assert pruned["line"].values.tolist() == [1]
+    assert "ftle_mean" not in pruned
+    np.testing.assert_allclose(pruned["length_m"].values, 100_000.0, rtol=1e-6)
 
 
 def test_prune_shrink_lines_drops_a_copy_inside_the_tube():
@@ -1534,7 +1550,7 @@ def test_prune_shrink_lines_sees_across_the_antimeridian():
     ftle = _uniform_ftle(lon_axis=np.linspace(170.0, 190.0, 41))
 
     lines = _lines_dataset([(lon, lat), (lon - 360.0, lat)])
-    pruned = prune_shrink_lines(lines, ftle, window_m=PRUNE_WINDOW_M)
+    pruned = prune_shrink_lines(lines, ftle=ftle, window_m=PRUNE_WINDOW_M)
 
     assert pruned.sizes["line"] == 1
     assert pruned.attrs["n_lines_dropped"] == 1

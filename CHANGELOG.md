@@ -22,10 +22,10 @@ release time.
 
 ### Added
 
-- `prune_shrink_lines(lines, ftle, *, window_m=30_000.0)`, which drops shrink
-  lines that duplicate a stronger one traced from a different seed on the same
-  ridge, ranking lines by the FTLE integrated along them and keeping a line
-  whole or not at all.
+- `prune_shrink_lines(lines, *, ftle=None, window_m=30_000.0)`, which drops
+  shrink lines that duplicate a stronger one traced from a different seed on
+  the same ridge, ranking lines by the FTLE integrated along them, or by arc
+  length when no field is given, and keeping a line whole or not at all.
 - A DOI badge, and the same concept DOI in `CITATION.cff`. It is the
   all-versions DOI, so it resolves to the newest archived release rather than
   pinning to one, and it carries no version of its own.

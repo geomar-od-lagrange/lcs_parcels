@@ -703,7 +703,7 @@ class FlowMap(abc.ABC):
     ) -> xr.Dataset:
         """Hyperbolic LCS of this flow map: FTLE, ridge seeds, shrink lines, pruning.
 
-        Runs a four-step workflow in one call: compute the FTLE field
+        Runs the workflow in one call: compute the FTLE field
         (:meth:`ftle`), pick seed points at its strong local maxima
         (:func:`~lcs_parcels.ftle_ridge_seeds`), integrate the shrink lines
         through them (:func:`~lcs_parcels.shrink_lines`), and drop the lines
@@ -775,7 +775,9 @@ class FlowMap(abc.ABC):
                 line_length_m=line_length_m,
             ),
         )
-        lines = prune_shrink_lines(lines, ftle, **_filter_kwargs(window_m=window_m))
+        lines = prune_shrink_lines(
+            lines, ftle=ftle, **_filter_kwargs(window_m=window_m)
+        )
         # The forward-backward duality belongs to the diagnostic, so the LCS
         # family is named here rather than on the flow map.
         direction = self._time_direction()

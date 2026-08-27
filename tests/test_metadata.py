@@ -17,7 +17,6 @@ from lcs_parcels import (
     prune_shrink_lines,
     shrink_lines,
 )
-from lcs_parcels.grids import EARTH_RADIUS_M
 
 RELEASE_TIME = np.datetime64("2020-01-01")
 END_TIME = np.datetime64("2020-01-02")
@@ -179,7 +178,7 @@ def test_shrink_lines_output_is_labelled(lon_axis, lat_axis):
 def test_prune_shrink_lines_output_is_labelled(lon_axis, lat_axis):
     """The pruned dataset keeps the labelled ``lon``/``lat`` and ``line``, adds
     ``ftle_mean`` in 1/s and ``length_m`` in metres, and ``length_m`` is the
-    summed chord length of the kept line's finite points."""
+    arc length the integrator traced."""
     fm = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
     )
@@ -190,7 +189,7 @@ def test_prune_shrink_lines_output_is_labelled(lon_axis, lat_axis):
         step_m=1_000.0,
         line_length_m=6_000.0,
     )
-    pruned = prune_shrink_lines(lines, fm.ftle(), window_m=RIDGE_WINDOW_M)
+    pruned = prune_shrink_lines(lines, ftle=fm.ftle(), window_m=RIDGE_WINDOW_M)
 
     assert pruned.sizes["line"] > 0
     assert_labelled(
@@ -205,17 +204,9 @@ def test_prune_shrink_lines_output_is_labelled(lon_axis, lat_axis):
     assert pruned.attrs.get("long_name")
     assert pruned["line"].attrs.get("long_name")
 
-    lon = np.deg2rad(pruned["lon"])
-    lat = np.deg2rad(pruned["lat"])
-    x = EARTH_RADIUS_M * np.cos(lat) * np.cos(lon)
-    y = EARTH_RADIUS_M * np.cos(lat) * np.sin(lon)
-    z = EARTH_RADIUS_M * np.sin(lat)
-    chord = np.sqrt(
-        (x.diff("point")) ** 2 + (y.diff("point")) ** 2 + (z.diff("point")) ** 2
-    )
-    np.testing.assert_allclose(
-        pruned["length_m"].values, chord.sum("point").values, rtol=1e-9
-    )
+    # Six 1 km steps per line, and the step is the exact inverse of the
+    # separation measurement the length sums.
+    np.testing.assert_allclose(pruned["length_m"].values, 6_000.0, rtol=1e-9)
 
 
 def test_ftle_ridge_seeds_output_is_labelled(lon_axis, lat_axis):

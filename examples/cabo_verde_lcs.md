@@ -244,7 +244,7 @@ were picked with, which is the only parameter the step takes.
 
 ```python
 repelling_lcs_pruned = prune_shrink_lines(
-    repelling_lcs, ftle_forward, window_m=window_m
+    repelling_lcs, ftle=ftle_forward, window_m=window_m
 )
 repelling_lcs_pruned
 ```

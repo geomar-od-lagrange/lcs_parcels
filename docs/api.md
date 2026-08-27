@@ -8,10 +8,10 @@ concrete stencils, exported from the package root:
 from lcs_parcels import SeedGrid, NeighborSeedGrid, AuxiliarySeedGrid, FlowMap, NeighborFlowMap, AuxiliaryFlowMap
 ```
 
-Three further functions turn a `FlowMap`'s strain field into hyperbolic-LCS
-curves: `ftle_ridge_seeds`, `shrink_lines` and `prune_shrink_lines` (see
-[Hyperbolic LCS: shrink lines](#hyperbolic-lcs-shrink-lines) below), which
-`FlowMap.hyperbolic_lcs()` runs in one call.
+`ftle_ridge_seeds`, `shrink_lines` and `prune_shrink_lines` turn a `FlowMap`'s
+strain field into hyperbolic-LCS curves (see
+[Hyperbolic LCS: shrink lines](#hyperbolic-lcs-shrink-lines) below), and
+`FlowMap.hyperbolic_lcs()` runs them in one call.
 
 Every adjacent same-typed argument pair on the public surface, meaning every
 lon/lat pair, is **keyword-only**, so a transposed call raises `TypeError`.
@@ -235,7 +235,7 @@ from lcs_parcels import ftle_ridge_seeds, prune_shrink_lines, shrink_lines
 ftle = flowmap.ftle()
 seeds = ftle_ridge_seeds(ftle)                                              # seed points
 lines = shrink_lines(flowmap, seed_lon=seeds["lon"], seed_lat=seeds["lat"])  # curves
-lines = prune_shrink_lines(lines, ftle)                                     # drop duplicates
+lines = prune_shrink_lines(lines, ftle=ftle)                                # drop duplicates
 ```
 
 A repelling LCS is a **shrink line**, a curve tangent to the weak-stretch
@@ -251,7 +251,7 @@ ftle_ridge_seeds(ftle, *, window_m=30_000.0, quantile=None,
                  ftle_min=None) -> xr.Dataset
 shrink_lines(flowmap, *, seed_lon, seed_lat, min_anisotropy=1.15,
              step_m=3_000.0, line_length_m=1_500_000.0) -> xr.Dataset
-prune_shrink_lines(lines, ftle, *, window_m=30_000.0) -> xr.Dataset
+prune_shrink_lines(lines, *, ftle=None, window_m=30_000.0) -> xr.Dataset
 ```
 
 Every tuning parameter is stated in the units of the thing itself: metres for
@@ -307,19 +307,20 @@ threshold, so it does not.
   `lon`/`lat` on dims `(line, point)`, one `line` per seed point; every row is
   the same length, NaN-filled past termination, and a seed point that cannot be
   traced at all is an all-NaN row.
-- **`prune_shrink_lines(lines, ftle, *, window_m=...)`** drops shrink lines
-  that duplicate a stronger one, which is what several seeds on one ridge
+- **`prune_shrink_lines(lines, *, ftle=None, window_m=...)`** drops shrink
+  lines that duplicate a stronger one, which is what several seeds on one ridge
   produce. Rows that are NaN at every point are dropped first and cover
   nothing. The remaining lines are ranked by the FTLE integrated along them
   (`ftle_mean * length_m`, the FTLE interpolated from `ftle` at each line's
-  points) and walked from the strongest down. A candidate is dropped once one
+  points), or by `length_m` alone when no `ftle` is given, and walked from the
+  strongest down. A candidate is dropped once one
   of its points falls within `window_m / 2` of an already-kept line's nearest
   point *and* the arc length of its uncovered stretch is below `window_m`. A
   line sharing nothing with a stronger line is always kept, whatever its
   length, and a kept-or-dropped decision is made for the whole line, never a
   part of it. Returns `lines` restricted to the kept rows, the `line` coord
-  keeping its **original labels**, plus two new variables on `line`:
-  `ftle_mean` (1/s) and `length_m` (m). The attributes `window_m`,
+  keeping its **original labels**, plus `length_m` (m) and, with `ftle`,
+  `ftle_mean` (1/s) on `line`. The attributes `window_m`,
   `tube_radius_m`, `min_new_length_m`, `n_lines_in` and `n_lines_dropped`
   record what was run. Why the score is a line integral and why the tube
   radius and minimum new length are `window_m / 2` and `window_m` are in
@@ -351,8 +352,8 @@ FlowMap.hyperbolic_lcs(*, window_m=None, quantile=None, ftle_min=None,
                        line_length_m=None) -> xr.Dataset
 ```
 
-Runs the four steps (`ftle()`, `ftle_ridge_seeds`, `shrink_lines`,
-`prune_shrink_lines`) in one call, computing the FTLE exactly once and pruning
+Runs `ftle()`, `ftle_ridge_seeds`, `shrink_lines` and `prune_shrink_lines` in
+one call, computing the FTLE exactly once and pruning
 at the same `window_m` the seeding used. Every parameter is optional and only
 the ones actually passed are forwarded, so the defaults stay in
 `ftle_ridge_seeds`/`shrink_lines`/`prune_shrink_lines`, including the rule that
@@ -386,7 +387,7 @@ grid be curvilinear), so a gridded field is drawn against them by passing
 
 Ridge-finding itself takes a *field*, not a flow map, so to pick seed points
 from a smoothed or masked FTLE, or to see the lines before pruning, run the
-four steps by hand.
+steps by hand.
 
 ## Evolving a material curve
 
