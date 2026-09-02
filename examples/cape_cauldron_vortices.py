@@ -56,13 +56,15 @@
 # it has its arc length multiplied by $\lambda$ over the window, and a closed
 # orbit of $\eta_\lambda$ is a uniformly stretching material loop. Eq. 11 is
 # Eq. 14 at $\lambda = 1$ where the flow is area-preserving, so
-# $\lambda_1\lambda_2 = 1$. This notebook scans a set of $\lambda$ around 1 and
+# $\lambda_1\lambda_2 = 1$. This notebook scans $\lambda$ from 0.8 to 2.0 and
 # both signs, since the boundary can show up at any of them.
 #
-# Detection follows Haller & Beron-Vera (2013). A short Poincaré section runs
-# through a candidate centre, $\eta_\lambda$ lines are launched along it and
-# integrated to their first return, and the return map $s \mapsto P(s)$ is read
-# off the section. A fixed point $P(s) = s$ is a closed orbit.
+# Detection follows Haller & Beron-Vera (2013,
+# [doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391)). A short
+# Poincaré section runs through a candidate centre, $\eta_\lambda$ lines are
+# launched along it and integrated to their first return, and the return map
+# $s \mapsto P(s)$ is read off the section. A fixed point $P(s) = s$ is a
+# closed orbit.
 
 # %% tags=["remove-output"]
 # Importing Parcels pulls in the holoviews/bokeh bootstrap and prints an
@@ -92,7 +94,7 @@ currents
 # %% [markdown]
 # ## Parcels v4 field set
 #
-# `copernicusmarine_to_sgrid` tags the CMEMS A-grid with SGRID metadata;
+# `copernicusmarine_to_sgrid` tags the CMEMS A-grid with SGRID metadata, and
 # `from_sgrid_conventions` wraps it as a spherical `FieldSet`.
 
 # %%
@@ -129,9 +131,9 @@ seed
 #
 # Particles that leave the domain or hit land are turned into `NaN` in place
 # (Parcels would otherwise abort the run), so losses propagate as `NaN`
-# through every diagnostic below. `StatusCode.EndofLoop` rather than
-# `StatusCode.Delete`: deleting shrinks the particle array and breaks the
-# alignment with the seed order.
+# through every diagnostic below. The kernel sets `StatusCode.EndofLoop`
+# rather than `StatusCode.Delete`, because deleting shrinks the particle
+# array and breaks the alignment with the seed order.
 
 
 # %%
@@ -206,7 +208,7 @@ tensor_interp = RegularGridInterpolator(
 
 
 def eta_lambda_tangent(lon, lat, heading, *, lam, sign, tensor_interp):
-    """Unit eta_lambda^{sign} (Haller & Beron-Vera 2013, Eq. 14) at each point.
+    """Unit eta_lambda^{sign} (Haller & Beron-Vera 2013, Eq. 14, https://doi.org/10.1017/jfm.2013.391) at each point.
 
     NaN wherever off-grid, in a NaN cell, or lam**2 does not sit strictly
     inside (lambda_1, lambda_2), the well-definedness condition for eta_lambda.
@@ -223,9 +225,8 @@ def eta_lambda_tangent(lon, lat, heading, *, lam, sign, tensor_interp):
     a = np.sqrt(np.clip((lam2 - lam**2) / denom, 0.0, 1.0))
     b = np.sqrt(np.clip((lam**2 - lam1) / denom, 0.0, 1.0))
     xi1 = eigenvectors[:, :, 0]
-    # eigh signs each eigenvector on its own, and flipping xi_2 alone turns
-    # eta^+ into eta^-. Taking xi_2 as xi_1 turned 90 degrees counter-clockwise
-    # ties the two signs together, so the two branches stay distinct.
+    # Taking xi_2 as xi_1 turned 90 degrees counter-clockwise ties the two
+    # eigenvector signs together, so eta^+ and eta^- stay distinct.
     xi2 = np.column_stack([-xi1[:, 1], xi1[:, 0]])
     eta = a[:, None] * xi1 + sign * b[:, None] * xi2
     # Negating xi_1 negates xi_2 with it, so eta is fixed up to one overall
@@ -294,7 +295,7 @@ well_defined.plot.pcolormesh(x="lon_grid", y="lat_grid")
 #
 # $\sqrt{\lambda_1\lambda_2} = |\det \nabla F|$ is the area change over the
 # window, so the spread of the quantiles below says how far this flow is from
-# area-preserving. The sweep scans $\lambda$ from 0.8 to 1.4 rather than
+# area-preserving. The sweep scans $\lambda$ from 0.8 to 2.0 rather than
 # fixing $\lambda = 1$.
 
 # %%
@@ -304,10 +305,11 @@ det_grad_F.quantile([0.05, 0.25, 0.5, 0.75, 0.95])
 # %% [markdown]
 # ## Candidate vortex centres
 #
-# Haller & Beron-Vera place their sections through singularities of $C$, the
-# points where $\lambda_1 = \lambda_2$ and the eigendirections stop being
-# defined. Candidate centres are therefore windowed minima of
-# $\lambda_2/\lambda_1$.
+# Haller & Beron-Vera (2013,
+# [doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391)) place
+# their sections through singularities of $C$, the points where
+# $\lambda_1 = \lambda_2$ and the eigendirections stop being defined.
+# Candidate centres are therefore windowed minima of $\lambda_2/\lambda_1$.
 #
 # `find_centres` below is the `ftle_ridge_seeds` windowed-extremum trick inverted
 # to a minimum, plus a guard keeping a centre 50 km from the domain edge and from
@@ -404,7 +406,7 @@ STEP_M = 2_000.0
 RING_DIAMETER_M = 300_000.0  # the largest ring size this box targets
 BUDGET_M = 2 * np.pi * (RING_DIAMETER_M / 2) * 2  # two circumferences
 N_STEPS = round(BUDGET_M / STEP_M)
-LAMBDAS = np.arange(0.80, 1.40 + 1e-9, 0.02)
+LAMBDAS = np.arange(0.80, 2.00 + 1e-9, 0.04)
 SIGNS = [+1, -1]
 DIRECTIONS = [+1, -1]  # east, west
 CLOSE_TOL_M = 2_000.0
@@ -429,9 +431,10 @@ def first_return(
     """First crossing of the section segment after the line has moved off it.
 
     Returns the crossing longitude, NaN where the line never comes back, and
-    the number of track points up to and including the crossing step. A line
-    encircling the centre also crosses the section latitude on the far side,
-    outside the segment; that is not a return, and the scan runs on.
+    the number of track points up to and including the crossing step.
+
+    A line encircling the centre also crosses the section latitude on the far
+    side, outside the segment. That is not a return, and the scan runs on.
     """
     n_steps_p1, n_lines = track_lon.shape
     north_rel = track_lat - section_lat
@@ -751,7 +754,8 @@ plt.show()
 #
 # $P(s) - s$ along the eastern section at the centre of the outermost orbit (or,
 # if none closed, at the centre whose best launch point turned furthest), on that
-# centre's sign of $\eta_\lambda$. A zero is a closed orbit.
+# centre's sign of $\eta_\lambda$. A zero is a closed orbit. The $\lambda$
+# drawn straddle that centre's own $\lambda$, from 0.2 below it to 0.1 above.
 
 # %%
 if outermost:
@@ -769,7 +773,7 @@ else:
 best["centre_lon"], best["centre_lat"], best["lam"], best["sign"]
 
 # %%
-RETURN_MAP_LAMBDAS = [0.9, 1.0, 1.1, 1.2]
+RETURN_MAP_LAMBDAS = [best["lam"] + d for d in (-0.2, -0.1, 0.0, 0.1)]
 s_vals, launch_lon, launch_lat = section_points(
     centre_lon=best["centre_lon"],
     centre_lat=best["centre_lat"],
@@ -805,7 +809,9 @@ for lam in RETURN_MAP_LAMBDAS:
 # %%
 fig, ax = plt.subplots()
 for lam, ret_s in return_maps.items():
-    ax.plot(s_vals / 1000, (ret_s - s_vals) / 1000, marker="o", label=f"lambda {lam}")
+    ax.plot(
+        s_vals / 1000, (ret_s - s_vals) / 1000, marker="o", label=f"lambda {lam:.2f}"
+    )
 ax.axhline(0, color="grey", lw=0.7)
 ax.set_xlabel("s (km, launch position east of centre)")
 ax.set_ylabel("P(s) - s (km)")
@@ -897,6 +903,11 @@ ratios = {
 }
 ratios
 
+# %% [markdown]
+# The measured ratio sits below its $\lambda$ up to $\lambda = 1.80$, by as
+# much as 7.4 percent at $\lambda = 1.48$, and up to 2.4 percent above it from
+# $\lambda = 1.84$ on.
+
 # %%
 fig, ax = plt.subplots()
 ax.plot(list(ratios), list(ratios.values()), marker="o", ls="none")
@@ -927,9 +938,9 @@ plt.show()
 #
 # The outermost orbit should stretch uniformly by its $\lambda$, so its
 # arc-length ratio over the window should land near that $\lambda$. A circle of
-# the same mean radius about the same centre has no such property, and its ratio
-# is whatever the flow gives. Advecting both through `flowmap.image()` and
-# comparing the two ratios tests that.
+# the same mean radius about the same centre is not tangent to $\eta_\lambda$,
+# so its arc-length ratio is not constrained to any $\lambda$. Advecting both
+# through `flowmap.image()` and comparing the two ratios tests that.
 
 # %%
 if outermost:
@@ -983,27 +994,28 @@ if outermost:
 # %% [markdown]
 # ## Outcome
 #
-# The sweep closes 13 orbits at 30 days, all at one centre, 13.32 E 35.64 S, on
-# the $+$ branch of $\eta_\lambda$ and at $\lambda$ from 1.20 to 1.30. Their mean
-# radii run from 22.1 to 39.0 km. Over the 52 candidate centres, 3496
-# combinations of $\lambda$, sign and section never return to their section.
+# The sweep closes 7 orbits at 30 days, all at one centre, 13.32 E 35.64 S, on
+# the $+$ branch of $\eta_\lambda$ and at $\lambda$ from 1.20 to 1.28. Their
+# mean radii run from 26.9 km, at $\lambda = 1.20$, to 37.7 km, at
+# $\lambda = 1.28$. Over the 52 candidate centres, 3146 combinations of
+# $\lambda$, sign and section never return to their section.
 #
-# The outermost orbit sits at $\lambda = 1.30$ with a mean radius of 39.0 km, a
-# circumference ratio of 1.025 and a return residual of 20.2 m.
+# The scan runs to $\lambda = 2.00$, so the outermost orbit at
+# $\lambda = 1.28$ does not sit at the top of the scanned range.
 #
 # Advected through the flow map, that orbit has its arc length multiplied by
-# 1.225, against its $\lambda$ of 1.30. A circle of the same mean radius about
-# the same centre stretches by 1.502. Neither leaves the grid.
+# 1.227, against its $\lambda$ of 1.28. A circle of the same mean radius about
+# the same centre stretches by 1.467. Neither leaves the grid.
 #
-# The arc launched from the same point gives 0.813 at $\lambda = 0.86$, 0.965 at
-# $\lambda = 1.00$ and 1.315 at $\lambda = 1.40$, rising monotonically with
-# $\lambda$ and staying below it. Below $\lambda = 0.86$ no arc holds ten finite
-# points.
+# The arc launched from the same point stretches by less than its $\lambda$ up
+# to $\lambda = 1.80$, with the largest shortfall of 7.4 percent at
+# $\lambda = 1.48$, and by up to 2.4 percent more than its $\lambda$ above
+# that. Below $\lambda = 0.88$ no arc holds ten finite points.
 #
 # $|\det \nabla F|$ over the window has a median of 4.96 and runs from 0.172 at
 # the 5 percent quantile to 675 at the 95 percent, so the area of a grid cell
 # changes by orders of magnitude across the box.
 #
-# The best launch point anywhere turns 18.22 times about that same centre and
-# exhausts the 943-point step budget. Of the 200901 particles, 24500 are lost to
-# land or the domain edge.
+# The best launch point anywhere turns 11.79 times about that same centre and
+# exhausts the 943-point step budget. Of the 501 by 401 seeded particles, 24500
+# are lost to land or the domain edge.
