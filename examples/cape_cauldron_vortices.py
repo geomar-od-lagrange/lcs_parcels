@@ -76,7 +76,7 @@ from parcels.convert import copernicusmarine_to_sgrid
 from parcels.kernels import AdvectionRK4
 from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels import AuxiliarySeedGrid
+from lcs_parcels import NeighborSeedGrid
 from lcs_parcels.grids import _M_PER_DEG, _separation_m
 from lcs_parcels.tensorlines import _step_lonlat_by_meters
 
@@ -103,29 +103,25 @@ z_surface = float(currents["depth"].values[0])
 # %% [markdown]
 # ## Seed grid and window
 #
-# A box across the Cape Cauldron at 1/10 degree, released on 2025-06-01 and read
-# at 15, 30 and 60 days. An Agulhas ring up to 300 km across turns once in
-# roughly 7 to 12 days, so the working horizon of 30 days covers a few
-# revolutions.
+# A box across the Cape Cauldron at 1/25 degree, released on 2025-06-01 and read
+# at 30 days. An Agulhas ring up to 300 km across turns once in roughly 7 to 12
+# days, so the 30-day window covers a few revolutions.
 #
 # Only the forward flow map is needed, since a vortex boundary is a property of
 # one time window, not of the forward/backward pair `cabo_verde_lcs` uses for
 # repelling/attracting duality.
 #
-# `AuxiliarySeedGrid` puts a four-arm stencil with 1 km arms around each grid
-# point, so $\nabla F$ is differenced over 2 km rather than over the 11 km seed
-# spacing.
+# The gradient is differenced across neighbouring grid points 1/25 degree apart.
 
 # %%
 t0 = np.datetime64("2025-06-01")
-HORIZON_DAYS = (15, 30, 60)
-WORKING_DAYS = 30
-resolution_deg = 1 / 10
+T = np.timedelta64(30, "D")
+resolution_deg = 1 / 25
 seed_lon, seed_lat = (2.0, 22.0), (-44.0, -28.0)
 
 lon_axis = np.arange(seed_lon[0], seed_lon[1] + 1e-9, resolution_deg)
 lat_axis = np.arange(seed_lat[0], seed_lat[1] + 1e-9, resolution_deg)
-seed = AuxiliarySeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
+seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
 seed
 
 # %% [markdown]
@@ -149,46 +145,29 @@ def set_lost_to_nan(particles, fieldset):
 # %% [markdown]
 # ## Advect forward
 #
-# One particle set, executed in three legs, with the positions read off after
-# each. `execute` resets every particle's state at entry and carries each
-# particle on from its own time.
-#
-# A leg ends on `endtime` rather than a `runtime`, because a lost particle's time
-# stops advancing and `runtime` would take the run's start from it. A lost
-# particle enters the next leg at `NaN`, fails again and is recovered again.
+# One particle set, run over the whole window, with the final positions read
+# back into the flow map.
 
 # %%
 lon, lat = seed.to_parcels_pset()
 z = np.full(len(lon), z_surface)
 pset = ParticleSet(fieldset, pclass=Particle, x=lon, y=lat, z=z, t=t0)
-snapshots = {}
-for days in HORIZON_DAYS:
-    pset.execute(
-        [AdvectionRK4, set_lost_to_nan],
-        dt=np.timedelta64(1, "h"),
-        endtime=t0 + np.timedelta64(days, "D"),
-        verbose_progress=False,
-    )
-    snapshots[days] = (np.asarray(pset.x).copy(), np.asarray(pset.y).copy())
+pset.execute(
+    [AdvectionRK4, set_lost_to_nan],
+    dt=np.timedelta64(1, "h"),
+    runtime=T,
+    verbose_progress=False,
+)
 
 # %%
-flowmaps = {
-    days: seed.pset_to_flowmap(
-        lon=lon_days, lat=lat_days, t0=t0, t1=t0 + np.timedelta64(days, "D")
-    )
-    for days, (lon_days, lat_days) in snapshots.items()
-}
-forward = flowmaps[WORKING_DAYS]
+forward = seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t0 + T)
 forward
 
 # %% [markdown]
-# Lost particles per horizon, and the check that a particle lost early stays
-# lost.
+# Particles lost to land or to the domain edge.
 
 # %%
-lost = {days: np.isnan(lon_days) for days, (lon_days, _) in snapshots.items()}
-assert np.all(lost[15] <= lost[30]) and np.all(lost[30] <= lost[60])
-{days: int(mask.sum()) for days, mask in lost.items()}
+int(np.isnan(np.asarray(pset.x)).sum())
 
 # %% [markdown]
 # ## Eigendecomposition and FTLE
@@ -1002,126 +981,29 @@ if outermost:
     plt.show()
 
 # %% [markdown]
-# ## The boundary at 15, 30 and 60 days
-#
-# The same centre selection and the same sweep run on all three flow maps. The
-# outermost closed orbit can only shrink as the window grows, since a loop has to
-# stay uniformly stretching for longer.
-
-
-# %%
-def analyse(flowmap, *, lambdas, signs):
-    """Candidate centres, closed orbits and the outermost orbit per centre."""
-    eigen = flowmap.cg_eigen()
-    ratio = eigen["lambda"].isel(eig=1) / eigen["lambda"].isel(eig=0)
-    ratio = ratio.rename("anisotropy").assign_attrs(
-        long_name="Cauchy-Green eigenvalue ratio", units="1"
-    )
-    lon_axis = flowmap.lon_grid.isel(j=0).values
-    lat_axis = flowmap.lat_grid.isel(i=0).values
-    interp = RegularGridInterpolator(
-        (lon_axis, lat_axis),
-        flowmap.cauchy_green().transpose("i", "j", "row", "col").values,
-        bounds_error=False,
-        fill_value=np.nan,
-    )
-    lon_c, lat_c, _ = find_centres(ratio, window_m=200_000.0, edge_m=50_000.0)
-    candidates, winding, _ = sweep_centres(
-        centre_lon=lon_c,
-        centre_lat=lat_c,
-        lambdas=lambdas,
-        signs=signs,
-        tensor_interp=interp,
-    )
-    orbits = keep_closed(candidates)
-    return {
-        "centre_lon": lon_c,
-        "centre_lat": lat_c,
-        "closed_orbits": orbits,
-        "outermost": outermost_per_centre(orbits),
-        "winding": winding,
-    }
-
-
-# %%
-horizons = {
-    days: analyse(flowmaps[days], lambdas=LAMBDAS, signs=SIGNS) for days in HORIZON_DAYS
-}
-
-# %% [markdown]
-# Per horizon: the number of candidate centres, the number of closed orbits, and
-# the centre nearest the 30-day boundary's centre with its distance in km and the
-# mean radius of its outermost orbit.
-
-# %%
-horizon_table = []
-for days, result in horizons.items():
-    dx, dy = _separation_m(
-        lon_a=best["centre_lon"],
-        lat_a=best["centre_lat"],
-        lon_b=result["centre_lon"],
-        lat_b=result["centre_lat"],
-    )
-    distance_m = np.hypot(dx, dy)
-    nearest = int(np.argmin(distance_m)) if distance_m.size else None
-    orbit = result["outermost"].get(nearest)
-    horizon_table.append(
-        (
-            days,
-            len(result["centre_lon"]),
-            len(result["closed_orbits"]),
-            None if nearest is None else round(float(distance_m[nearest]) / 1000, 1),
-            None if orbit is None else round(orbit["mean_radius_m"] / 1000, 1),
-        )
-    )
-horizon_table
-
-# %%
-fig, ax = plt.subplots()
-ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
-drawn = 0
-for (days, _, _, _, _), color in zip(
-    horizon_table, ["tab:blue", "tab:red", "tab:green"], strict=True
-):
-    dx, dy = _separation_m(
-        lon_a=best["centre_lon"],
-        lat_a=best["centre_lat"],
-        lon_b=horizons[days]["centre_lon"],
-        lat_b=horizons[days]["centre_lat"],
-    )
-    if dx.size == 0:
-        continue
-    nearest = int(np.argmin(np.hypot(dx, dy)))
-    orbit = horizons[days]["outermost"].get(nearest)
-    if orbit is not None:
-        ax.plot(orbit["lon"], orbit["lat"], color=color, label=f"{days} days")
-        drawn += 1
-ax.scatter(best["centre_lon"], best["centre_lat"], marker="x", color="tab:orange")
-if drawn:
-    ax.legend()
-plt.show()
-
-# %% [markdown]
 # ## Outcome
 #
-# The sweep closes no orbit at 30 days. Over the 62 candidate centres, at
-# $\lambda$ from 0.80 to 1.40 and both signs on both sections, 5475 combinations
-# never return to their section and the rest yield no candidate return.
+# The sweep closes 13 orbits at 30 days, all at one centre, 13.32 E 35.64 S, on
+# the $+$ branch of $\eta_\lambda$ and at $\lambda$ from 1.20 to 1.30. Their mean
+# radii run from 22.1 to 39.0 km. Over the 52 candidate centres, 3496
+# combinations of $\lambda$, sign and section never return to their section.
 #
-# The best launch point anywhere turns 0.99 times about its centre, at
-# 3.40 E, 42.60 S, and its track holds 74 of the 943 points of the step budget.
+# The outermost orbit sits at $\lambda = 1.30$ with a mean radius of 39.0 km, a
+# circumference ratio of 1.025 and a return residual of 20.2 m.
 #
-# $|\det \nabla F|$ over the window has a median of 1.55 and runs from 0.115 at
-# the 5 percent quantile to 2192 at the 95 percent, so the area of the 1 km
-# stencil changes by orders of magnitude across the box.
+# Advected through the flow map, that orbit has its arc length multiplied by
+# 1.225, against its $\lambda$ of 1.30. A circle of the same mean radius about
+# the same centre stretches by 1.502. Neither leaves the grid.
 #
-# The tangent field and the stepper still reproduce $\lambda$. An arc launched at
-# that centre stretches by 1.008 at $\lambda = 1$ and by 1.399 at
-# $\lambda = 1.40$, staying within 4 percent of $\lambda$ for
-# $\lambda \ge 0.94$, apart from 0.960 at $\lambda = 1.08$.
+# The arc launched from the same point gives 0.813 at $\lambda = 0.86$, 0.965 at
+# $\lambda = 1.00$ and 1.315 at $\lambda = 1.40$, rising monotonically with
+# $\lambda$ and staying below it. Below $\lambda = 0.86$ no arc holds ten finite
+# points.
 #
-# Below $\lambda = 0.9$ the arc falls short, by 11 percent at $\lambda = 0.80$.
+# $|\det \nabla F|$ over the window has a median of 4.96 and runs from 0.172 at
+# the 5 percent quantile to 675 at the 95 percent, so the area of a grid cell
+# changes by orders of magnitude across the box.
 #
-# The horizon table places 70, 62 and 44 candidate centres at 15, 30 and 60 days
-# and closes no orbit at any of them. Lost particles grow from 12642 to 15825 to
-# 20681 over those windows.
+# The best launch point anywhere turns 18.22 times about that same centre and
+# exhausts the 943-point step budget. Of the 200901 particles, 24500 are lost to
+# land or the domain edge.

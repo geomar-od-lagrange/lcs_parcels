@@ -95,9 +95,9 @@ currents
 
 Same dataset and variables, a box around the Cape Cauldron, the Agulhas-ring
 corridor south-west of South Africa. `cape_cauldron_vortices` releases
-particles on 2025-06-01 in the box 2E to 22E, 44S to 28S and reads the flow
-map at 15, 30 and 60 days. This subset carries an 8 degree margin on every
-side of that box so trajectories stay inside the data.
+particles on 2025-06-01 in the box 2E to 22E, 44S to 28S and advects them
+30 days. This subset carries an 8 degree margin on every side of that box so
+trajectories stay inside the data.
 
 ```python
 target_cape = Path("data/cape_cauldron_currents_hourly.nc")
