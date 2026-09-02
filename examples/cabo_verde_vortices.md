@@ -17,9 +17,9 @@ jupyter:
 # Cabo Verde coherent vortices
 
 The FTLE ridges in `cabo_verde_ftle` mark hyperbolic stretching. A coherent
-Lagrangian vortex is a different structure: a region that keeps its shape as
-it advects, bounded by a curve that neither converges nor diverges from its
-neighbours. Haller (2015, §5.2 / Table 1, row "Shear",
+Lagrangian vortex is a different structure, a region that stays together as it
+advects, bounded by a material curve that stretches uniformly.
+Haller (2015, §5.2 / Table 1, row "Shear",
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322))
 builds such curves from the same Cauchy–Green tensor
 $C = (\nabla F)^\top \nabla F$, eigenpairs $C\xi_i = \lambda_i \xi_i$,
@@ -34,10 +34,9 @@ $$
 A closed shear line is an **elliptic LCS**; the outermost member of a nested
 family of closed shear lines is the boundary of a coherent Lagrangian vortex.
 Eq. 11 keeps a material curve's arc length fixed under an area-preserving
-flow. The Cabo Verde surface flow is not area-preserving over 5 days
-(`docs/numerics.md` reports $\det\nabla F$ ranging over roughly 0.63–2.4), so
-this notebook uses the $\lambda$-generalisation instead (Haller & Beron-Vera
-2013, Eq. 14,
+flow. The Cabo Verde surface flow is not area-preserving over 5 days, so this
+notebook uses the $\lambda$-generalisation instead (Haller & Beron-Vera 2013,
+Eq. 14,
 [doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391)):
 
 $$
@@ -45,15 +44,17 @@ $$
   \;\pm\; \sqrt{\frac{\lambda^2 - \lambda_1}{\lambda_2 - \lambda_1}}\,\xi_2 \,,
 $$
 
-well defined only where $\lambda_1 < \lambda^2 < \lambda_2$. A closed orbit
-of $\eta_\lambda$ is a material curve that stretches by the uniform factor
-$\lambda$ over the window; Eq. 11 is the $\lambda=1$ member. This notebook
-scans a small set of $\lambda$ near 1 and both signs, since the boundary can
-show up at any of them.
+well defined only where $\lambda_1 < \lambda^2 < \lambda_2$. It satisfies
+$|\nabla F\,\eta_\lambda| = \lambda$ at every point, so a curve tangent to
+it has its arc length multiplied by $\lambda$ over the window, and a closed
+orbit of $\eta_\lambda$ is a uniformly stretching material loop. Eq. 11 is
+Eq. 14 at $\lambda = 1$ where the flow is area-preserving, so
+$\lambda_1\lambda_2 = 1$. This notebook scans a set of $\lambda$ around 1 and
+both signs, since the boundary can show up at any of them.
 
-Detection follows Haller & Beron-Vera (2013): a short Poincaré section
-through a candidate centre, $\eta_\lambda$ lines launched along it and
-integrated to their first return, and the return map $s \mapsto P(s)$ read
+Detection follows Haller & Beron-Vera (2013). A short Poincaré section runs
+through a candidate centre, $\eta_\lambda$ lines are launched along it and
+integrated to their first return, and the return map $s \mapsto P(s)$ is read
 off the section. A fixed point $P(s) = s$ is a closed orbit.
 
 ```python tags=["remove-output"]
@@ -163,13 +164,14 @@ ftle
 
 ## The $\eta_\lambda$ tangent field
 
-`lcs_parcels.tensorlines` hard-wires its tracer to $\xi_1$
-(`shrink_lines`); there is no public hook for a caller-supplied tangent
-field, so this cell builds one from scratch rather than reusing library
-code, mirroring `_shrink_line_tangent`'s structure: interpolate $C$ itself
-rather than the eigenvectors, re-diagonalise at every evaluation, and orient
-the result to the running heading, since an eigenvector carries no sign of
-its own.
+`shrink_lines` traces $\xi_1$ and takes no caller-supplied tangent field, so
+the $\eta_\lambda$ field is built here. It follows the same scheme as the
+library tracer, interpolating $C$ itself rather than the eigenvectors and
+re-diagonalising at every evaluation.
+
+$\xi_1$ and $\xi_2$ each carry a sign that `eigh` picks arbitrarily, and
+flipping $\xi_2$ alone turns $\eta^+$ into $\eta^-$. The two signs are tied
+together below so the two branches stay apart.
 
 ```python
 lon_grid_axis = forward.lon_grid.isel(j=0).values
@@ -197,8 +199,14 @@ def eta_lambda_tangent(lon, lat, heading, *, lam, sign, tensor_interp):
     denom = np.maximum(lam2 - lam1, 1e-30)
     a = np.sqrt(np.clip((lam2 - lam**2) / denom, 0.0, 1.0))
     b = np.sqrt(np.clip((lam**2 - lam1) / denom, 0.0, 1.0))
-    xi1, xi2 = eigenvectors[:, :, 0], eigenvectors[:, :, 1]
-    eta = sign * (a[:, None] * xi1 + b[:, None] * xi2)
+    xi1 = eigenvectors[:, :, 0]
+    # eigh signs each eigenvector on its own, and flipping xi_2 alone turns
+    # eta^+ into eta^-. Taking xi_2 as xi_1 turned 90 degrees counter-clockwise
+    # ties the two signs together, so the two branches stay distinct.
+    xi2 = np.column_stack([-xi1[:, 1], xi1[:, 0]])
+    eta = a[:, None] * xi1 + sign * b[:, None] * xi2
+    # Negating xi_1 negates xi_2 with it, so eta is fixed up to one overall
+    # sign, and orienting it to the running heading stays inside one branch.
     eta[np.sum(eta * heading, axis=1) < 0] *= -1
     eta[terminated] = np.nan
     return eta
@@ -207,10 +215,10 @@ def eta_lambda_tangent(lon, lat, heading, *, lam, sign, tensor_interp):
 
 ## RK2 tracer
 
-Marches $\eta_\lambda$ one direction from a set of launch points, the
-midpoint (RK2) scheme `shrink_lines` uses, sharing its spherical step
-`_step_lonlat_by_meters` (imported from `lcs_parcels.tensorlines`, private
-because the package exposes no public tangent-field stepper).
+Marches $\eta_\lambda$ one direction from a set of launch points with the
+midpoint (RK2) scheme `shrink_lines` uses. The spherical step
+`_step_lonlat_by_meters` is imported from `lcs_parcels.tensorlines`, where it
+is private, since the package exposes no public tangent-field stepper.
 
 
 ```python
@@ -247,15 +255,26 @@ def trace_eta_lines(lon0, lat0, *, lam, sign, step_m, n_steps, tensor_interp):
 
 ## Where $\eta_\lambda$ is well defined, at $\lambda = 1$
 
-$\eta_1$ needs $\lambda_1 < 1 < \lambda_2$: everywhere the flow both
-stretches and contracts a neighbourhood, which excludes the small patches
-where the window happens to be exactly area-preserving in one eigen-plane.
+$\eta_1$ needs $\lambda_1 < 1 < \lambda_2$, so a neighbourhood has to be
+stretched in one eigendirection and contracted in the other. Where it is not,
+there is no direction of stretch factor 1 and a traced line ends.
 
 ```python
 lambda1 = eigen["lambda"].isel(eig=0)
 lambda2 = eigen["lambda"].isel(eig=1)
 well_defined = (lambda1 < 1.0) & (1.0 < lambda2)
 well_defined.plot.pcolormesh(x="lon_grid", y="lat_grid")
+```
+
+## How far from area-preserving
+
+$\sqrt{\lambda_1\lambda_2} = |\det \nabla F|$ is the area change over the
+window, and a boundary enclosing it stretches by about its square root. The
+quantiles below set the $\lambda$ range the sweep scans.
+
+```python
+det_grad_F = np.sqrt(lambda1 * lambda2)
+det_grad_F.quantile([0.05, 0.25, 0.5, 0.75, 0.95])
 ```
 
 ## Candidate vortex centres
@@ -339,12 +358,11 @@ plt.show()
 
 ## Poincaré section and return map
 
-A section of 40 launch points running due east from the first candidate
-centre, 150 km long. `first_return` walks each traced line and finds the
-first crossing of the section latitude after the line has moved away from
-it, linearly interpolating the crossing longitude. `s` and `P(s)` are both
-arc length east of the centre; a fixed point of $P(s) - s$ is a closed
-orbit.
+The section runs due east from a candidate centre. `first_return` walks each
+traced line and finds the first crossing of the section after the line has
+moved away from it, linearly interpolating the crossing longitude. Both `s`
+and `P(s)` are arc length east of the centre, and a zero of $P(s) - s$ is a
+closed orbit.
 
 ```python
 SECTION_LENGTH_M = 150_000.0
@@ -352,7 +370,7 @@ N_LAUNCH = 40
 STEP_M = 2_000.0
 BUDGET_M = 2_500_000.0
 N_STEPS = round(BUDGET_M / STEP_M)
-LAMBDAS = list(np.linspace(0.9, 1.1, 5))
+LAMBDAS = list(np.linspace(0.8, 1.4, 7))
 SIGNS = [+1, -1]
 CLOSE_TOL_M = 2_000.0
 
@@ -367,28 +385,33 @@ def section_points(centre_lon, centre_lat, length_m, n):
 def first_return(
     track_lon, track_lat, *, section_lat, section_lon_min, section_lon_max
 ):
-    """First crossing of the section after the line has moved off it."""
+    """First crossing of the section segment after the line has moved off it.
+
+    Returns the crossing longitude, NaN where the line never comes back, and
+    the number of track points up to and including the crossing step. A line
+    encircling the centre also crosses the section latitude west of it, outside
+    the segment; that is not a return, and the scan runs on.
+    """
     n_steps_p1, n_lines = track_lon.shape
     north_rel = track_lat - section_lat
     result_lon = np.full(n_lines, np.nan)
+    cut = np.full(n_lines, n_steps_p1, dtype=int)
     for k in range(n_lines):
         lon_k, rel_k = track_lon[:, k], north_rel[:, k]
         started_away = False
         for i in range(1, n_steps_p1):
+            if not (np.isfinite(rel_k[i]) and np.isfinite(lon_k[i])):
+                break
             if not started_away:
-                if not np.isfinite(rel_k[i]):
-                    break
                 started_away = abs(rel_k[i]) > 1e-9
                 continue
-            if not (np.isfinite(rel_k[i - 1]) and np.isfinite(rel_k[i])):
-                break
             if rel_k[i - 1] == 0 or (np.sign(rel_k[i - 1]) != np.sign(rel_k[i])):
                 t = rel_k[i - 1] / (rel_k[i - 1] - rel_k[i])
                 lon_cross = lon_k[i - 1] + t * (lon_k[i] - lon_k[i - 1])
                 if section_lon_min - 1e-6 <= lon_cross <= section_lon_max + 1e-6:
-                    result_lon[k] = lon_cross
-                break
-    return result_lon
+                    result_lon[k], cut[k] = lon_cross, i + 1
+                    break
+    return result_lon, cut
 ```
 
 ```python
@@ -405,7 +428,7 @@ track_lon, track_lat = trace_eta_lines(
     n_steps=N_STEPS,
     tensor_interp=tensor_interp,
 )
-ret_lon = first_return(
+ret_lon, _ = first_return(
     track_lon,
     track_lat,
     section_lat=c_lat,
@@ -433,13 +456,34 @@ accept it as a closed orbit when the residual return displacement is under
 `CLOSE_TOL_M`.
 
 A residual-only check accepts a line that merely grazes back across the
-section without enclosing the centre, so every candidate also has to
-enclose the centre and have a circumference within a factor of 2 of
-$2\pi r$ for its mean radius $r$; both are needed, since a residual check
-alone lets spurious partial loops through.
+section without enclosing the centre, so every candidate also has to enclose
+the centre and have a circumference within a factor of 2 of $2\pi r$ for its
+mean radius $r$.
+
+The sweep also records, for each combination, how far around the centre its
+best launch point gets before the line ends. A closed orbit needs a full
+revolution, so that number bounds what the search can find.
+
+
+```python
+def revolutions(track_lon, track_lat, *, centre_lon, centre_lat):
+    """Turns each traced line makes about the centre before it terminates."""
+    dx, dy = _separation_m(
+        lon_a=centre_lon, lat_a=centre_lat, lon_b=track_lon, lat_b=track_lat
+    )
+    angle = np.unwrap(np.arctan2(dy, dx), axis=0)
+    turns = np.full(track_lon.shape[1], np.nan)
+    for k in range(track_lon.shape[1]):
+        finite = np.isfinite(angle[:, k])
+        if finite.sum() > 1:
+            ends = angle[finite, k]
+            turns[k] = (ends[-1] - ends[0]) / (2 * np.pi)
+    return turns
+```
 
 ```python
 closed_orbits = []
+winding = []
 n_never_return = 0
 
 for ci, (cl, ca) in enumerate(zip(centre_lon, centre_lat, strict=True)):
@@ -456,7 +500,22 @@ for ci, (cl, ca) in enumerate(zip(centre_lon, centre_lat, strict=True)):
                 n_steps=N_STEPS,
                 tensor_interp=tensor_interp,
             )
-            ret_lon = first_return(
+            turns = revolutions(track_lon, track_lat, centre_lon=cl, centre_lat=ca)
+            if np.isfinite(turns).any():
+                k_best = int(np.nanargmax(np.abs(turns)))
+                winding.append(
+                    {
+                        "centre_idx": ci,
+                        "centre_lon": cl,
+                        "centre_lat": ca,
+                        "lam": lam,
+                        "sign": sign,
+                        "s": s_vals[k_best],
+                        "turns": turns[k_best],
+                        "steps": int(np.isfinite(track_lon[:, k_best]).sum()),
+                    }
+                )
+            ret_lon, _ = first_return(
                 track_lon,
                 track_lat,
                 section_lat=ca,
@@ -487,7 +546,7 @@ for ci, (cl, ca) in enumerate(zip(centre_lon, centre_lat, strict=True)):
                     n_steps=N_STEPS,
                     tensor_interp=tensor_interp,
                 )
-                ret_lon2 = first_return(
+                ret_lon2, cut_arr = first_return(
                     poly_lon,
                     poly_lat,
                     section_lat=ca,
@@ -500,19 +559,7 @@ for ci, (cl, ca) in enumerate(zip(centre_lon, centre_lat, strict=True)):
                 residual_m = abs(ret_s2 - s_fix)
                 if residual_m >= CLOSE_TOL_M:
                     continue
-                col, rel = poly_lon[:, 0], poly_lat[:, 0] - ca
-                cut, started_away = len(col), False
-                for ii in range(1, len(col)):
-                    if not started_away:
-                        if not np.isfinite(rel[ii]):
-                            break
-                        started_away = abs(rel[ii]) > 1e-9
-                        continue
-                    if not (np.isfinite(rel[ii - 1]) and np.isfinite(rel[ii])):
-                        break
-                    if rel[ii - 1] == 0 or np.sign(rel[ii - 1]) != np.sign(rel[ii]):
-                        cut = ii + 1
-                        break
+                cut = int(cut_arr[0])
                 dx, dy = _separation_m(
                     lon_a=cl, lat_a=ca, lon_b=poly_lon[:cut, 0], lat_b=poly_lat[:cut, 0]
                 )
@@ -587,20 +634,65 @@ for o in outermost.values():
 plt.show()
 ```
 
+## How far the lines get
+
+A closed orbit needs a full turn about the centre. For each candidate centre,
+the best launch point over all $\lambda$ and both signs turns this far before
+its line ends on the well-definedness condition.
+
+```python
+turns_per_centre = {}
+for record in winding:
+    ci = record["centre_idx"]
+    if ci not in turns_per_centre or abs(record["turns"]) > abs(
+        turns_per_centre[ci]["turns"]
+    ):
+        turns_per_centre[ci] = record
+[round(abs(record["turns"]), 2) for record in turns_per_centre.values()]
+```
+
+```python
+best = max(turns_per_centre.values(), key=lambda record: abs(record["turns"]))
+best["centre_lon"], best["centre_lat"], best["lam"], best["sign"], best["turns"]
+```
+
+The $\eta_\lambda$ lines launched along the section at that centre, drawn over
+the FTLE.
+
+```python
+s_vals, launch_lon, launch_lat = section_points(
+    best["centre_lon"], best["centre_lat"], SECTION_LENGTH_M, N_LAUNCH
+)
+best_lon, best_lat = trace_eta_lines(
+    launch_lon,
+    launch_lat,
+    lam=best["lam"],
+    sign=best["sign"],
+    step_m=STEP_M,
+    n_steps=N_STEPS,
+    tensor_interp=tensor_interp,
+)
+```
+
+```python
+fig, ax = plt.subplots()
+ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
+ax.plot(best_lon, best_lat, color="tab:green", lw=0.7)
+ax.scatter(best["centre_lon"], best["centre_lat"], marker="x", color="tab:orange")
+plt.show()
+```
+
 ## Validation by advection
 
-A closed orbit at $\lambda$ should stretch by that exact factor: advecting
-every point of the curve through `flowmap.image()` (interpolating the
-already-advected field, exact for this purpose, so a second Parcels run is
-not needed) and re-measuring its arc length should return a ratio close to
-$\lambda$, unlike a same-radius circle drawn through the centre, which has
-no reason to stretch uniformly.
+$|\nabla F\,\eta_\lambda| = \lambda$ holds pointwise, so any arc tangent to
+$\eta_\lambda$ has its arc length multiplied by $\lambda$, whether or not it
+closes. Advecting an arc through `flowmap.image()` (which interpolates the
+flow map already computed, so no second Parcels run is needed) and
+re-measuring its length checks the tangent field and the stepper against
+that.
 
-With zero closed orbits surviving the enclosure/circumference filter above,
-there is no vortex boundary to validate. The strongest surviving return-map
-fixed point before that filter is used instead, to check that the
-$\eta_\lambda$ construction and stepper are numerically sound even though
-this particular candidate is not a genuine closed orbit.
+Repeating it for every $\lambda$ of the sweep, from one launch point, tests
+the whole family rather than one member.
 
 
 ```python
@@ -609,56 +701,68 @@ def arc_length_m(lon, lat):
     return np.sum(np.hypot(dx, dy))
 
 
-def evolve_and_ratio(lon0, lat0, flowmap):
-    length0 = arc_length_m(np.append(lon0, lon0[0]), np.append(lat0, lat0[0]))
+def evolve_and_ratio(lon_0, lat_0, flowmap):
+    length_0 = arc_length_m(lon_0, lat_0)
     evolved = flowmap.image(
-        lon_0=xr.DataArray(lon0, dims="point"), lat_0=xr.DataArray(lat0, dims="point")
+        lon_0=xr.DataArray(lon_0, dims="point"), lat_0=xr.DataArray(lat_0, dims="point")
     )
-    lon1, lat1 = evolved["lon"].values, evolved["lat"].values
-    length1 = arc_length_m(np.append(lon1, lon1[0]), np.append(lat1, lat1[0]))
-    return length1 / length0, length0, length1
+    lon_1, lat_1 = evolved["lon"].values, evolved["lat"].values
+    return arc_length_m(lon_1, lat_1) / length_0, length_0, lon_1, lat_1
 ```
 
 ```python
-if outermost:
-    boundary = next(iter(outermost.values()))
-else:
-    boundary = min(candidate_returns, key=lambda o: o["residual_m"])
-boundary["lam"], boundary["sign"], boundary["residual_m"], boundary["encloses_centre"]
+launch_dlon = best["s"] / (_M_PER_DEG * np.cos(np.deg2rad(best["centre_lat"])))
+arcs = {}
+for lam in LAMBDAS:
+    arc_lon, arc_lat = trace_eta_lines(
+        np.array([best["centre_lon"] + launch_dlon]),
+        np.array([best["centre_lat"]]),
+        lam=lam,
+        sign=best["sign"],
+        step_m=STEP_M,
+        n_steps=N_STEPS,
+        tensor_interp=tensor_interp,
+    )
+    finite = np.isfinite(arc_lon[:, 0])
+    if finite.sum() >= 10:
+        arcs[lam] = (arc_lon[finite, 0], arc_lat[finite, 0])
+ratios = {lam: evolve_and_ratio(*arc, forward)[0] for lam, arc in arcs.items()}
+ratios
 ```
 
 ```python
-ratio, len0, len1 = evolve_and_ratio(boundary["lon"], boundary["lat"], forward)
-n_circle = 60
-theta = np.linspace(0, 2 * np.pi, n_circle, endpoint=False)
-r_deg_lon = boundary["mean_radius_m"] / (
-    _M_PER_DEG * np.cos(np.deg2rad(boundary["centre_lat"]))
-)
-r_deg_lat = boundary["mean_radius_m"] / _M_PER_DEG
-circle_lon = boundary["centre_lon"] + r_deg_lon * np.cos(theta)
-circle_lat = boundary["centre_lat"] + r_deg_lat * np.sin(theta)
-circle_ratio, circle_len0, circle_len1 = evolve_and_ratio(
-    circle_lon, circle_lat, forward
-)
-ratio, circle_ratio
-```
-
-```python
-fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(10, 5), sharex=True, sharey=True)
-ax0.set_title(f"t0, length {len0 / 1000:.1f} km")
-ax0.plot(boundary["lon"], boundary["lat"], color="tab:red", label="candidate boundary")
-ax0.plot(circle_lon, circle_lat, color="tab:grey", label="same-radius circle")
-ax0.legend(fontsize=8)
-evolved_boundary = forward.image(
-    lon_0=xr.DataArray(boundary["lon"], dims="point"),
-    lat_0=xr.DataArray(boundary["lat"], dims="point"),
-)
-evolved_circle = forward.image(
-    lon_0=xr.DataArray(circle_lon, dims="point"),
-    lat_0=xr.DataArray(circle_lat, dims="point"),
-)
-ax1.set_title(f"t1, length {len1 / 1000:.1f} km (ratio {ratio:.2f})")
-ax1.plot(evolved_boundary["lon"], evolved_boundary["lat"], color="tab:red")
-ax1.plot(evolved_circle["lon"], evolved_circle["lat"], color="tab:grey")
+fig, ax = plt.subplots()
+ax.plot(list(ratios), list(ratios.values()), marker="o", ls="none")
+ax.plot(LAMBDAS, LAMBDAS, color="grey", lw=0.7)
+ax.set_xlabel("lambda")
+ax.set_ylabel("arc length ratio over the window")
 plt.show()
 ```
+
+The arc traced at the $\lambda$ that turns furthest, before and after the
+window.
+
+```python
+arc_lon, arc_lat = arcs[best["lam"]]
+ratio, length_0, evolved_lon, evolved_lat = evolve_and_ratio(arc_lon, arc_lat, forward)
+fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(10, 5), sharex=True, sharey=True)
+ax0.set_title(f"t0, arc {length_0 / 1000:.1f} km")
+ax0.plot(arc_lon, arc_lat, color="tab:red")
+ax0.scatter(best["centre_lon"], best["centre_lat"], marker="x", color="tab:orange")
+ax1.set_title(f"t1, ratio {ratio:.3f} (lambda {best['lam']:.2f})")
+ax1.plot(evolved_lon, evolved_lat, color="tab:red")
+plt.show()
+```
+
+## Outcome
+
+The sweep finds no closed orbit, so this window has no coherent-vortex
+boundary to draw over the FTLE. No launch point at any centre completes a
+turn, and the lines end on the well-definedness condition rather than on the
+step budget, so what is missing is a neighbourhood where $\lambda^2$ stays
+inside $(\lambda_1, \lambda_2)$ the whole way around a centre.
+
+The arc-length ratios track $\lambda$ to within a few percent over the whole
+scanned family, so the tangent field and the stepper are doing what Eq. 14
+asks of them. A window shorter than 5 days, over which $\nabla F$ stays
+closer to a rotation, is the next thing to try.
