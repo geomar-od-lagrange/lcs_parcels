@@ -26,7 +26,7 @@
 # The FTLE ridges in `cabo_verde_ftle` mark hyperbolic stretching. A coherent
 # Lagrangian vortex is a different structure, a region that stays together as it
 # advects, bounded by a material curve that stretches uniformly.
-# Haller (2015, §5.2 / Table 1, row "Shear",
+# Haller (2015, §5.1 / Table 1, row "Shear",
 # [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322))
 # builds such curves from the same Cauchy–Green tensor
 # $C = (\nabla F)^\top \nabla F$, eigenpairs $C\xi_i = \lambda_i \xi_i$,
@@ -41,7 +41,7 @@
 # A closed shear line is an **elliptic LCS**, and the outermost member of a nested
 # family of closed shear lines is the boundary of a coherent Lagrangian vortex.
 # Eq. 11 keeps a material curve's arc length fixed under an area-preserving
-# flow. The Cape Cauldron surface flow is not area-preserving over 15 days, so
+# flow. The Cape Cauldron surface flow is not area-preserving over 30 days, so
 # this notebook uses the $\lambda$-generalisation instead (Haller & Beron-Vera 2013,
 # Eq. 14,
 # [doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391)):
@@ -76,7 +76,7 @@ from parcels.convert import copernicusmarine_to_sgrid
 from parcels.kernels import AdvectionRK4
 from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels import NeighborSeedGrid
+from lcs_parcels import AuxiliarySeedGrid
 from lcs_parcels.grids import _M_PER_DEG, _separation_m
 from lcs_parcels.tensorlines import _step_lonlat_by_meters
 
@@ -103,21 +103,29 @@ z_surface = float(currents["depth"].values[0])
 # %% [markdown]
 # ## Seed grid and window
 #
-# A box across the Cape Cauldron, released on 2025-06-01 and advected 15 days
-# forward, long enough for an Agulhas ring (100-300 km across) to complete
-# several revolutions. Only the forward flow map is needed, since a vortex
-# boundary is a property of one time window, not of the forward/backward pair
-# `cabo_verde_lcs` uses for repelling/attracting duality.
+# A box across the Cape Cauldron at 1/10 degree, released on 2025-06-01 and read
+# at 15, 30 and 60 days. An Agulhas ring up to 300 km across turns once in
+# roughly 7 to 12 days, so the working horizon of 30 days covers a few
+# revolutions.
+#
+# Only the forward flow map is needed, since a vortex boundary is a property of
+# one time window, not of the forward/backward pair `cabo_verde_lcs` uses for
+# repelling/attracting duality.
+#
+# `AuxiliarySeedGrid` puts a four-arm stencil with 1 km arms around each grid
+# point, so $\nabla F$ is differenced over 2 km rather than over the 11 km seed
+# spacing.
 
 # %%
 t0 = np.datetime64("2025-06-01")
-T = np.timedelta64(15, "D")
-resolution_deg = 1 / 25
-seed_lon, seed_lat = (6.0, 18.0), (-40.0, -32.0)
+HORIZON_DAYS = (15, 30, 60)
+WORKING_DAYS = 30
+resolution_deg = 1 / 10
+seed_lon, seed_lat = (2.0, 22.0), (-44.0, -28.0)
 
 lon_axis = np.arange(seed_lon[0], seed_lon[1] + 1e-9, resolution_deg)
 lat_axis = np.arange(seed_lat[0], seed_lat[1] + 1e-9, resolution_deg)
-seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
+seed = AuxiliarySeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
 seed
 
 # %% [markdown]
@@ -140,19 +148,47 @@ def set_lost_to_nan(particles, fieldset):
 
 # %% [markdown]
 # ## Advect forward
+#
+# One particle set, executed in three legs, with the positions read off after
+# each. `execute` resets every particle's state at entry and carries each
+# particle on from its own time.
+#
+# A leg ends on `endtime` rather than a `runtime`, because a lost particle's time
+# stops advancing and `runtime` would take the run's start from it. A lost
+# particle enters the next leg at `NaN`, fails again and is recovered again.
 
 # %%
 lon, lat = seed.to_parcels_pset()
 z = np.full(len(lon), z_surface)
 pset = ParticleSet(fieldset, pclass=Particle, x=lon, y=lat, z=z, t=t0)
-pset.execute(
-    [AdvectionRK4, set_lost_to_nan],
-    dt=np.timedelta64(1, "h"),
-    runtime=T,
-    verbose_progress=False,
-)
-forward = seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t0 + T)
+snapshots = {}
+for days in HORIZON_DAYS:
+    pset.execute(
+        [AdvectionRK4, set_lost_to_nan],
+        dt=np.timedelta64(1, "h"),
+        endtime=t0 + np.timedelta64(days, "D"),
+        verbose_progress=False,
+    )
+    snapshots[days] = (np.asarray(pset.x).copy(), np.asarray(pset.y).copy())
+
+# %%
+flowmaps = {
+    days: seed.pset_to_flowmap(
+        lon=lon_days, lat=lat_days, t0=t0, t1=t0 + np.timedelta64(days, "D")
+    )
+    for days, (lon_days, lat_days) in snapshots.items()
+}
+forward = flowmaps[WORKING_DAYS]
 forward
+
+# %% [markdown]
+# Lost particles per horizon, and the check that a particle lost early stays
+# lost.
+
+# %%
+lost = {days: np.isnan(lon_days) for days, (lon_days, _) in snapshots.items()}
+assert np.all(lost[15] <= lost[30]) and np.all(lost[30] <= lost[60])
+{days: int(mask.sum()) for days, mask in lost.items()}
 
 # %% [markdown]
 # ## Eigendecomposition and FTLE
@@ -230,9 +266,9 @@ def eta_lambda_tangent(lon, lat, heading, *, lam, sign, tensor_interp):
 
 
 # %%
-def trace_eta_lines(lon0, lat0, *, lam, sign, step_m, n_steps, tensor_interp):
-    lon = np.asarray(lon0, dtype=float).ravel().copy()
-    lat = np.asarray(lat0, dtype=float).ravel().copy()
+def trace_eta_lines(*, lon_0, lat_0, lam, sign, step_m, n_steps, tensor_interp):
+    lon = np.asarray(lon_0, dtype=float).ravel().copy()
+    lat = np.asarray(lat_0, dtype=float).ravel().copy()
     heading = eta_lambda_tangent(
         lon,
         lat,
@@ -289,14 +325,15 @@ det_grad_F.quantile([0.05, 0.25, 0.5, 0.75, 0.95])
 # %% [markdown]
 # ## Candidate vortex centres
 #
-# A coherent vortex core is where material barely stretches at all in either
-# eigendirection, so $\lambda_2$ (the larger, more discriminating of the two)
-# is at a local minimum. `find_centres` below is the `ftle_ridge_seeds`
-# windowed-extremum trick inverted to a minimum, plus a validity guard that
-# keeps a centre 50 km from the domain edge and from any NaN (land) cell,
-# since the tensor there is unreliable. The window is 200 km, about the
-# radius of the rings this box targets, so a genuine core is not split into
-# several spurious local minima.
+# Haller & Beron-Vera place their sections through singularities of $C$, the
+# points where $\lambda_1 = \lambda_2$ and the eigendirections stop being
+# defined. Candidate centres are therefore windowed minima of
+# $\lambda_2/\lambda_1$.
+#
+# `find_centres` below is the `ftle_ridge_seeds` windowed-extremum trick inverted
+# to a minimum, plus a guard keeping a centre 50 km from the domain edge and from
+# any NaN (land) cell, where the tensor is unreliable. The window is 200 km, so a
+# genuine core is not split into several spurious local minima.
 
 
 # %%
@@ -355,8 +392,13 @@ def find_centres(field, *, window_m, edge_m):
 
 
 # %%
-centre_lon, centre_lat, centre_lambda2 = find_centres(
-    lambda2, window_m=200_000.0, edge_m=50_000.0
+anisotropy = (
+    (lambda2 / lambda1)
+    .rename("anisotropy")
+    .assign_attrs(long_name="Cauchy-Green eigenvalue ratio", units="1")
+)
+centre_lon, centre_lat, centre_anisotropy = find_centres(
+    anisotropy, window_m=200_000.0, edge_m=50_000.0
 )
 len(centre_lon)
 
@@ -367,13 +409,14 @@ ax.scatter(centre_lon, centre_lat, marker="x", color="tab:orange")
 plt.show()
 
 # %% [markdown]
-# ## Poincaré section and return map
+# ## Poincaré sections and the return map
 #
-# The section runs due east from a candidate centre. `first_return` walks each
-# traced line and finds the first crossing of the section after the line has
-# moved away from it, linearly interpolating the crossing longitude. Both `s`
-# and `P(s)` are arc length east of the centre, and a zero of $P(s) - s$ is a
-# closed orbit.
+# A section runs due east from each candidate centre and a second runs due west,
+# so an orbit whose eastern arc leaves the admissible region is still found on
+# the western one. `first_return` walks each traced line and finds the first
+# crossing of a section after the line has moved away from it, linearly
+# interpolating the crossing longitude. Both `s` and `P(s)` are arc length from
+# the centre along the section, and a zero of $P(s) - s$ is a closed orbit.
 
 # %%
 SECTION_LENGTH_M = 250_000.0
@@ -382,27 +425,34 @@ STEP_M = 2_000.0
 RING_DIAMETER_M = 300_000.0  # the largest ring size this box targets
 BUDGET_M = 2 * np.pi * (RING_DIAMETER_M / 2) * 2  # two circumferences
 N_STEPS = round(BUDGET_M / STEP_M)
-LAMBDAS = list(np.linspace(0.8, 1.4, 7))
+LAMBDAS = np.arange(0.80, 1.40 + 1e-9, 0.02)
 SIGNS = [+1, -1]
+DIRECTIONS = [+1, -1]  # east, west
 CLOSE_TOL_M = 2_000.0
 
 
-def section_points(centre_lon, centre_lat, length_m, n):
+def section_points(*, centre_lon, centre_lat, length_m, n, direction):
+    """Launch points along the section running east (+1) or west (-1)."""
     s = np.linspace(0.0, length_m, n)
-    lon = centre_lon + s / (_M_PER_DEG * np.cos(np.deg2rad(centre_lat)))
+    lon = centre_lon + direction * s / (_M_PER_DEG * np.cos(np.deg2rad(centre_lat)))
     lat = np.full(n, centre_lat)
     return s, lon, lat
 
 
+def section_arc_length(lon, *, centre_lon, centre_lat, direction):
+    """Arc length from the centre along the section, positive along it."""
+    return direction * (lon - centre_lon) * _M_PER_DEG * np.cos(np.deg2rad(centre_lat))
+
+
 def first_return(
-    track_lon, track_lat, *, section_lat, section_lon_min, section_lon_max
+    *, track_lon, track_lat, section_lat, section_lon_min, section_lon_max
 ):
     """First crossing of the section segment after the line has moved off it.
 
     Returns the crossing longitude, NaN where the line never comes back, and
     the number of track points up to and including the crossing step. A line
-    encircling the centre also crosses the section latitude west of it, outside
-    the segment; that is not a return, and the scan runs on.
+    encircling the centre also crosses the section latitude on the far side,
+    outside the segment; that is not a return, and the scan runs on.
     """
     n_steps_p1, n_lines = track_lon.shape
     north_rel = track_lat - section_lat
@@ -426,45 +476,14 @@ def first_return(
     return result_lon, cut
 
 
-# %%
-c_lon, c_lat = centre_lon[0], centre_lat[0]
-s_vals, launch_lon, launch_lat = section_points(
-    c_lon, c_lat, SECTION_LENGTH_M, N_LAUNCH
-)
-track_lon, track_lat = trace_eta_lines(
-    launch_lon,
-    launch_lat,
-    lam=1.0,
-    sign=+1,
-    step_m=STEP_M,
-    n_steps=N_STEPS,
-    tensor_interp=tensor_interp,
-)
-ret_lon, _ = first_return(
-    track_lon,
-    track_lat,
-    section_lat=c_lat,
-    section_lon_min=launch_lon.min(),
-    section_lon_max=launch_lon.max(),
-)
-ret_s = (ret_lon - c_lon) * _M_PER_DEG * np.cos(np.deg2rad(c_lat))
-
-# %%
-fig, ax = plt.subplots()
-ax.plot(s_vals / 1000, (ret_s - s_vals) / 1000, marker="o")
-ax.axhline(0, color="grey", lw=0.7)
-ax.set_xlabel("s (km, launch position east of centre)")
-ax.set_ylabel("P(s) - s (km)")
-plt.show()
-
 # %% [markdown]
-# ## Closed orbits over all $\lambda$ and signs
+# ## Closed orbits over all $\lambda$, signs and sections
 #
-# For every candidate centre, every $\lambda$ and both signs of $\eta_\lambda$:
-# find the sign changes of $P(s) - s$ across neighbouring launch points,
-# refine each by linear interpolation, re-trace from the refined $s$, and
-# accept it as a closed orbit when the residual return displacement is under
-# `CLOSE_TOL_M`.
+# For every candidate centre, every $\lambda$, each sign of $\eta_\lambda$ and
+# each section, the sweep finds the sign changes of $P(s) - s$ across
+# neighbouring launch points, refines each by linear interpolation, re-traces
+# from the refined $s$, and accepts it as a closed orbit when the residual return
+# displacement is under `CLOSE_TOL_M`.
 #
 # A residual-only check accepts a line that merely grazes back across the
 # section without enclosing the centre, so every candidate also has to enclose
@@ -477,7 +496,7 @@ plt.show()
 
 
 # %%
-def revolutions(track_lon, track_lat, *, centre_lon, centre_lat):
+def revolutions(*, track_lon, track_lat, centre_lon, centre_lat):
     """Turns each traced line makes about the centre before it terminates."""
     dx, dy = _separation_m(
         lon_a=centre_lon, lat_a=centre_lat, lon_b=track_lon, lat_b=track_lat
@@ -493,168 +512,173 @@ def revolutions(track_lon, track_lat, *, centre_lon, centre_lat):
 
 
 # %%
-def sweep_centres(centre_lon, centre_lat, lambdas, signs):
-    """Closed-orbit search over every candidate centre, lambda and sign."""
+def sweep_centres(*, centre_lon, centre_lat, lambdas, signs, tensor_interp):
+    """Closed-orbit search over every candidate centre, lambda, sign and section."""
     closed_orbits = []
     winding = []
     n_never_return = 0
 
     for ci, (cl, ca) in enumerate(zip(centre_lon, centre_lat, strict=True)):
-        s_vals, launch_lon, launch_lat = section_points(
-            cl, ca, SECTION_LENGTH_M, N_LAUNCH
-        )
-        lon_min, lon_max = launch_lon.min(), launch_lon.max()
-        for lam in lambdas:
-            for sign in signs:
-                track_lon, track_lat = trace_eta_lines(
-                    launch_lon,
-                    launch_lat,
-                    lam=lam,
-                    sign=sign,
-                    step_m=STEP_M,
-                    n_steps=N_STEPS,
-                    tensor_interp=tensor_interp,
-                )
-                turns = revolutions(track_lon, track_lat, centre_lon=cl, centre_lat=ca)
-                if np.isfinite(turns).any():
-                    k_best = int(np.nanargmax(np.abs(turns)))
-                    winding.append(
-                        {
-                            "centre_idx": ci,
-                            "centre_lon": cl,
-                            "centre_lat": ca,
-                            "lam": lam,
-                            "sign": sign,
-                            "s": s_vals[k_best],
-                            "turns": turns[k_best],
-                            "steps": int(np.isfinite(track_lon[:, k_best]).sum()),
-                        }
-                    )
-                ret_lon, _ = first_return(
-                    track_lon,
-                    track_lat,
-                    section_lat=ca,
-                    section_lon_min=lon_min,
-                    section_lon_max=lon_max,
-                )
-                ret_s = (ret_lon - cl) * _M_PER_DEG * np.cos(np.deg2rad(ca))
-                if not np.isfinite(ret_s).any():
-                    n_never_return += 1
-                    continue
-                P_minus_s = ret_s - s_vals
-                finite = np.isfinite(P_minus_s)
-                for i in range(N_LAUNCH - 1):
-                    if not (finite[i] and finite[i + 1]):
-                        continue
-                    a, b = P_minus_s[i], P_minus_s[i + 1]
-                    if not (a == 0 or np.sign(a) != np.sign(b)):
-                        continue
-                    t = a / (a - b)
-                    s_fix = s_vals[i] + t * (s_vals[i + 1] - s_vals[i])
-                    dlon = s_fix / (_M_PER_DEG * np.cos(np.deg2rad(ca)))
-                    poly_lon, poly_lat = trace_eta_lines(
-                        np.array([cl + dlon]),
-                        np.array([ca]),
+        for direction in DIRECTIONS:
+            s_vals, launch_lon, launch_lat = section_points(
+                centre_lon=cl,
+                centre_lat=ca,
+                length_m=SECTION_LENGTH_M,
+                n=N_LAUNCH,
+                direction=direction,
+            )
+            lon_min, lon_max = launch_lon.min(), launch_lon.max()
+            for lam in lambdas:
+                for sign in signs:
+                    track_lon, track_lat = trace_eta_lines(
+                        lon_0=launch_lon,
+                        lat_0=launch_lat,
                         lam=lam,
                         sign=sign,
                         step_m=STEP_M,
                         n_steps=N_STEPS,
                         tensor_interp=tensor_interp,
                     )
-                    ret_lon2, cut_arr = first_return(
-                        poly_lon,
-                        poly_lat,
+                    turns = revolutions(
+                        track_lon=track_lon,
+                        track_lat=track_lat,
+                        centre_lon=cl,
+                        centre_lat=ca,
+                    )
+                    if np.isfinite(turns).any():
+                        k_best = int(np.nanargmax(np.abs(turns)))
+                        winding.append(
+                            {
+                                "centre_idx": ci,
+                                "centre_lon": cl,
+                                "centre_lat": ca,
+                                "direction": direction,
+                                "lam": lam,
+                                "sign": sign,
+                                "s": s_vals[k_best],
+                                "turns": turns[k_best],
+                                "steps": int(np.isfinite(track_lon[:, k_best]).sum()),
+                            }
+                        )
+                    ret_lon, _ = first_return(
+                        track_lon=track_lon,
+                        track_lat=track_lat,
                         section_lat=ca,
                         section_lon_min=lon_min,
                         section_lon_max=lon_max,
                     )
-                    if not np.isfinite(ret_lon2[0]):
-                        continue
-                    ret_s2 = (ret_lon2[0] - cl) * _M_PER_DEG * np.cos(np.deg2rad(ca))
-                    residual_m = abs(ret_s2 - s_fix)
-                    if residual_m >= CLOSE_TOL_M:
-                        continue
-                    cut = int(cut_arr[0])
-                    dx, dy = _separation_m(
-                        lon_a=cl,
-                        lat_a=ca,
-                        lon_b=poly_lon[:cut, 0],
-                        lat_b=poly_lat[:cut, 0],
+                    ret_s = section_arc_length(
+                        ret_lon, centre_lon=cl, centre_lat=ca, direction=direction
                     )
-                    radius_m = np.hypot(dx, dy)
-                    mean_radius_m = float(np.nanmean(radius_m))
-                    encloses = MplPath(np.column_stack([dx, dy])).contains_point(
-                        (0.0, 0.0)
-                    )
-                    length_m = np.sum(
-                        np.hypot(
-                            np.diff(np.append(dx, dx[0])), np.diff(np.append(dy, dy[0]))
+                    if not np.isfinite(ret_s).any():
+                        n_never_return += 1
+                        continue
+                    P_minus_s = ret_s - s_vals
+                    finite = np.isfinite(P_minus_s)
+                    for i in range(N_LAUNCH - 1):
+                        if not (finite[i] and finite[i + 1]):
+                            continue
+                        a, b = P_minus_s[i], P_minus_s[i + 1]
+                        if not (a == 0 or np.sign(a) != np.sign(b)):
+                            continue
+                        t = a / (a - b)
+                        s_fix = s_vals[i] + t * (s_vals[i + 1] - s_vals[i])
+                        dlon = direction * s_fix / (_M_PER_DEG * np.cos(np.deg2rad(ca)))
+                        poly_lon, poly_lat = trace_eta_lines(
+                            lon_0=np.array([cl + dlon]),
+                            lat_0=np.array([ca]),
+                            lam=lam,
+                            sign=sign,
+                            step_m=STEP_M,
+                            n_steps=N_STEPS,
+                            tensor_interp=tensor_interp,
                         )
-                    )
-                    circumference_ratio = (
-                        length_m / (2 * np.pi * mean_radius_m)
-                        if mean_radius_m > 0
-                        else np.nan
-                    )
-                    closed_orbits.append(
-                        {
-                            "centre_idx": ci,
-                            "centre_lon": cl,
-                            "centre_lat": ca,
-                            "lam": lam,
-                            "sign": sign,
-                            "s": s_fix,
-                            "residual_m": residual_m,
-                            "lon": poly_lon[:cut, 0],
-                            "lat": poly_lat[:cut, 0],
-                            "mean_radius_m": mean_radius_m,
-                            "encloses_centre": bool(encloses),
-                            "circumference_ratio": float(circumference_ratio),
-                        }
-                    )
+                        ret_lon2, cut_arr = first_return(
+                            track_lon=poly_lon,
+                            track_lat=poly_lat,
+                            section_lat=ca,
+                            section_lon_min=lon_min,
+                            section_lon_max=lon_max,
+                        )
+                        if not np.isfinite(ret_lon2[0]):
+                            continue
+                        ret_s2 = section_arc_length(
+                            ret_lon2[0],
+                            centre_lon=cl,
+                            centre_lat=ca,
+                            direction=direction,
+                        )
+                        residual_m = abs(ret_s2 - s_fix)
+                        if residual_m >= CLOSE_TOL_M:
+                            continue
+                        cut = int(cut_arr[0])
+                        dx, dy = _separation_m(
+                            lon_a=cl,
+                            lat_a=ca,
+                            lon_b=poly_lon[:cut, 0],
+                            lat_b=poly_lat[:cut, 0],
+                        )
+                        radius_m = np.hypot(dx, dy)
+                        mean_radius_m = float(np.nanmean(radius_m))
+                        encloses = MplPath(np.column_stack([dx, dy])).contains_point(
+                            (0.0, 0.0)
+                        )
+                        length_m = np.sum(
+                            np.hypot(
+                                np.diff(np.append(dx, dx[0])),
+                                np.diff(np.append(dy, dy[0])),
+                            )
+                        )
+                        circumference_ratio = (
+                            length_m / (2 * np.pi * mean_radius_m)
+                            if mean_radius_m > 0
+                            else np.nan
+                        )
+                        closed_orbits.append(
+                            {
+                                "centre_idx": ci,
+                                "centre_lon": cl,
+                                "centre_lat": ca,
+                                "direction": direction,
+                                "lam": lam,
+                                "sign": sign,
+                                "s": s_fix,
+                                "residual_m": residual_m,
+                                "lon": poly_lon[:cut, 0],
+                                "lat": poly_lat[:cut, 0],
+                                "mean_radius_m": mean_radius_m,
+                                "encloses_centre": bool(encloses),
+                                "circumference_ratio": float(circumference_ratio),
+                            }
+                        )
     return closed_orbits, winding, n_never_return
 
 
 # %%
-candidate_returns, winding, n_never_return = sweep_centres(
-    centre_lon, centre_lat, LAMBDAS, SIGNS
-)
-closed_orbits = [
-    o
-    for o in candidate_returns
-    if o["encloses_centre"] and 0.5 < o["circumference_ratio"] < 2.0
-]
-len(candidate_returns), len(closed_orbits), n_never_return
-
-# %% [markdown]
-# No closed orbit survives the shape filter at $\lambda \in [0.8, 1.4]$, so a
-# denser scan around $\lambda = 1$ is tried before giving up on this
-# $\lambda$ range.
-
-# %%
-LAMBDAS_DENSE = []
-if not closed_orbits:
-    LAMBDAS_DENSE = list(np.linspace(0.9, 1.2, 13))
-    candidate_returns_dense, winding_dense, n_never_return_dense = sweep_centres(
-        centre_lon, centre_lat, LAMBDAS_DENSE, SIGNS
-    )
-    closed_orbits_dense = [
+def keep_closed(candidates):
+    """The candidates that enclose their centre and have a plausible shape."""
+    return [
         o
-        for o in candidate_returns_dense
+        for o in candidates
         if o["encloses_centre"] and 0.5 < o["circumference_ratio"] < 2.0
     ]
-    candidate_returns += candidate_returns_dense
-    winding += winding_dense
-    n_never_return += n_never_return_dense
-    closed_orbits += closed_orbits_dense
-LAMBDAS_ALL = sorted(LAMBDAS + LAMBDAS_DENSE)
+
+
+# %%
+candidate_returns, winding, n_never_return = sweep_centres(
+    centre_lon=centre_lon,
+    centre_lat=centre_lat,
+    lambdas=LAMBDAS,
+    signs=SIGNS,
+    tensor_interp=tensor_interp,
+)
+closed_orbits = keep_closed(candidate_returns)
 len(candidate_returns), len(closed_orbits), n_never_return
 
 # %% [markdown]
-# How far around its centre the best launch point gets, at each $\lambda_2$
-# centre, largest first. A closed orbit needs a full turn. A track holding
-# `N_STEPS + 1` points ran out of step budget; a shorter one left the region
-# where $\eta_\lambda$ is defined.
+# How far around its centre the best launch point gets, at each centre, largest
+# first. A closed orbit needs a full turn. A track holding `N_STEPS + 1` points
+# ran out of step budget.
 
 
 # %%
@@ -686,55 +710,30 @@ def winding_table(records):
 N_STEPS + 1, winding_table(winding)
 
 # %% [markdown]
-# Neither pass over these centres closes a shape-filtered orbit, so a
-# different centre selection is tried next.
-
-# %%
-alt_centre_lon, alt_centre_lat, closed_orbits_alt, winding_alt = [], [], [], []
-if not closed_orbits:
-    c_eye_distance = (lambda1 - 1.0) ** 2 + (lambda2 - 1.0) ** 2
-    alt_centre_lon, alt_centre_lat, alt_centre_value = find_centres(
-        c_eye_distance, window_m=300_000.0, edge_m=50_000.0
-    )
-    candidate_returns_alt, winding_alt, n_never_return_alt = sweep_centres(
-        alt_centre_lon, alt_centre_lat, LAMBDAS, SIGNS
-    )
-    closed_orbits_alt = [
-        o
-        for o in candidate_returns_alt
-        if o["encloses_centre"] and 0.5 < o["circumference_ratio"] < 2.0
-    ]
-len(alt_centre_lon), len(closed_orbits_alt)
-
-# %% [markdown]
-# The same table at the alternative centres.
-
-# %%
-winding_table(winding_alt)
-
-# %% [markdown]
 # ## Outermost orbit per centre
 #
-# The $C \approx I$ centres are the ones that turn up closed orbits here, so they carry
-# the search from this point on. The outermost closed orbit, by mean radius,
-# marks the vortex boundary at each centre that has one.
+# The outermost closed orbit, by mean radius, marks the vortex boundary at each
+# centre that has one.
+
 
 # %%
-final_centre_lon = centre_lon if closed_orbits else alt_centre_lon
-final_centre_lat = centre_lat if closed_orbits else alt_centre_lat
-final_orbits = closed_orbits if closed_orbits else closed_orbits_alt
+def outermost_per_centre(orbits):
+    """The largest-mean-radius closed orbit at each centre."""
+    outermost = {}
+    for o in orbits:
+        ci = o["centre_idx"]
+        if ci not in outermost or o["mean_radius_m"] > outermost[ci]["mean_radius_m"]:
+            outermost[ci] = o
+    return outermost
 
-outermost = {}
-for o in final_orbits:
-    ci = o["centre_idx"]
-    if ci not in outermost or o["mean_radius_m"] > outermost[ci]["mean_radius_m"]:
-        outermost[ci] = o
+
+outermost = outermost_per_centre(closed_orbits)
 len(outermost)
 
 # %% [markdown]
 # Every closed orbit that survived the filters, innermost first, as centre
-# longitude, centre latitude, $\lambda$, sign, mean radius in km,
-# circumference ratio and return residual in metres.
+# longitude, centre latitude, $\lambda$, sign, section direction, mean radius in
+# km, circumference ratio and return residual in metres.
 
 # %%
 [
@@ -743,18 +742,19 @@ len(outermost)
         round(o["centre_lat"], 2),
         round(o["lam"], 3),
         o["sign"],
+        o["direction"],
         round(o["mean_radius_m"] / 1000, 1),
         round(o["circumference_ratio"], 3),
         round(o["residual_m"], 1),
     )
-    for o in sorted(final_orbits, key=lambda o: o["mean_radius_m"])
+    for o in sorted(closed_orbits, key=lambda o: o["mean_radius_m"])
 ]
 
 # %%
 fig, ax = plt.subplots()
 ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
-ax.scatter(final_centre_lon, final_centre_lat, marker="x", color="tab:orange")
-for o in final_orbits:
+ax.scatter(centre_lon, centre_lat, marker="x", color="tab:orange")
+for o in closed_orbits:
     ax.plot(
         o["lon"],
         o["lat"],
@@ -765,6 +765,72 @@ for o in final_orbits:
     )
 for o in outermost.values():
     ax.plot(o["lon"], o["lat"], color="tab:red", lw=2.0)
+plt.show()
+
+# %% [markdown]
+# ## The return map at the boundary's centre
+#
+# $P(s) - s$ along the eastern section at the centre of the outermost orbit (or,
+# if none closed, at the centre whose best launch point turned furthest), on that
+# centre's sign of $\eta_\lambda$. A zero is a closed orbit.
+
+# %%
+if outermost:
+    boundary = max(outermost.values(), key=lambda o: o["mean_radius_m"])
+    best = {
+        "centre_lon": boundary["centre_lon"],
+        "centre_lat": boundary["centre_lat"],
+        "lam": boundary["lam"],
+        "sign": boundary["sign"],
+        "direction": boundary["direction"],
+        "s": boundary["s"],
+    }
+else:
+    best = deepest_per_centre(winding)[0]
+best["centre_lon"], best["centre_lat"], best["lam"], best["sign"]
+
+# %%
+RETURN_MAP_LAMBDAS = [0.9, 1.0, 1.1, 1.2]
+s_vals, launch_lon, launch_lat = section_points(
+    centre_lon=best["centre_lon"],
+    centre_lat=best["centre_lat"],
+    length_m=SECTION_LENGTH_M,
+    n=N_LAUNCH,
+    direction=+1,
+)
+return_maps = {}
+for lam in RETURN_MAP_LAMBDAS:
+    track_lon, track_lat = trace_eta_lines(
+        lon_0=launch_lon,
+        lat_0=launch_lat,
+        lam=lam,
+        sign=best["sign"],
+        step_m=STEP_M,
+        n_steps=N_STEPS,
+        tensor_interp=tensor_interp,
+    )
+    ret_lon, _ = first_return(
+        track_lon=track_lon,
+        track_lat=track_lat,
+        section_lat=best["centre_lat"],
+        section_lon_min=launch_lon.min(),
+        section_lon_max=launch_lon.max(),
+    )
+    return_maps[lam] = section_arc_length(
+        ret_lon,
+        centre_lon=best["centre_lon"],
+        centre_lat=best["centre_lat"],
+        direction=+1,
+    )
+
+# %%
+fig, ax = plt.subplots()
+for lam, ret_s in return_maps.items():
+    ax.plot(s_vals / 1000, (ret_s - s_vals) / 1000, marker="o", label=f"lambda {lam}")
+ax.axhline(0, color="grey", lw=0.7)
+ax.set_xlabel("s (km, launch position east of centre)")
+ax.set_ylabel("P(s) - s (km)")
+ax.legend()
 plt.show()
 
 # %% [markdown]
@@ -779,44 +845,35 @@ plt.show()
 
 
 # %%
-def arc_length_m(lon, lat):
+def arc_length_m(*, lon, lat):
     dx, dy = _separation_m(lon_a=lon[:-1], lat_a=lat[:-1], lon_b=lon[1:], lat_b=lat[1:])
     return np.sum(np.hypot(dx, dy))
 
 
-def evolve_and_ratio(lon_0, lat_0, flowmap):
-    length_0 = arc_length_m(lon_0, lat_0)
+def evolve_and_ratio(flowmap, *, lon, lat):
+    length_0 = arc_length_m(lon=lon, lat=lat)
     evolved = flowmap.image(
-        lon_0=xr.DataArray(lon_0, dims="point"), lat_0=xr.DataArray(lat_0, dims="point")
+        lon_0=xr.DataArray(lon, dims="point"), lat_0=xr.DataArray(lat, dims="point")
     )
     lon_1, lat_1 = evolved["lon"].values, evolved["lat"].values
-    return arc_length_m(lon_1, lat_1) / length_0, length_0, lon_1, lat_1
+    return arc_length_m(lon=lon_1, lat=lat_1) / length_0, length_0, lon_1, lat_1
 
 
 # %% [markdown]
-# The $\eta_\lambda$ lines launched along the section at the outermost
-# orbit's centre (or, if none closed, the centre whose best launch point
-# turned furthest), drawn over the FTLE.
+# The $\eta_\lambda$ lines launched along the section at that centre, drawn over
+# the FTLE.
 
 # %%
-if outermost:
-    boundary = max(outermost.values(), key=lambda o: o["mean_radius_m"])
-    best = {
-        "centre_lon": boundary["centre_lon"],
-        "centre_lat": boundary["centre_lat"],
-        "lam": boundary["lam"],
-        "sign": boundary["sign"],
-        "s": boundary["s"],
-    }
-else:
-    best = deepest_per_centre(winding + winding_alt)[0]
-
 s_vals, launch_lon, launch_lat = section_points(
-    best["centre_lon"], best["centre_lat"], SECTION_LENGTH_M, N_LAUNCH
+    centre_lon=best["centre_lon"],
+    centre_lat=best["centre_lat"],
+    length_m=SECTION_LENGTH_M,
+    n=N_LAUNCH,
+    direction=best["direction"],
 )
 best_lon, best_lat = trace_eta_lines(
-    launch_lon,
-    launch_lat,
+    lon_0=launch_lon,
+    lat_0=launch_lat,
     lam=best["lam"],
     sign=best["sign"],
     step_m=STEP_M,
@@ -836,12 +893,16 @@ plt.show()
 # same launch point, tests the whole family rather than one member.
 
 # %%
-launch_dlon = best["s"] / (_M_PER_DEG * np.cos(np.deg2rad(best["centre_lat"])))
+launch_dlon = (
+    best["direction"]
+    * best["s"]
+    / (_M_PER_DEG * np.cos(np.deg2rad(best["centre_lat"])))
+)
 arcs = {}
-for lam in LAMBDAS_ALL:
+for lam in LAMBDAS:
     arc_lon, arc_lat = trace_eta_lines(
-        np.array([best["centre_lon"] + launch_dlon]),
-        np.array([best["centre_lat"]]),
+        lon_0=np.array([best["centre_lon"] + launch_dlon]),
+        lat_0=np.array([best["centre_lat"]]),
         lam=lam,
         sign=best["sign"],
         step_m=STEP_M,
@@ -851,13 +912,16 @@ for lam in LAMBDAS_ALL:
     finite = np.isfinite(arc_lon[:, 0])
     if finite.sum() >= 10:
         arcs[lam] = (arc_lon[finite, 0], arc_lat[finite, 0])
-ratios = {lam: evolve_and_ratio(*arc, forward)[0] for lam, arc in arcs.items()}
+ratios = {
+    lam: evolve_and_ratio(forward, lon=arc[0], lat=arc[1])[0]
+    for lam, arc in arcs.items()
+}
 ratios
 
 # %%
 fig, ax = plt.subplots()
 ax.plot(list(ratios), list(ratios.values()), marker="o", ls="none")
-ax.plot(LAMBDAS_ALL, LAMBDAS_ALL, color="grey", lw=0.7)
+ax.plot(LAMBDAS, LAMBDAS, color="grey", lw=0.7)
 ax.set_xlabel("lambda")
 ax.set_ylabel("arc length ratio over the window")
 plt.show()
@@ -868,7 +932,9 @@ plt.show()
 
 # %%
 arc_lon, arc_lat = arcs[best["lam"]]
-ratio, length_0, evolved_lon, evolved_lat = evolve_and_ratio(arc_lon, arc_lat, forward)
+ratio, length_0, evolved_lon, evolved_lat = evolve_and_ratio(
+    forward, lon=arc_lon, lat=arc_lat
+)
 fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(10, 5), sharex=True, sharey=True)
 ax0.set_title(f"t0, arc {length_0 / 1000:.1f} km")
 ax0.plot(arc_lon, arc_lat, color="tab:red")
@@ -880,11 +946,11 @@ plt.show()
 # %% [markdown]
 # ## Material check: the outermost boundary against a circle
 #
-# The outermost orbit should stretch uniformly by its $\lambda$, while a
-# circle of the same mean radius about the same centre is tangent to
-# $\eta_\lambda$ nowhere. Advecting both through `flowmap.image()` and
-# comparing arc-length ratios tests that. The boundary's ratio should land
-# near its $\lambda$ and the circle's should not.
+# The outermost orbit should stretch uniformly by its $\lambda$, so its
+# arc-length ratio over the window should land near that $\lambda$. A circle of
+# the same mean radius about the same centre has no such property, and its ratio
+# is whatever the flow gives. Advecting both through `flowmap.image()` and
+# comparing the two ratios tests that.
 
 # %%
 if outermost:
@@ -899,10 +965,10 @@ if outermost:
     )
 
     boundary_ratio, boundary_length_0, boundary_lon_1, boundary_lat_1 = (
-        evolve_and_ratio(boundary_lon, boundary_lat, forward)
+        evolve_and_ratio(forward, lon=boundary_lon, lat=boundary_lat)
     )
     circle_ratio, circle_length_0, circle_lon_1, circle_lat_1 = evolve_and_ratio(
-        circle_lon, circle_lat, forward
+        forward, lon=circle_lon, lat=circle_lat
     )
     material_check = {
         "boundary_lambda": boundary["lam"],
@@ -936,25 +1002,126 @@ if outermost:
     plt.show()
 
 # %% [markdown]
+# ## The boundary at 15, 30 and 60 days
+#
+# The same centre selection and the same sweep run on all three flow maps. The
+# outermost closed orbit can only shrink as the window grows, since a loop has to
+# stay uniformly stretching for longer.
+
+
+# %%
+def analyse(flowmap, *, lambdas, signs):
+    """Candidate centres, closed orbits and the outermost orbit per centre."""
+    eigen = flowmap.cg_eigen()
+    ratio = eigen["lambda"].isel(eig=1) / eigen["lambda"].isel(eig=0)
+    ratio = ratio.rename("anisotropy").assign_attrs(
+        long_name="Cauchy-Green eigenvalue ratio", units="1"
+    )
+    lon_axis = flowmap.lon_grid.isel(j=0).values
+    lat_axis = flowmap.lat_grid.isel(i=0).values
+    interp = RegularGridInterpolator(
+        (lon_axis, lat_axis),
+        flowmap.cauchy_green().transpose("i", "j", "row", "col").values,
+        bounds_error=False,
+        fill_value=np.nan,
+    )
+    lon_c, lat_c, _ = find_centres(ratio, window_m=200_000.0, edge_m=50_000.0)
+    candidates, winding, _ = sweep_centres(
+        centre_lon=lon_c,
+        centre_lat=lat_c,
+        lambdas=lambdas,
+        signs=signs,
+        tensor_interp=interp,
+    )
+    orbits = keep_closed(candidates)
+    return {
+        "centre_lon": lon_c,
+        "centre_lat": lat_c,
+        "closed_orbits": orbits,
+        "outermost": outermost_per_centre(orbits),
+        "winding": winding,
+    }
+
+
+# %%
+horizons = {
+    days: analyse(flowmaps[days], lambdas=LAMBDAS, signs=SIGNS) for days in HORIZON_DAYS
+}
+
+# %% [markdown]
+# Per horizon: the number of candidate centres, the number of closed orbits, and
+# the centre nearest the 30-day boundary's centre with its distance in km and the
+# mean radius of its outermost orbit.
+
+# %%
+horizon_table = []
+for days, result in horizons.items():
+    dx, dy = _separation_m(
+        lon_a=best["centre_lon"],
+        lat_a=best["centre_lat"],
+        lon_b=result["centre_lon"],
+        lat_b=result["centre_lat"],
+    )
+    distance_m = np.hypot(dx, dy)
+    nearest = int(np.argmin(distance_m)) if distance_m.size else None
+    orbit = result["outermost"].get(nearest)
+    horizon_table.append(
+        (
+            days,
+            len(result["centre_lon"]),
+            len(result["closed_orbits"]),
+            None if nearest is None else round(float(distance_m[nearest]) / 1000, 1),
+            None if orbit is None else round(orbit["mean_radius_m"] / 1000, 1),
+        )
+    )
+horizon_table
+
+# %%
+fig, ax = plt.subplots()
+ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
+drawn = 0
+for (days, _, _, _, _), color in zip(
+    horizon_table, ["tab:blue", "tab:red", "tab:green"], strict=True
+):
+    dx, dy = _separation_m(
+        lon_a=best["centre_lon"],
+        lat_a=best["centre_lat"],
+        lon_b=horizons[days]["centre_lon"],
+        lat_b=horizons[days]["centre_lat"],
+    )
+    if dx.size == 0:
+        continue
+    nearest = int(np.argmin(np.hypot(dx, dy)))
+    orbit = horizons[days]["outermost"].get(nearest)
+    if orbit is not None:
+        ax.plot(orbit["lon"], orbit["lat"], color=color, label=f"{days} days")
+        drawn += 1
+ax.scatter(best["centre_lon"], best["centre_lat"], marker="x", color="tab:orange")
+if drawn:
+    ax.legend()
+plt.show()
+
+# %% [markdown]
 # ## Outcome
 #
-# `find_centres` on $\lambda_2$ with a 200 km window places 16 centres, and
-# the sweep closes no orbit around any of them, at $\lambda \in [0.8, 1.4]$ or
-# on the denser $[0.9, 1.2]$ pass. The winding table for those centres tops out
-# at 0.77 turns, and every track there stops well short of the `N_STEPS + 1`
-# step budget, so the lines leave the region where $\eta_\lambda$ is defined
-# before they can return to the section.
+# The sweep closes no orbit at 30 days. Over the 62 candidate centres, at
+# $\lambda$ from 0.80 to 1.40 and both signs on both sections, 5475 combinations
+# never return to their section and the rest yield no candidate return.
 #
-# Selecting centres on $(\lambda_1-1)^2+(\lambda_2-1)^2$ with a 300 km window
-# places 7 centres and closes orbits around the one at 13.04 E, 35.64 S, with
-# mean radii 21.0, 38.6, 44.8 and 59.6 km. The innermost sits at
-# $\lambda = 1.1$ and the rest at $\lambda = 1.0$, all on the $+$ branch of
-# $\eta_\lambda$. The outermost has a circumference ratio of 0.982 and a
-# diameter near 120 km, inside the 100-300 km range this box targets. That
-# centre and the one at 11.56 E, 39.2 S are the only two whose best launch
-# point exhausts the step budget, at 16.86 and 8.68 turns.
+# The best launch point anywhere turns 0.99 times about its centre, at
+# 3.40 E, 42.60 S, and its track holds 74 of the 943 points of the step budget.
 #
-# The material check advects the outermost orbit and a circle of the same mean
-# radius about the same centre through the flow map. The orbit's arc length
-# grows by 1.018 against its $\lambda$ of 1.0, the circle's by 1.210, and
-# neither image leaves the grid.
+# $|\det \nabla F|$ over the window has a median of 1.55 and runs from 0.115 at
+# the 5 percent quantile to 2192 at the 95 percent, so the area of the 1 km
+# stencil changes by orders of magnitude across the box.
+#
+# The tangent field and the stepper still reproduce $\lambda$. An arc launched at
+# that centre stretches by 1.008 at $\lambda = 1$ and by 1.399 at
+# $\lambda = 1.40$, staying within 4 percent of $\lambda$ for
+# $\lambda \ge 0.94$, apart from 0.960 at $\lambda = 1.08$.
+#
+# Below $\lambda = 0.9$ the arc falls short, by 11 percent at $\lambda = 0.80$.
+#
+# The horizon table places 70, 62 and 44 candidate centres at 15, 30 and 60 days
+# and closes no orbit at any of them. Lost particles grow from 12642 to 15825 to
+# 20681 over those windows.
