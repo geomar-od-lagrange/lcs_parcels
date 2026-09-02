@@ -5,7 +5,7 @@ Status of branch `explore/shear-lines` on 2026-09-02. The branch holds one
 `NeighborSeedGrid` over 2 E to 22 E, 44 S to 28 S, with the hourly subset
 taken at an 8-degree margin around that box through 2025-08-01.
 
-## What the current run shows
+## What the 15-day run showed, before this round
 
 - Closed orbits exist at one centre only, with mean radii from 21 km to 60 km,
   at $\lambda = 1.0$ and $1.1$, all on the $+$ branch.
@@ -40,7 +40,7 @@ so the orbit count depends on the step. Arc-length ratios of open
 $\eta_\lambda$ arcs sit under $\lambda$ by up to 7.4 percent, at
 $\lambda = 1.48$.
 
-## Changes for the next iteration
+## Changes planned for this round
 
 1. **Stencil.** Switch from `NeighborSeedGrid` to `AuxiliarySeedGrid` with the
    default 1 km arms. The $|\det \nabla F|$ quantiles of the current run are
