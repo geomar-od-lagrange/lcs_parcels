@@ -1,11 +1,9 @@
 # Shear lines and coherent vortices: next steps
 
-Status of branch `explore/shear-lines` on 2026-09-02 and what to change in the
-next iteration of `examples/cape_cauldron_vortices.py`. The notebook implements
-the $\eta_\lambda$ shear lines of Haller & Beron-Vera (2013, *J. Fluid Mech.*
-731:R4, [doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391)),
-Eq. 14, with a Poincaré-section return map, and finds one Agulhas ring at
-13.04 E, 35.64 S over a 15-day window from 2025-06-01.
+Status of branch `explore/shear-lines` on 2026-09-02. The branch holds one
+30-day run of `examples/cape_cauldron_vortices.py`, seeded on a 1/25 degree
+`NeighborSeedGrid` over 2 E to 22 E, 44 S to 28 S, with the hourly subset
+taken at an 8-degree margin around that box through 2025-08-01.
 
 ## What the current run shows
 
@@ -18,6 +16,29 @@ Eq. 14, with a Poincaré-section return map, and finds one Agulhas ring at
   the stepper are sound.
 - The FTLE band around the ring sits near 110 km radius. The detected boundary
   at 60 km is well inside it, so the true material boundary was missed.
+
+## Outcome
+
+The `AuxiliarySeedGrid` change (item 1) was tried at 1 km arms and at 1/10
+degree, and reverted. At 30 days the well-definedness map was speckled at
+the grid scale and no orbit closed at 15, 30 or 60 days (commit 6004870),
+and the $|\det \nabla F|$ quantiles were larger still, with a 95th percentile
+of 2192, so those quantiles are filament nonlinearity rather than stencil
+truncation.
+
+Items 2, 4 and 5 are in. Item 3 is in with the scan widened to $\lambda$ from
+0.80 to 2.00 in steps of 0.04; widening past 1.40 found no further orbit. The
+15/30/60-day comparison was dropped in favour of one 30-day run.
+
+At 30 days the sweep closes orbits at one centre, 13.32 E 35.64 S, with mean
+radii from 26.9 to 37.7 km at $\lambda$ from 1.20 to 1.28 on the $+$ branch.
+The outermost orbit stretches by 1.227 against a circle's 1.467, against
+60 km at 15 days in the earlier run.
+
+A scan step of 0.02 closes 13 orbits and 0.04 closes 7, at the same centre,
+so the orbit count depends on the step. Arc-length ratios of open
+$\eta_\lambda$ arcs sit under $\lambda$ by up to 7.4 percent, at
+$\lambda = 1.48$.
 
 ## Changes for the next iteration
 
