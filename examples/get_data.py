@@ -94,8 +94,9 @@ currents
 #
 # Same dataset and variables, a box around the Cape Cauldron, the Agulhas-ring
 # corridor south-west of South Africa. `cape_cauldron_vortices` releases
-# particles on 2025-06-01 and advects them to 2025-06-16 inside a smaller box.
-# The margins here again keep trajectories inside the data.
+# particles on 2025-06-01 in the box 2E to 22E, 44S to 28S and reads the flow
+# map at 15, 30 and 60 days. This subset carries an 8 degree margin on every
+# side of that box so trajectories stay inside the data.
 
 # %%
 target_cape = Path("data/cape_cauldron_currents_hourly.nc")
@@ -119,14 +120,14 @@ if not have_file_cape:
     ds_cape = cm.open_dataset(
         dataset_id="cmems_mod_glo_phy_anfc_0.083deg_PT1H-m",
         variables=["uo", "vo"],
-        minimum_longitude=3.0,
-        maximum_longitude=21.0,
-        minimum_latitude=-43.0,
-        maximum_latitude=-29.0,
+        minimum_longitude=-6.0,
+        maximum_longitude=30.0,
+        minimum_latitude=-52.0,
+        maximum_latitude=-20.0,
         minimum_depth=0.0,
         maximum_depth=1.0,
         start_datetime="2025-05-31",
-        end_datetime="2025-06-17",
+        end_datetime="2025-08-01",
     ).load()
     ds_cape.to_netcdf(target_cape)
 
