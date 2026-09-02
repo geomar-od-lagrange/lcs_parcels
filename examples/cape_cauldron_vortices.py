@@ -17,10 +17,11 @@
 # %% [markdown]
 # # Cape Cauldron coherent vortices
 #
-# The Cape Cauldron, the Agulhas-ring corridor south-west of South Africa, is
-# the textbook setting for coherent Lagrangian vortices: Haller & Beron-Vera
-# (2013, [doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391))
-# found them here with the same $\eta_\lambda$ construction this notebook uses.
+# The Cape Cauldron is the Agulhas-ring corridor south-west of South Africa.
+# Haller & Beron-Vera (2013,
+# [doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391)) found
+# coherent Lagrangian vortices there with the same $\eta_\lambda$ construction
+# this notebook uses.
 #
 # The FTLE ridges in `cabo_verde_ftle` mark hyperbolic stretching. A coherent
 # Lagrangian vortex is a different structure, a region that stays together as it
@@ -37,7 +38,7 @@
 #   \;\pm\; \sqrt{\frac{\sqrt{\lambda_1}}{\sqrt{\lambda_1}+\sqrt{\lambda_2}}}\,\xi_2 \,.
 # $$
 #
-# A closed shear line is an **elliptic LCS**; the outermost member of a nested
+# A closed shear line is an **elliptic LCS**, and the outermost member of a nested
 # family of closed shear lines is the boundary of a coherent Lagrangian vortex.
 # Eq. 11 keeps a material curve's arc length fixed under an area-preserving
 # flow. The Cape Cauldron surface flow is not area-preserving over 15 days, so
@@ -156,7 +157,7 @@ forward
 # %% [markdown]
 # ## Eigendecomposition and FTLE
 #
-# `cg_eigen` carries $\lambda_1,\lambda_2$ and $\xi_1,\xi_2$ together; `ftle`
+# `cg_eigen` carries $\lambda_1,\lambda_2$ and $\xi_1,\xi_2$ together. `ftle`
 # is the backdrop the candidate centres and the closed orbits are shown
 # against below.
 
@@ -277,8 +278,9 @@ well_defined.plot.pcolormesh(x="lon_grid", y="lat_grid")
 # ## How far from area-preserving
 #
 # $\sqrt{\lambda_1\lambda_2} = |\det \nabla F|$ is the area change over the
-# window, and a boundary enclosing it stretches by about its square root. The
-# quantiles below set the $\lambda$ range the sweep scans.
+# window, so the spread of the quantiles below says how far this flow is from
+# area-preserving. The sweep scans $\lambda$ from 0.8 to 1.4 rather than
+# fixing $\lambda = 1$.
 
 # %%
 det_grad_F = np.sqrt(lambda1 * lambda2)
@@ -649,6 +651,41 @@ LAMBDAS_ALL = sorted(LAMBDAS + LAMBDAS_DENSE)
 len(candidate_returns), len(closed_orbits), n_never_return
 
 # %% [markdown]
+# How far around its centre the best launch point gets, at each $\lambda_2$
+# centre, largest first. A closed orbit needs a full turn. A track holding
+# `N_STEPS + 1` points ran out of step budget; a shorter one left the region
+# where $\eta_\lambda$ is defined.
+
+
+# %%
+def deepest_per_centre(records):
+    """The record of largest |turns| at each centre, largest first."""
+    best_per_centre = {}
+    for record in records:
+        ci = record["centre_idx"]
+        if ci not in best_per_centre or abs(record["turns"]) > abs(
+            best_per_centre[ci]["turns"]
+        ):
+            best_per_centre[ci] = record
+    return sorted(best_per_centre.values(), key=lambda r: abs(r["turns"]), reverse=True)
+
+
+# %%
+def winding_table(records):
+    return [
+        (
+            round(r["centre_lon"], 2),
+            round(r["centre_lat"], 2),
+            round(abs(r["turns"]), 2),
+            r["steps"],
+        )
+        for r in deepest_per_centre(records)
+    ]
+
+
+N_STEPS + 1, winding_table(winding)
+
+# %% [markdown]
 # Neither pass over these centres closes a shape-filtered orbit, so a
 # different centre selection is tried next.
 
@@ -670,22 +707,15 @@ if not closed_orbits:
 len(alt_centre_lon), len(closed_orbits_alt)
 
 # %% [markdown]
-# Winding achieved at each alternative centre, largest first.
+# The same table at the alternative centres.
 
 # %%
-alt_turns_per_centre = {}
-for record in winding_alt:
-    ci = record["centre_idx"]
-    if ci not in alt_turns_per_centre or abs(record["turns"]) > abs(
-        alt_turns_per_centre[ci]["turns"]
-    ):
-        alt_turns_per_centre[ci] = record
-sorted((round(abs(r["turns"]), 2) for r in alt_turns_per_centre.values()), reverse=True)
+winding_table(winding_alt)
 
 # %% [markdown]
 # ## Outermost orbit per centre
 #
-# The C~I centres are the ones that turn up closed orbits here, so they carry
+# The $C \approx I$ centres are the ones that turn up closed orbits here, so they carry
 # the search from this point on. The outermost closed orbit, by mean radius,
 # marks the vortex boundary at each centre that has one.
 
@@ -700,6 +730,25 @@ for o in final_orbits:
     if ci not in outermost or o["mean_radius_m"] > outermost[ci]["mean_radius_m"]:
         outermost[ci] = o
 len(outermost)
+
+# %% [markdown]
+# Every closed orbit that survived the filters, innermost first, as centre
+# longitude, centre latitude, $\lambda$, sign, mean radius in km,
+# circumference ratio and return residual in metres.
+
+# %%
+[
+    (
+        round(o["centre_lon"], 2),
+        round(o["centre_lat"], 2),
+        round(o["lam"], 3),
+        o["sign"],
+        round(o["mean_radius_m"] / 1000, 1),
+        round(o["circumference_ratio"], 3),
+        round(o["residual_m"], 1),
+    )
+    for o in sorted(final_orbits, key=lambda o: o["mean_radius_m"])
+]
 
 # %%
 fig, ax = plt.subplots()
@@ -760,14 +809,7 @@ if outermost:
         "s": boundary["s"],
     }
 else:
-    turns_per_centre = {}
-    for record in winding + winding_alt:
-        ci = record["centre_idx"]
-        if ci not in turns_per_centre or abs(record["turns"]) > abs(
-            turns_per_centre[ci]["turns"]
-        ):
-            turns_per_centre[ci] = record
-    best = max(turns_per_centre.values(), key=lambda record: abs(record["turns"]))
+    best = deepest_per_centre(winding + winding_alt)[0]
 
 s_vals, launch_lon, launch_lat = section_points(
     best["centre_lon"], best["centre_lat"], SECTION_LENGTH_M, N_LAUNCH
@@ -838,12 +880,11 @@ plt.show()
 # %% [markdown]
 # ## Material check: the outermost boundary against a circle
 #
-# The outermost orbit is claimed to be a material curve stretching uniformly
-# by its $\lambda$; an arbitrary circle of the same mean radius about the
-# same centre is not tangent to $\eta_\lambda$ anywhere and has no such claim
-# on it. Advecting both through `flowmap.image()` and comparing arc-length
-# ratios tests that claim: the boundary's ratio should sit near its
-# $\lambda$, the circle's should not.
+# The outermost orbit should stretch uniformly by its $\lambda$, while a
+# circle of the same mean radius about the same centre is tangent to
+# $\eta_\lambda$ nowhere. Advecting both through `flowmap.image()` and
+# comparing arc-length ratios tests that. The boundary's ratio should land
+# near its $\lambda$ and the circle's should not.
 
 # %%
 if outermost:
@@ -897,29 +938,23 @@ if outermost:
 # %% [markdown]
 # ## Outcome
 #
-# `find_centres` on $\lambda_2$ (16 centres, window 200 km) turns up nothing:
-# no launch point at any of those centres completes a full turn, at
-# $\lambda \in [0.8, 1.4]$ or the denser $[0.9, 1.2]$ scan, and every line
-# ends on the well-definedness condition rather than the step budget. A
-# vortex core is where $C \approx I$, not where $\lambda_2$ is smallest, and
-# the two coincide only when no filament sits between them; here one does,
-# which is why this selection misses the ring `find_centres` on
-# $(\lambda_1-1)^2+(\lambda_2-1)^2$ finds.
+# `find_centres` on $\lambda_2$ with a 200 km window places 16 centres, and
+# the sweep closes no orbit around any of them, at $\lambda \in [0.8, 1.4]$ or
+# on the denser $[0.9, 1.2]$ pass. The winding table for those centres tops out
+# at 0.77 turns, and every track there stops well short of the `N_STEPS + 1`
+# step budget, so the lines leave the region where $\eta_\lambda$ is defined
+# before they can return to the section.
 #
-# That second selection (7 centres, window 300 km) closes 4 orbits, all
-# around the one centre near 13.0 E, -35.6 S: radii of about 21, 39, 45 and
-# 60 km, at $\lambda = 1.1$ for the innermost and $\lambda = 1.0$ for the
-# other three, all the same sign. The outermost has diameter about 120 km,
-# inside the 100-300 km range this box targets, and a circumference ratio of
-# 0.98, close to a true circle. That same centre also has the deepest raw
-# winding of any candidate, above: its best single launch point turns many
-# times before the well-definedness condition ends it, consistent with a
-# well-resolved elliptic core rather than a numerical accident. One other C~I
-# centre (11.56 E, -39.2 S) reaches several turns without closing; the rest
-# stay under one and never had a chance to.
+# Selecting centres on $(\lambda_1-1)^2+(\lambda_2-1)^2$ with a 300 km window
+# places 7 centres and closes orbits around the one at 13.04 E, 35.64 S, with
+# mean radii 21.0, 38.6, 44.8 and 59.6 km. The innermost sits at
+# $\lambda = 1.1$ and the rest at $\lambda = 1.0$, all on the $+$ branch of
+# $\eta_\lambda$. The outermost has a circumference ratio of 0.982 and a
+# diameter near 120 km, inside the 100-300 km range this box targets. That
+# centre and the one at 11.56 E, 39.2 S are the only two whose best launch
+# point exhausts the step budget, at 16.86 and 8.68 turns.
 #
-# The material check above supports reading the outermost of the four as a
-# genuine coherent-vortex boundary: its arc-length ratio, reported there,
-# lands close to its $\lambda$, while the circle of the same radius and
-# centre stretches by more, since nothing ties its shape to a uniform-stretch
-# direction, and neither curve's image leaves the valid grid.
+# The material check advects the outermost orbit and a circle of the same mean
+# radius about the same centre through the flow map. The orbit's arc length
+# grows by 1.018 against its $\lambda$ of 1.0, the circle's by 1.210, and
+# neither image leaves the grid.

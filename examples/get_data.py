@@ -23,8 +23,8 @@
 # Re-running it is cheap: if a file is already there and opens, nothing is
 # downloaded for it.
 #
-# `examples/data/` is gitignored, so the file is never committed and a fresh
-# clone has to run this notebook before the three Cabo Verde ones.
+# `examples/data/` is gitignored, so neither file is committed and a fresh
+# clone has to run this notebook before any of the other examples.
 #
 # This assumes
 # [`copernicusmarine`](https://help.marine.copernicus.eu/en/collections/9080063-copernicus-marine-toolbox)
@@ -37,7 +37,7 @@ import copernicusmarine as cm
 import xarray as xr
 
 # %% [markdown]
-# ## The subset
+# ## The Cabo Verde subset
 #
 # Hourly surface velocity (`uo`, `vo`) from Global Ocean Physics Analysis and
 # Forecast, `GLOBAL_ANALYSISFORECAST_PHY_001_024`,
@@ -83,7 +83,7 @@ if not have_file:
 print(f"{target}: {target.stat().st_size / 1e6:.0f} MB on disk")
 
 # %% [markdown]
-# ## What landed on disk
+# ## What landed on disk for Cabo Verde
 
 # %%
 currents = xr.open_dataset(target)
@@ -94,8 +94,8 @@ currents
 #
 # Same dataset and variables, a box around the Cape Cauldron, the Agulhas-ring
 # corridor south-west of South Africa. `cape_cauldron_vortices` releases
-# particles between 2025-06-01 and 2025-06-16 inside a smaller box; the margins
-# here again keep trajectories inside the data.
+# particles on 2025-06-01 and advects them to 2025-06-16 inside a smaller box.
+# The margins here again keep trajectories inside the data.
 
 # %%
 target_cape = Path("data/cape_cauldron_currents_hourly.nc")
@@ -133,7 +133,7 @@ if not have_file_cape:
 print(f"{target_cape}: {target_cape.stat().st_size / 1e6:.0f} MB on disk")
 
 # %% [markdown]
-# ## What landed on disk
+# ## What landed on disk for the Cape Cauldron
 
 # %%
 currents_cape = xr.open_dataset(target_cape)
