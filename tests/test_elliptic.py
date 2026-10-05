@@ -211,6 +211,16 @@ def test_polar_rotation_of_a_rigid_rotation_is_its_angle(angle):
     np.testing.assert_allclose(theta.values, angle, atol=1e-3)
 
 
+def test_polar_rotation_wraps_past_half_a_turn():
+    """theta is the angle of R, defined modulo 2 pi, so a rotation by 4 rad
+    reads as 4 - 2 pi: clockwise."""
+    fm = advected_flowmap(
+        NeighborSeedGrid, EQUATOR_AXIS, EQUATOR_AXIS, _rotation(4.0), T0, T0 + WINDOW
+    )
+    theta = fm.polar_rotation().isel(i=slice(1, -1), j=slice(1, -1))
+    np.testing.assert_allclose(theta.values, 4.0 - 2 * np.pi, atol=1e-3)
+
+
 def test_polar_rotation_of_pure_strain_is_zero():
     fm = advected_flowmap(
         NeighborSeedGrid,
@@ -411,7 +421,7 @@ def test_closed_shear_lines_scans_the_given_stretches_only(vortex):
 
 
 def test_outermost_shear_lines_keeps_the_largest_orbit(vortex, vortex_orbits):
-    eddies = outermost_shear_lines(vortex_orbits, flowmap=vortex)
+    eddies = outermost_shear_lines(vortex_orbits)
     assert eddies.sizes["eddy"] == 1
     assert float(eddies["area_m2"].max()) == float(vortex_orbits["area_m2"].max())
     assert eddies["lon"].dims == ("eddy", "point")
@@ -423,8 +433,13 @@ def test_rotation_sense_follows_the_vortex(omega_0, sense):
     orbits = closed_shear_lines(
         fm, centre_lon=[0.0], centre_lat=[0.0], max_radius_m=MAX_RADIUS_M
     )
-    eddies = outermost_shear_lines(orbits, flowmap=fm)
+    eddies = outermost_shear_lines(orbits, rotation=fm.polar_rotation())
     assert eddies["rotation_sense"].values.tolist() == [sense]
+
+
+def test_rotation_sense_needs_a_rotation_field(vortex_orbits):
+    """Without a rotation field the boundaries carry no rotation sense."""
+    assert "rotation_sense" not in outermost_shear_lines(vortex_orbits)
 
 
 def test_outermost_shear_lines_merges_centres_inside_one_boundary(vortex):
@@ -435,12 +450,12 @@ def test_outermost_shear_lines_merges_centres_inside_one_boundary(vortex):
         centre_lat=[0.0, 0.0],
         max_radius_m=MAX_RADIUS_M,
     )
-    eddies = outermost_shear_lines(orbits, flowmap=vortex)
+    eddies = outermost_shear_lines(orbits)
     assert eddies.sizes["eddy"] == 1
 
 
 def test_eddy_centroid_is_the_vortex_centre(vortex, vortex_orbits):
-    eddies = outermost_shear_lines(vortex_orbits, flowmap=vortex)
+    eddies = outermost_shear_lines(vortex_orbits)
     distance = _distance_from_origin_m(
         float(eddies["centroid_lon"][0]), float(eddies["centroid_lat"][0])
     )
@@ -449,7 +464,7 @@ def test_eddy_centroid_is_the_vortex_centre(vortex, vortex_orbits):
 
 def test_outermost_shear_lines_of_no_orbits_is_empty(vortex):
     orbits = closed_shear_lines(vortex, centre_lon=[], centre_lat=[])
-    eddies = outermost_shear_lines(orbits, flowmap=vortex)
+    eddies = outermost_shear_lines(orbits, rotation=vortex.polar_rotation())
     assert eddies.sizes["eddy"] == 0
 
 
@@ -475,7 +490,7 @@ def strained_boundaries():
         orbits = closed_shear_lines(
             fm, centre_lon=[0.0], centre_lat=[0.0], max_radius_m=MAX_RADIUS_M
         )
-        eddies = outermost_shear_lines(orbits, flowmap=fm)
+        eddies = outermost_shear_lines(orbits)
         radii[strain] = float(eddies["radius_m"].max())
     return radii
 
@@ -499,7 +514,7 @@ def test_elliptic_lcs_finds_the_vortex(vortex):
         float(eddies["centroid_lon"][0]), float(eddies["centroid_lat"][0])
     )
     assert distance < 2_000.0
-    assert eddies["rotation_sense"].values.tolist() == [1]
+    assert "rotation_sense" not in eddies
 
 
 # --- metadata -------------------------------------------------------------------
@@ -519,8 +534,9 @@ def _assert_labelled(ds):
 
 def test_elliptic_outputs_are_labelled(vortex, vortex_orbits):
     _assert_labelled(vortex_orbits)
-    eddies = outermost_shear_lines(vortex_orbits, flowmap=vortex)
+    eddies = outermost_shear_lines(vortex_orbits, rotation=vortex.polar_rotation())
     _assert_labelled(eddies)
+    assert eddies["rotation_sense"].attrs["units"] == "1"
     assert eddies["area_m2"].attrs["units"] == "m2"
     assert eddies["radius_m"].attrs["units"] == "m"
     assert eddies["stretch"].attrs["units"] == "1"
