@@ -165,6 +165,8 @@ int(np.isnan(np.asarray(pset.x)).sum())
 # ## Eigendecomposition and FTLE
 #
 # The FTLE is the backdrop the centres and the boundaries are drawn on below.
+# Cells that contract in every direction have a negative FTLE, which would
+# centre the colour range on zero, so it starts at 0.
 
 # %%
 eigen = forward.cg_eigen()
@@ -172,7 +174,7 @@ eigen
 
 # %%
 ftle = forward.ftle()
-ftle.plot.pcolormesh(x="lon_grid", y="lat_grid")
+ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", vmin=0.0)
 
 # %% [markdown]
 # ## Where $\eta_\lambda$ exists, at $\lambda = 1$
@@ -214,7 +216,7 @@ centres
 
 # %%
 _, ax = plt.subplots()
-ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
+ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", vmin=0.0, ax=ax, cmap="Greys")
 ax.scatter(centres["lon"], centres["lat"], marker="x", color="tab:orange")
 plt.show()
 
@@ -267,7 +269,7 @@ eddies
 
 # %%
 _, ax = plt.subplots()
-ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
+ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", vmin=0.0, ax=ax, cmap="Greys")
 ax.plot(orbits["lon"].T, orbits["lat"].T, color="tab:green", lw=0.5)
 ax.plot(eddies["lon"].T, eddies["lat"].T, color="tab:red", lw=2.0)
 plt.show()
@@ -329,7 +331,7 @@ evolved_circle = forward.image(lon_0=circle["lon"], lat_0=circle["lat"])
 
 # %%
 _, ax = plt.subplots()
-ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
+ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", vmin=0.0, ax=ax, cmap="Greys")
 ax.plot(boundary["lon"].T, boundary["lat"].T, color="tab:red", label="boundary, t0")
 ax.plot(evolved["lon"].T, evolved["lat"].T, color="tab:red", ls="--", label="t1")
 ax.plot(circle["lon"].T, circle["lat"].T, color="tab:blue", label="circle, t0")

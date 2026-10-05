@@ -428,7 +428,8 @@ pd.DataFrame(
 # too. A 90-day eddy is coherent over three times the window here, so its
 # outline marks persistence and not a 30-day boundary. The boundaries of sweep A
 # are drawn solid and those of sweep B dashed, over the decimal logarithm of the
-# eigenvalue ratio the sweep-A centres were picked from.
+# eigenvalue ratio the sweep-A centres were picked from, its colour range clipped
+# to the 2nd to 98th percentile so the grid-scale speckle does not set it.
 
 
 # %%
@@ -438,7 +439,7 @@ def plot_against_gled(eddies_a, eddies_b):
     np.log10(eddies_a["cg_anisotropy"]).assign_attrs(
         long_name="log10 of the Cauchy-Green eigenvalue ratio lambda_2 / lambda_1",
         units="1",
-    ).plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
+    ).plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys", robust=True)
     for records, width in ((gled_30, 1.2), (gled_90, 3.0)):
         for e in range(records.sizes["gled"]):
             eddy = records.isel(gled=e)
