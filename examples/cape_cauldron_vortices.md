@@ -14,10 +14,6 @@ jupyter:
     name: python3
 ---
 
-```python
-
-```
-
 # Cape Cauldron coherent vortices
 
 The Cape Cauldron is the Agulhas-ring corridor south-west of South Africa.
@@ -44,9 +40,9 @@ tangent to one is a *closed shear line*. Each vortex holds a nested family of
 them over $\lambda$, and the outermost member is its boundary.
 
 `closed_shear_lines` finds them with the return map of Haller & Beron-Vera
-(2013). Lines are launched along a short section from a candidate centre and
-traced until they cross it again, and a launch that comes back to itself is a
-closed orbit.
+(2013). Lines are launched along a section running east or west from a
+candidate centre and traced until they cross it again, and a launch that comes
+back to itself is a closed orbit.
 
 ```python tags=["remove-output"]
 # Importing Parcels pulls in the holoviews/bokeh bootstrap and prints an
@@ -227,8 +223,8 @@ plt.show()
 ## The scan over $\lambda$
 
 `stretch_range` is the default scan, log-symmetric about 1 from $1/1.5$ to
-$1.5$ in steps of 0.03 in $\ln \lambda$, so divergence and convergence are
-bracketed alike.
+$1.5$ in steps of 0.03 in $\ln \lambda$, so it covers boundaries that shrink
+and boundaries that grow.
 
 ```python
 stretches = stretch_range(stretch_max=1.5, step=0.03)
@@ -255,10 +251,7 @@ Each orbit's equivalent radius against the $\lambda$ it closed at. One vortex
 shows up as a run of orbits growing with $\lambda$.
 
 ```python
-_, ax = plt.subplots()
-ax.scatter(orbits["stretch"], orbits["radius_m"] / 1000)
-ax.set_xlabel("stretching factor lambda")
-ax.set_ylabel("equivalent radius (km)")
+orbits.plot.scatter(x="stretch", y="radius_m")
 plt.show()
 ```
 

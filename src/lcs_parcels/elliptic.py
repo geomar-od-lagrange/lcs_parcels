@@ -4,27 +4,22 @@ Haller & Beron-Vera (2013), doi:10.1017/jfm.2013.391
 (https://doi.org/10.1017/jfm.2013.391).
 
 A coherent Lagrangian vortex boundary is a *closed shear line* -- a closed curve
-tangent everywhere to one of the direction fields
+tangent everywhere to one of the direction fields of the Cauchy-Green tensor
+``C`` (Eq. 14)
 
     eta^pm_lambda = sqrt((lambda_2 - lambda^2) / (lambda_2 - lambda_1)) xi_1
                     pm sqrt((lambda^2 - lambda_1) / (lambda_2 - lambda_1)) xi_2
 
-of the Cauchy-Green tensor ``C`` (Eq. 14). Every tangent element of such a
-curve is stretched by the same factor ``lambda`` over the window, so the curve
-returns to its initial arc length times ``lambda``. ``eta^pm_lambda`` exists
-only where ``lambda_1 < lambda^2 < lambda_2``.
+Every tangent element of such a curve is stretched by the same factor
+``lambda`` over the window. ``eta^pm_lambda`` exists only where
+``lambda_1 < lambda^2 < lambda_2``.
 
-The workflow is :func:`elliptic_centres`, which picks candidate centres from a
-field, :func:`closed_shear_lines`, which searches each centre for closed orbits
-over a scan of ``lambda`` (:func:`stretch_range` by default), and
-:func:`outermost_shear_lines`, which keeps the outermost orbit per vortex.
-:meth:`~lcs_parcels.FlowMap.elliptic_lcs` runs them in one call.
+:func:`elliptic_centres` picks candidate centres from a field,
+:func:`closed_shear_lines` searches them for closed orbits over a scan of
+``lambda``, and :func:`outermost_shear_lines` keeps one boundary per vortex.
 
-``lambda`` here is the uniform stretching factor of the curve. It is stored as
-``stretch``, since ``lambda`` is the name of the Cauchy-Green eigenvalues in
-:meth:`~lcs_parcels.FlowMap.cg_eigen`.
-
-Rectilinear grids only, as in :mod:`lcs_parcels.tensorlines`.
+The stretching factor ``lambda`` is stored as ``stretch``. Rectilinear grids
+only.
 """
 
 from __future__ import annotations
@@ -116,9 +111,10 @@ def elliptic_centres(
     """Candidate vortex centres at windowed extrema of a field.
 
     A grid point is a centre when it is the minimum (``extremum="min"``) or
-    maximum (``"max"``) of ``field`` over a square window of side ``window_m``
-    metres. Points within ``edge_m`` (default ``window_m / 2``) of the domain
-    edge or of a NaN cell never qualify.
+    maximum (``"max"``) of ``field`` over a square window of side ``window_m``.
+
+    Points within ``edge_m`` (default ``window_m / 2``) of the domain edge or of
+    a NaN cell never qualify.
 
     The field must carry ``lon_grid``/``lat_grid``, as every
     :class:`~lcs_parcels.FlowMap` diagnostic does.
@@ -220,9 +216,10 @@ def _trace_to_return(
 
     The section runs from the centre along latitude, east (``direction=+1``) or
     west (``-1``), for ``section_m`` metres. A line *returns* at its first
-    crossing of the section after one turn about its centre, and stops without
-    a return where the field ends, where it crosses the section without having
-    turned, or after one and a half turns.
+    crossing of the section after more than half a turn about its centre.
+
+    A line stops without a return where the field ends, where it crosses the
+    section before half a turn, or after one and a half turns.
 
     Returns
     -------
@@ -444,16 +441,16 @@ def closed_shear_lines(
 ) -> xr.Dataset:
     """Closed ``eta_lambda`` orbits about each candidate centre.
 
-    For every centre, stretching factor in ``stretches`` and branch ``pm``, the
-    search launches ``eta^pm_lambda`` lines from two sections, due east and due
-    west of the centre over ``max_radius_m``, every ``launch_spacing_m``. It
-    reads the return map ``P(s)`` of each section and refines every sign change
-    of ``P(s) - s`` by bisection. An orbit is kept when it turns once about its
-    centre and returns within ``closure_tol_m`` of its launch point.
+    For every centre, stretching factor and branch, ``eta^pm_lambda`` lines are
+    launched every ``launch_spacing_m`` from two sections, due east and due west
+    of the centre over ``max_radius_m``.
+
+    An orbit is a launch that turns once about its centre and returns within
+    ``closure_tol_m`` of itself, found directly or by bisecting a sign change of
+    the return map ``P(s) - s``.
 
     Every orbit found is returned, so a vortex comes back as its nested family
     of loops over the scanned stretching factors.
-    :func:`outermost_shear_lines` picks the boundary.
 
     Parameters
     ----------
@@ -545,9 +542,8 @@ def closed_shear_lines(
         offset = (returned_s - s).reshape(c.size, s_launch.size)
         n_never_returned += int((~np.isfinite(offset)).all(axis=1).sum())
 
-        # A launch that already returns within tolerance is an orbit. Where every
-        # launch does, as for the circles of an axisymmetric vortex, the offset
-        # need never change sign.
+        # A launch returning within tolerance is an orbit, since on an
+        # axisymmetric vortex the offset never changes sign.
         hit = np.isfinite(offset) & (np.abs(offset) < closure_tol_m)
         hit_fam, hit_k = np.nonzero(hit)
         # Brackets: adjacent launches, neither a hit, whose finite offsets change
@@ -639,7 +635,7 @@ def closed_shear_lines(
     return _orbit_dataset(orbits, attrs)
 
 
-def _points_inside(x_poly, y_poly, x, y):
+def _points_inside(x_poly, y_poly, *, x, y):
     """Even-odd test of points ``(x, y)`` against a closed polygon, all in metres."""
     x1, y1 = x_poly[:-1, None], y_poly[:-1, None]
     x2, y2 = x_poly[1:, None], y_poly[1:, None]
@@ -660,9 +656,9 @@ def outermost_shear_lines(
 
     With ``rotation``, a :meth:`~lcs_parcels.FlowMap.polar_rotation` field,
     ``rotation_sense`` is the sign of its mean inside each boundary against its
-    domain median, ``+1`` counter-clockwise, and 0 where no point of the field
-    lies inside. The angle is defined modulo ``2 pi``, so pass the rotation of a
-    window short enough for an eddy to turn less than half a turn.
+    domain median, ``+1`` counter-clockwise, 0 where no point lies inside.
+
+    Pass the rotation of a window over which an eddy turns less than half a turn.
 
     Returns
     -------
@@ -677,9 +673,10 @@ def outermost_shear_lines(
         theta_anomaly = (rotation - rotation.median()).values.ravel()
 
     area = orbits["area_m2"].values
+    centre_index = orbits["centre"].values
     best = {}
     for k in range(orbits.sizes["orbit"]):
-        centre = int(orbits["centre"][k])
+        centre = int(centre_index[k])
         if centre not in best or area[k] > area[best[centre]]:
             best[centre] = k
 
@@ -697,8 +694,8 @@ def outermost_shear_lines(
                     centre_lon=centre_lon,
                     centre_lat=centre_lat,
                 ),
-                np.array([0.0]),
-                np.array([0.0]),
+                x=np.array([0.0]),
+                y=np.array([0.0]),
             )[0]
             for other in kept
         ):
@@ -712,7 +709,7 @@ def outermost_shear_lines(
             )
             near = (np.abs(gx) <= np.abs(x).max()) & (np.abs(gy) <= np.abs(y).max())
             inside = np.zeros_like(near)
-            inside[near] = _points_inside(x, y, gx[near], gy[near])
+            inside[near] = _points_inside(x, y, x=gx[near], y=gy[near])
             if inside.any():
                 mean_anomaly = np.nanmean(theta_anomaly[inside])
         kept.append({"index": k, "lon": lon, "lat": lat})

@@ -14,8 +14,6 @@
 #     name: python3
 # ---
 
-# %%
-
 # %% [markdown]
 # # Cape Cauldron coherent vortices
 #
@@ -43,9 +41,9 @@
 # them over $\lambda$, and the outermost member is its boundary.
 #
 # `closed_shear_lines` finds them with the return map of Haller & Beron-Vera
-# (2013). Lines are launched along a short section from a candidate centre and
-# traced until they cross it again, and a launch that comes back to itself is a
-# closed orbit.
+# (2013). Lines are launched along a section running east or west from a
+# candidate centre and traced until they cross it again, and a launch that comes
+# back to itself is a closed orbit.
 
 # %% tags=["remove-output"]
 # Importing Parcels pulls in the holoviews/bokeh bootstrap and prints an
@@ -224,8 +222,8 @@ plt.show()
 # ## The scan over $\lambda$
 #
 # `stretch_range` is the default scan, log-symmetric about 1 from $1/1.5$ to
-# $1.5$ in steps of 0.03 in $\ln \lambda$, so divergence and convergence are
-# bracketed alike.
+# $1.5$ in steps of 0.03 in $\ln \lambda$, so it covers boundaries that shrink
+# and boundaries that grow.
 
 # %%
 stretches = stretch_range(stretch_max=1.5, step=0.03)
@@ -252,10 +250,7 @@ orbits
 # shows up as a run of orbits growing with $\lambda$.
 
 # %%
-_, ax = plt.subplots()
-ax.scatter(orbits["stretch"], orbits["radius_m"] / 1000)
-ax.set_xlabel("stretching factor lambda")
-ax.set_ylabel("equivalent radius (km)")
+orbits.plot.scatter(x="stretch", y="radius_m")
 plt.show()
 
 # %% [markdown]

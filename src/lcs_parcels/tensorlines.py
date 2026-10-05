@@ -340,8 +340,9 @@ def _rk2_step(
 
     ``tangent(lon, lat, heading)`` returns unit ``(east, north)`` vectors
     oriented to ``heading``, or NaN rows where the field is not well defined.
-    Evaluate it at the current point, half-step along it, evaluate again at that
-    midpoint, and take the full step along the midpoint direction.
+
+    The step evaluates ``tangent`` at the current point and at the half-step
+    midpoint, and takes the full step along the midpoint direction.
 
     Returns
     -------
@@ -369,8 +370,8 @@ def _tensor_interp(flowmap) -> RegularGridInterpolator:
     # CG_grid is the Cauchy-Green tensor on the diagnostic grid, not an Arakawa
     # C-grid.
     CG_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
-    # The one place this package leaves the label-based xarray API, because the
-    # ODE loop would otherwise build an xarray object per step.
+    # The tracers leave the label-based xarray API here, because the ODE loop
+    # would otherwise build an xarray object per step.
     return RegularGridInterpolator(
         (lon_axis, lat_axis), CG_grid, bounds_error=False, fill_value=np.nan
     )

@@ -33,8 +33,8 @@ Haller (2015).
 | $\Lambda \ge \Lambda_{\min}$ | FTLE magnitude floor a seed must also clear, set either as a quantile of the field at hand or as an absolute value in the field's units (1/s) |  | `quantile`, `ftle_min` |
 | $\lambda_2 / \lambda_1 \ge a_{\min}$ | anisotropy floor: the ratio of the Cauchy–Green eigenvalues below which $\xi_1$ is not a well-defined direction (dimensionless) |  | `min_anisotropy` |
 | $\lambda$ (no subscript) | uniform stretching factor of a closed shear line: every tangent element of the curve is stretched by $\lambda$ over the window. Distinct from the eigenvalues $\lambda_1, \lambda_2$ |  | `stretch`, `stretches`, `stretch_range` |
-| $\eta^\pm_\lambda = \sqrt{\frac{\lambda_2 - \lambda^2}{\lambda_2 - \lambda_1}}\,\xi_1 \pm \sqrt{\frac{\lambda^2 - \lambda_1}{\lambda_2 - \lambda_1}}\,\xi_2$ | shear direction fields of Haller & Beron-Vera (2013, Eq. 14), defined where $\lambda_1 < \lambda^2 < \lambda_2$; a closed curve tangent to one is a coherent vortex boundary (elliptic LCS) |  | `closed_shear_lines`, `branch` ($\pm 1$) |
-| $P(s)$ | return map of a section: where a line launched at arc length $s$ from the centre first crosses the section again after one turn; a zero of $P(s) - s$ is a closed orbit |  | (internal, `_trace_to_return`) |
+| $\eta^\pm_\lambda = \sqrt{\frac{\lambda_2 - \lambda^2}{\lambda_2 - \lambda_1}}\,\xi_1 \pm \sqrt{\frac{\lambda^2 - \lambda_1}{\lambda_2 - \lambda_1}}\,\xi_2$ | shear direction fields of Haller & Beron-Vera (2013, Eq. 14), defined where $\lambda_1 < \lambda^2 < \lambda_2$. A closed curve tangent to one is a coherent vortex boundary (elliptic LCS) |  | `closed_shear_lines`, `branch` ($\pm 1$) |
+| $P(s)$ | return map of a section: where a line launched at arc length $s$ from the centre first crosses the section again after more than half a turn. A zero of $P(s) - s$ is a closed orbit |  | (internal, `_trace_to_return`) |
 | $\theta$ | polar rotation angle, the rotation of $R$ in $\nabla F = R\,U$, counter-clockwise positive (Farazmand & Haller 2016) |  | `polar_rotation` |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 |  |
 

@@ -778,7 +778,7 @@ class FlowMap(abc.ABC):
             and the pruning attributes, ``n_lines_dropped`` among them, are on
             the result.
         """
-        # Deferred import: `tensorlines` imports from this module.
+        # Deferred import, because `tensorlines` imports from this module.
         from lcs_parcels.tensorlines import (
             ftle_ridge_seeds,
             prune_shrink_lines,
@@ -844,9 +844,9 @@ class FlowMap(abc.ABC):
         (:func:`~lcs_parcels.elliptic_centres`), searches them
         (:func:`~lcs_parcels.closed_shear_lines`), and keeps the outermost orbits.
 
-        The result carries no ``rotation_sense``. A vortex turns several times
-        over a window long enough to find it, and :meth:`polar_rotation` reads
-        the rotation only modulo ``2 pi``.
+        The result carries no ``rotation_sense``. For one, pass the
+        :meth:`polar_rotation` of a short window to
+        :func:`~lcs_parcels.outermost_shear_lines`.
 
         Parameters
         ----------
@@ -862,7 +862,7 @@ class FlowMap(abc.ABC):
             eigenvalue ratio ``cg_anisotropy`` on ``(i, j)`` that the centres were
             picked from, and the centre and search ``attrs``.
         """
-        # Deferred import: `elliptic` imports from this module.
+        # Deferred import, because `elliptic` imports from this module.
         from lcs_parcels.elliptic import (
             closed_shear_lines,
             elliptic_centres,

@@ -11,8 +11,8 @@ Lagrangian coherent structure (LCS) diagnostics on top of
 Cauchy-Green tensor `(grad F)^T grad F`, its eigen-analysis, and the
 finite-time Lyapunov exponent (FTLE), following Haller (2015),
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
-On top of those, hyperbolic LCS as shrink lines, and coherent vortex boundaries
-as closed shear lines, following Haller & Beron-Vera (2013),
+It also extracts hyperbolic LCS as shrink lines, and coherent vortex boundaries
+as closed shear lines following Haller & Beron-Vera (2013),
 [doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391).
 
 The documentation is at

@@ -1,8 +1,8 @@
 # Examples
 
 The notebooks are listed in increasing scope and are read in that order. The
-Cabo Verde ones build on each other; `cape_cauldron_vortices` builds on
-`cabo_verde_ftle`; `cape_cauldron_gled` builds on `cape_cauldron_vortices`;
+Cabo Verde ones build on each other. `cape_cauldron_vortices` builds on
+`cabo_verde_ftle`, and `cape_cauldron_gled` builds on `cape_cauldron_vortices`.
 `example_grid_pset` stands on its own and can be read at any point.
 
 - [`get_data`](get_data.ipynb) downloads the CMEMS subsets the Cabo Verde

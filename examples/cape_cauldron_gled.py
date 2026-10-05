@@ -14,8 +14,6 @@
 #     name: python3
 # ---
 
-# %%
-
 # %% [markdown]
 # # Cape Cauldron shear lines against the GLED eddy atlas
 #
@@ -369,17 +367,6 @@ def match_to_gled(eddies, *, gled):
     )
 
 
-def boundaries_inside_gled(eddies, *, gled):
-    """Number of boundaries whose centroid lies within the radius of a GLED eddy."""
-    distance = distance_m(
-        lon_a=gled["lon"],
-        lat_a=gled["lat"],
-        lon_b=eddies["centroid_lon"],
-        lat_b=eddies["centroid_lat"],
-    )
-    return int((distance <= gled["radius_m"]).any("gled").sum())
-
-
 # %% [markdown]
 # Each GLED eddy against the nearest sweep-A boundary at 1/4 degree.
 
@@ -404,9 +391,17 @@ match_to_gled(eddies_a_eighth, gled=gled_30).round(2)
 def summary(eddies, *, gled):
     rows = match_to_gled(eddies, gled=gled)
     matched = rows[rows["matched"]]
+    distance = distance_m(
+        lon_a=gled["lon"],
+        lat_a=gled["lat"],
+        lon_b=eddies["centroid_lon"],
+        lat_b=eddies["centroid_lat"],
+    )
     return {
         "boundaries": eddies.sizes["eddy"],
-        "boundaries inside a GLED eddy": boundaries_inside_gled(eddies, gled=gled),
+        "boundaries inside a GLED eddy": int(
+            (distance <= gled["radius_m"]).any("gled").sum()
+        ),
         "GLED eddies matched": len(matched),
         "radius ratio, median": float(
             (matched["radius_km"] / matched["gled_radius_km"]).median()

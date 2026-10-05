@@ -404,7 +404,7 @@ $$\eta^\pm_\lambda = \sqrt{\frac{\lambda_2 - \lambda^2}{\lambda_2 - \lambda_1}}\
 tangent element of such a curve is stretched by the same factor $\lambda$ over
 the window. $\eta^\pm_\lambda$ exists only where
 $\lambda_1 < \lambda^2 < \lambda_2$. The stretching factor $\lambda$ is stored
-as `stretch`, because `lambda` already names the Cauchy–Green eigenvalues.
+as `stretch`.
 
 ```python
 from lcs_parcels import closed_shear_lines, elliptic_centres, outermost_shear_lines
@@ -453,13 +453,15 @@ outermost_shear_lines(orbits, *, rotation=None) -> xr.Dataset
   centre for closed orbits at every stretching factor in `stretches` and on
   both branches $\pm$. It launches lines from two sections running due east and
   due west of the centre over `max_radius_m`, every `launch_spacing_m`, and
-  reads where each line first crosses its own section again after one turn
-  about the centre, the return $P(s)$ of the launch at distance $s$. A launch
+  reads where each line first crosses its own section again after more than
+  half a turn about the centre, the return $P(s)$ of the launch at distance
+  $s$. A launch
   with $\lvert P(s) - s \rvert$ under `closure_tol_m` is an orbit, and so is
   every sign change of $P(s) - s$ between neighbouring launches once bisection
   has closed it to within `closure_tol_m`. A line stops where
-  $\eta^\pm_\lambda$ is not defined, after one and a half turns, or after two
-  circumferences at `max_radius_m`. `launch_spacing_m`, `step_m` and
+  $\eta^\pm_\lambda$ is not defined, when it crosses its section before half
+  a turn, after one and a half turns, or after two circumferences at
+  `max_radius_m`. `launch_spacing_m`, `step_m` and
   `closure_tol_m` default to the grid spacing, half of it, and half of it, the
   smaller of the two median spacings of the flow map's grid.
 
@@ -478,8 +480,9 @@ outermost_shear_lines(orbits, *, rotation=None) -> xr.Dataset
   returns the kept rows on `(eddy, point)` with their `orbit_index` and the
   boundary centroid `centroid_lon`/`centroid_lat`. Given a `rotation` field,
   the `polar_rotation()` of a short flow map, it adds `rotation_sense`, the
-  sign of the mean $\theta$ inside the boundary against its domain median:
-  $+1$ counter-clockwise, $-1$ clockwise. Cyclonic or anticyclonic follows
+  sign of the mean $\theta$ inside the boundary against its domain median,
+  $+1$ counter-clockwise, $-1$ clockwise, and 0 where no point of `rotation`
+  lies inside. Cyclonic or anticyclonic follows
   from the hemisphere, since a cyclone turns counter-clockwise in the north
   and clockwise in the south.
 
@@ -504,12 +507,12 @@ FlowMap.elliptic_lcs(*, window_m=None, edge_m=None, stretches=None,
 ```
 
 Takes candidate centres at the windowed minima of $\lambda_2 / \lambda_1$,
-searches them, and keeps the outermost boundaries. Only the parameters passed
-are forwarded, so the defaults stay in the functions. The result carries no
-`rotation_sense`, since the flow map holds the rotation only modulo $2\pi$. The result is the
-`outermost_shear_lines` dataset with the ratio it picked the centres from as
-`cg_anisotropy` on `(i, j)`, and the search and centre-selection `attrs`, the
-latter prefixed `centres_`.
+searches them, and keeps the outermost boundaries. A parameter left at `None`
+takes the default of `elliptic_centres` or `closed_shear_lines`. The result is
+the `outermost_shear_lines` dataset with the ratio it picked the centres from
+as `cg_anisotropy` on `(i, j)`, and the search and centre-selection `attrs`, the
+latter prefixed `centres_`. It carries no `rotation_sense`. For one, pass the
+`polar_rotation()` of a short window to `outermost_shear_lines`.
 
 ## Evolving a material curve
 

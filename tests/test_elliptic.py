@@ -1,9 +1,9 @@
 """Elliptic LCS: closed shear lines of the Cauchy-Green tensor.
 
-The analytic flow maps here are built in a local metres frame about the seed
-centroid (:func:`conftest.advected_flowmap_f`), with no Parcels. An axisymmetric
-vortex rotates each circle about its centre rigidly, so every circle is a
-material loop whose tangent elements are not stretched: a closed
+The analytic flow maps are built in a local metres frame about the seed
+centroid (:func:`conftest.advected_flowmap_f`), with no Parcels.
+
+An axisymmetric vortex turns each circle rigidly, so every circle is a closed
 ``eta_lambda`` orbit at ``lambda = 1``.
 """
 
@@ -26,9 +26,8 @@ T0 = np.datetime64("2020-01-01")
 WINDOW = np.timedelta64(10, "D")
 WINDOW_S = 10 * 86_400.0
 
-# A Gaussian vortex, Omega(r) = OMEGA_0 exp(-r^2 / R^2), turning its core by
-# about 2 rad over the window. The grid resolves the angle gradient to about
-# 0.1 rad per cell, so the central-difference grad F stays accurate.
+# A Gaussian vortex turning its core by about 2 rad, resolved to about 0.1 rad
+# per cell so the central-difference grad F stays accurate.
 OMEGA_0 = 2.3e-6
 VORTEX_R_M = 40_000.0
 VORTEX_AXIS = np.arange(-1.2, 1.2 + 1e-9, 0.02)

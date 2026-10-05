@@ -20,8 +20,8 @@ Run this once. It fetches the subsets the example notebooks open from disk:
 `data/cabo_verde_currents_hourly.nc` for the Cabo Verde notebooks,
 `data/cape_cauldron_currents_hourly.nc` for `cape_cauldron_vortices`, and
 `data/cape_cauldron_geostrophic_daily.nc` plus `data/gled/` for
-`cape_cauldron_gled`. Re-running it is cheap: if a file is already there and
-opens, nothing is downloaded for it.
+`cape_cauldron_gled`. Re-running it is cheap, because nothing is downloaded for
+a file that is already there and opens.
 
 `examples/data/` is gitignored, so none of these are committed and a fresh
 clone has to run this notebook before any of the other examples.
@@ -36,11 +36,7 @@ import urllib.request
 from pathlib import Path
 
 import copernicusmarine as cm
-import numpy as np
 import xarray as xr
-from parcels import FieldSet, Particle, ParticleSet
-from parcels.convert import copernicusmarine_to_sgrid
-from parcels.kernels import AdvectionRK4
 ```
 
 ## The Cabo Verde subset
@@ -201,40 +197,6 @@ print(f"{target_geo}: {target_geo.stat().st_size / 1e6:.0f} MB on disk")
 ```python
 geostrophic = xr.open_dataset(target_geo)
 geostrophic
-```
-
-`copernicusmarine_to_sgrid` reads the grid orientation off `axis` attrs on
-the coordinates, so the sgrid conversion needs `T`/`Y`/`X` set before it
-runs. This product already carries them, so nothing is reassigned here. A
-product that doesn't would need `assign_coords`/`assign_attrs` first.
-
-```python
-for coord in ("time", "latitude", "longitude"):
-    print(coord, geostrophic[coord].attrs.get("axis"))
-```
-
-```python
-sgrid_geo = copernicusmarine_to_sgrid(
-    fields={"U": geostrophic["ugos"], "V": geostrophic["vgos"]}
-)
-fieldset_geo = FieldSet.from_sgrid_conventions(sgrid_geo, mesh="spherical")
-fieldset_geo
-```
-
-This product has no depth coordinate, so the fields carry no `Z` axis and
-`ParticleSet` accepts `x`/`y` with no `z` at all (`z=np.zeros(...)` also
-works). The one-hour advection below checks the sgrid conversion end to end.
-
-```python
-lon_test = np.array([10.0, 12.0])
-lat_test = np.array([-35.0, -34.0])
-t0_test = geostrophic.time.values[:1].repeat(2)
-
-pset_geo = ParticleSet(fieldset_geo, pclass=Particle, x=lon_test, y=lat_test, t=t0_test)
-pset_geo.execute(
-    AdvectionRK4, runtime=np.timedelta64(1, "h"), dt=np.timedelta64(10, "m")
-)
-np.asarray(pset_geo.x), np.asarray(pset_geo.y)
 ```
 
 ## The GLED coherent-eddy records

@@ -442,7 +442,7 @@ its first crossing of that section after more than half a turn about the
 centre. Its return $P(s)$ is the arc length of that crossing, and a zero of
 $P(s) - s$ is a closed orbit.
 
-The search keeps two kinds of zero:
+The search keeps these zeros:
 
 - **A launch that already returns within `closure_tol_m`.** On the circles of
   an axisymmetric vortex every launch closes, so $P(s) - s$ sits near zero
@@ -455,9 +455,9 @@ The search keeps two kinds of zero:
   a zero, and is dropped. The final orbit must still close within
   `closure_tol_m`, which removes brackets that converged onto a jump.
 
-The winding about the centre replaces the circumference test of the
-exploratory notebooks, which kept a loop when its length was within a factor
-of 2 of $2\pi r$. A crossing before half a turn is a line grazing back across
+The winding about the centre replaces a circumference test, which kept a loop
+when its length was within a factor of 2 of $2\pi r$ and had no principled
+bound. A crossing before half a turn is a line grazing back across
 the section, and it ends the line without a return. A line still out after one
 and a half turns ends without one too, which also bounds the work per line.
 There is no self-intersection test, because two integral curves of a line
@@ -522,7 +522,7 @@ $\Lambda = 1.5$ brackets every matched boundary.
 
 **Stretching step.** From the GLED centres at 1/4 degree, steps of 0.02, 0.03
 and 0.05 match the same 9 eddies. The outermost radius of each agrees within
-1 km across the three steps, except one at 53, 48 and 47 km.
+1 km across those steps, except one at 53, 48 and 47 km.
 
 **Truncation against divergence.** Halving the stencil arm moves a
 truncation-driven $\det \nabla F$ toward 1 and leaves a physical one where it
@@ -541,8 +541,9 @@ a smaller arm resolves more stretching.
 
 **Runtime.** The search traces every centre, section, stretching factor,
 branch and launch in one array per step, and drops a line from the array once
-it ends. Over the 250 eigenvalue-ratio centres at 1/4 degree it takes 11 s,
-where the per-centre loops of the exploratory notebook took about 25 minutes.
+it ends. Over the 250 eigenvalue-ratio centres at 1/4 degree it takes 11 s.
+Looping over centres and stretching factors in Python took about 25 minutes on
+the same case.
 
 **Rotation sense.** The sign of $\theta$ at the 23 GLED centres, on the 1/4
 degree field, against GLED's polarity, by the length of the window $\theta$ is

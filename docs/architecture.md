@@ -458,16 +458,16 @@ reason `prune_shrink_lines` is, and dropping it leaves the unselected result.
 in the open. A single default $\lambda$ would mean $\lambda = 1$, the
 area-preserving case, and on the hourly model field of the Cape Cauldron
 example no orbit closes there, since they close between 1.16 and 1.35. A scan
-log-symmetric about 1 brackets divergence and convergence alike. The default
+log-symmetric about 1 covers boundaries that shrink and boundaries that grow. The default
 $\Lambda = 1.5$ and the step are measured in
 [`numerics.md`](numerics.md#the-measurements-that-fixed-the-defaults).
 
 ### Why centres take a field
 
 `elliptic_centres` takes a field and an `extremum`, as `ftle_ridge_seeds` takes
-a field, so the indicator is built where the caller can see it. The two
-indicators measured, $\lambda_2 / \lambda_1$ and $\theta$, need opposite
-extrema, so `extremum` has no default. `elliptic_lcs()` uses
+a field, so the indicator is built where the caller can see it.
+$\lambda_2 / \lambda_1$ and $\theta$ need opposite extrema, so `extremum` has no
+default. `elliptic_lcs()` uses
 $\lambda_2 / \lambda_1$ minima, which found more of the GLED eddies than
 $\theta$ extrema did.
 
