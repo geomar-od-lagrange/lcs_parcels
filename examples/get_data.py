@@ -17,13 +17,14 @@
 # %% [markdown]
 # # Download CMEMS data
 #
-# Run this once. It fetches the CMEMS subsets the example notebooks open from
-# disk: `data/cabo_verde_currents_hourly.nc` for the Cabo Verde notebooks and
-# `data/cape_cauldron_currents_hourly.nc` for `cape_cauldron_vortices`.
-# Re-running it is cheap: if a file is already there and opens, nothing is
-# downloaded for it.
+# Run this once. It fetches the subsets the example notebooks open from disk:
+# `data/cabo_verde_currents_hourly.nc` for the Cabo Verde notebooks,
+# `data/cape_cauldron_currents_hourly.nc` for `cape_cauldron_vortices`, and
+# `data/cape_cauldron_geostrophic_daily.nc` plus `data/gled/` for
+# `cape_cauldron_gled`. Re-running it is cheap: if a file is already there and
+# opens, nothing is downloaded for it.
 #
-# `examples/data/` is gitignored, so neither file is committed and a fresh
+# `examples/data/` is gitignored, so none of these are committed and a fresh
 # clone has to run this notebook before any of the other examples.
 #
 # This assumes
@@ -31,10 +32,16 @@
 # has credentials.
 
 # %%
+import tarfile
+import urllib.request
 from pathlib import Path
 
 import copernicusmarine as cm
+import numpy as np
 import xarray as xr
+from parcels import FieldSet, Particle, ParticleSet
+from parcels.convert import copernicusmarine_to_sgrid
+from parcels.kernels import AdvectionRK4
 
 # %% [markdown]
 # ## The Cabo Verde subset
@@ -139,3 +146,125 @@ print(f"{target_cape}: {target_cape.stat().st_size / 1e6:.0f} MB on disk")
 # %%
 currents_cape = xr.open_dataset(target_cape)
 currents_cape
+
+# %% [markdown]
+# ## The Cape Cauldron geostrophic subset
+#
+# Daily altimetry-derived geostrophic velocity (`ugos`, `vgos`) from the
+# global sea level product `SEALEVEL_GLO_PHY_L4_MY_008_047`,
+# [doi:10.48670/moi-00148](https://doi.org/10.48670/moi-00148), dataset
+# `cmems_obs-sl_glo_phy-ssh_my_allsat-l4-duacs-0.125deg_P1D`. Same Cape
+# Cauldron box as the currents subset above, 2018-05-31 to 2018-07-03 to cover
+# the `cape_cauldron_gled` notebook's release window with margin at each end.
+
+# %%
+target_geo = Path("data/cape_cauldron_geostrophic_daily.nc")
+target_geo.parent.mkdir(parents=True, exist_ok=True)
+
+# %%
+try:
+    xr.open_dataset(target_geo).close()
+    have_file_geo = True
+except (FileNotFoundError, OSError):
+    have_file_geo = False
+
+print(
+    f"{target_geo}: already here, skipping the download"
+    if have_file_geo
+    else f"{target_geo}: missing, downloading it"
+)
+
+# %%
+if not have_file_geo:
+    ds_geo = cm.open_dataset(
+        dataset_id="cmems_obs-sl_glo_phy-ssh_my_allsat-l4-duacs-0.125deg_P1D",
+        variables=["ugos", "vgos"],
+        minimum_longitude=-6.0,
+        maximum_longitude=30.0,
+        minimum_latitude=-52.0,
+        maximum_latitude=-20.0,
+        start_datetime="2018-05-31",
+        end_datetime="2018-07-03",
+    ).load()
+    ds_geo.to_netcdf(target_geo)
+
+print(f"{target_geo}: {target_geo.stat().st_size / 1e6:.0f} MB on disk")
+
+# %% [markdown]
+# ## What landed on disk for the Cape Cauldron geostrophic subset
+
+# %%
+geostrophic = xr.open_dataset(target_geo)
+geostrophic
+
+# %% [markdown]
+# `copernicusmarine_to_sgrid` reads the grid orientation off `axis` attrs on
+# the coordinates, so the sgrid conversion needs `T`/`Y`/`X` set before it
+# runs. This product already carries them, so nothing is reassigned here. A
+# product that doesn't would need `assign_coords`/`assign_attrs` first.
+
+# %%
+for coord in ("time", "latitude", "longitude"):
+    print(coord, geostrophic[coord].attrs.get("axis"))
+
+# %%
+sgrid_geo = copernicusmarine_to_sgrid(
+    fields={"U": geostrophic["ugos"], "V": geostrophic["vgos"]}
+)
+fieldset_geo = FieldSet.from_sgrid_conventions(sgrid_geo, mesh="spherical")
+fieldset_geo
+
+# %% [markdown]
+# This product has no depth coordinate, so the fields carry no `Z` axis and
+# `ParticleSet` accepts `x`/`y` with no `z` at all (`z=np.zeros(...)` also
+# works). The one-hour advection below checks the sgrid conversion end to end.
+
+# %%
+lon_test = np.array([10.0, 12.0])
+lat_test = np.array([-35.0, -34.0])
+t0_test = geostrophic.time.values[:1].repeat(2)
+
+pset_geo = ParticleSet(fieldset_geo, pclass=Particle, x=lon_test, y=lat_test, t=t0_test)
+pset_geo.execute(
+    AdvectionRK4, runtime=np.timedelta64(1, "h"), dt=np.timedelta64(10, "m")
+)
+np.asarray(pset_geo.x), np.asarray(pset_geo.y)
+
+# %% [markdown]
+# ## The GLED coherent-eddy records
+#
+# GLED v1.0 (Liu & Abernathey 2023,
+# [doi:10.5194/essd-15-1765-2023](https://doi.org/10.5194/essd-15-1765-2023)),
+# data archive at Zenodo record
+# [7349753](https://zenodo.org/records/7349753),
+# [doi:10.5281/zenodo.7349753](https://doi.org/10.5281/zenodo.7349753).
+#
+# `eddyinfo.tar.gz` holds one JSON file per tracking duration, each mapping an
+# eddy id to `date_start`, `radius` (km), `cyc` (+1 anticyclonic, -1
+# cyclonic), and `center_lon`/`center_lat` (0-360) sampled every 10 days.
+
+# %%
+gled_dir = Path("data/gled")
+gled_json = gled_dir / "eddyinfo" / "eddy_info_30d.json"
+
+if gled_json.exists():
+    print(f"{gled_json}: already here, skipping the download")
+else:
+    print(f"{gled_json}: missing, downloading and extracting the archive")
+    gled_dir.mkdir(parents=True, exist_ok=True)
+    archive = gled_dir / "eddyinfo.tar.gz"
+    urllib.request.urlretrieve(
+        "https://zenodo.org/records/7349753/files/eddyinfo.tar.gz", archive
+    )
+    print(f"{archive}: {archive.stat().st_size / 1e6:.0f} MB downloaded")
+    with tarfile.open(archive) as tar:
+        tar.extractall(gled_dir, filter="data")
+        extracted = tar.getnames()
+    archive.unlink()
+    print("extracted:", extracted)
+
+# %% [markdown]
+# ## What landed on disk for GLED
+
+# %%
+sorted(p.name for p in (gled_dir / "eddyinfo").iterdir())

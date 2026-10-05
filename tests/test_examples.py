@@ -60,3 +60,8 @@ def test_cabo_verde_lcs_evolution():
 @pytest.mark.needs_creds
 def test_cape_cauldron_vortices():
     run_example("cape_cauldron_vortices")
+
+
+@pytest.mark.needs_creds
+def test_cape_cauldron_gled():
+    run_example("cape_cauldron_gled")
