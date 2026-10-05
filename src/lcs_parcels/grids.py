@@ -837,6 +837,7 @@ class FlowMap(abc.ABC):
         launch_spacing_m: float | None = None,
         step_m: float | None = None,
         closure_tol_m: float | None = None,
+        remove_dilation: bool | None = None,
     ) -> xr.Dataset:
         """Elliptic LCS of this flow map: centres, closed shear lines, boundaries.
 
@@ -853,6 +854,8 @@ class FlowMap(abc.ABC):
         window_m, edge_m : float, optional
             Passed to :func:`~lcs_parcels.elliptic_centres`.
         stretches, max_radius_m, launch_spacing_m, step_m, closure_tol_m : optional
+            Passed to :func:`~lcs_parcels.closed_shear_lines`.
+        remove_dilation : bool, optional
             Passed to :func:`~lcs_parcels.closed_shear_lines`.
 
         Returns
@@ -897,6 +900,7 @@ class FlowMap(abc.ABC):
                 launch_spacing_m=launch_spacing_m,
                 step_m=step_m,
                 closure_tol_m=closure_tol_m,
+                remove_dilation=remove_dilation,
             ),
         )
         eddies = outermost_shear_lines(orbits)
