@@ -456,8 +456,9 @@ reason `prune_shrink_lines` is, and dropping it leaves the unselected result.
 
 `stretches` takes the array to scan, and `stretch_range` builds the default one
 in the open. A single default $\lambda$ would mean $\lambda = 1$, the
-area-preserving case, and on the hourly model field of the Cape Cauldron
-example no orbit closes there, since they close between 1.16 and 1.35. A scan
+area-preserving case. On hourly CMEMS model currents over the Cape Cauldron
+from 2025-06-01 no orbit closes there, because they close between 1.16 and
+1.35. A scan
 log-symmetric about 1 covers boundaries that shrink and boundaries that grow. The default
 $\Lambda = 1.5$ and the step are measured in
 [`numerics.md`](numerics.md#the-measurements-that-fixed-the-defaults).

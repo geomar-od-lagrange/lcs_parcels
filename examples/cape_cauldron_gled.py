@@ -23,20 +23,23 @@
 # lists coherent Lagrangian eddies found from the Lagrangian averaged vorticity
 # deviation (Haller et al. 2016, J. Fluid Mech. 795,
 # [doi:10.1017/jfm.2016.151](https://doi.org/10.1017/jfm.2016.151)) on
-# trajectories advected with altimetry geostrophic currents. Its windows are
-# 30 days long and start on the first of each month.
+# trajectories advected with DUACS altimetry geostrophic currents. Its windows
+# are 30 days long and start on the first of each month, and it gives each
+# eddy's centre and radius at the release time.
 #
 # This notebook runs the closed-shear-line search of `cape_cauldron_vortices`
-# on the same kind of field over the same window, 30 days forward from
-# 2018-06-01 at 00:00, and compares what the two methods find. GLED gives each
-# eddy's centre and radius at the release time, the time the Cauchy-Green field
-# refers to. GLED advects with the 1/4 degree DUACS product, so the search runs
-# on the 1/8 degree product and on its 1/4 degree block mean.
+# on three surface current fields over the GLED window from 2018-06-01:
 #
-# The comparison runs twice per resolution. Sweep A takes its candidate centres
-# from the Cauchy-Green field, so it tests the whole detection chain. Sweep B
-# takes the GLED centres, so it tests only whether a closed shear line exists
-# where GLED puts an eddy.
+# - the DUACS geostrophic currents GLED is computed on,
+# - the GLORYS12 reanalysis daily currents,
+# - the geostrophic currents of GLORYS12's own sea surface height.
+#
+# GLORYS12 assimilates along-track altimetry rather than the DUACS maps
+# (Lellouche et al. 2021,
+# [doi:10.3389/feart.2021.698876](https://doi.org/10.3389/feart.2021.698876)),
+# so its eddies need not sit where GLED's do. The search therefore runs at
+# windows of 10 to 30 days, and the number of boundaries each field yields is
+# read alongside the matches with GLED.
 
 # %% tags=["remove-output"]
 # Importing Parcels pulls in the holoviews/bokeh bootstrap and prints an
@@ -56,60 +59,80 @@ from lcs_parcels import NeighborSeedGrid, closed_shear_lines, outermost_shear_li
 # %% [markdown]
 # ## Currents
 #
-# Daily altimetry geostrophic velocity at 1/8 degree, the local file that
+# The DUACS daily geostrophic velocity at 1/8 degree and the GLORYS12 daily
+# surface currents and sea surface height at 1/12 degree, the local files that
 # `get_data` writes.
 
 # %%
-currents_eighth = xr.open_dataset("data/cape_cauldron_geostrophic_daily.nc").load()
-currents_eighth
-
-# %% [markdown]
-# The 1/4 degree field is the 2 by 2 block mean of the 1/8 degree one, whose
-# cell centres fall on those of the 1/4 degree product. The mean skips land, so
-# a block that is part land takes the mean of its ocean cells.
-#
-# GLED also removes the divergence that the latitude dependence of the Coriolis
-# parameter gives a geostrophic velocity. Neither field here has that
-# correction.
+duacs = xr.open_dataset("data/cape_cauldron_geostrophic_daily.nc").load()
+duacs
 
 # %%
-currents_quarter = currents_eighth.coarsen(
-    latitude=2, longitude=2, boundary="trim"
-).mean()
-currents_quarter
+glorys = xr.open_dataset("data/cape_cauldron_glorys_daily.nc").load()
+glorys
+
+# %% [markdown]
+# The geostrophic velocity of GLORYS12's sea surface height $\eta$ is
+# $u_g = -(g/f)\,\partial_y \eta$, $v_g = (g/f)\,\partial_x \eta$, with
+# $f = 2\Omega \sin\phi$. Like the DUACS product used here, it keeps the
+# divergence the latitude dependence of $f$ gives it.
+
+# %%
+earth_radius_m = 6_371_000.0
+f = 2 * 7.2921e-5 * np.sin(np.deg2rad(glorys["latitude"]))
+deta_dx = glorys["zos"].differentiate("longitude") / (
+    earth_radius_m * np.cos(np.deg2rad(glorys["latitude"])) * np.deg2rad(1.0)
+)
+deta_dy = glorys["zos"].differentiate("latitude") / (earth_radius_m * np.deg2rad(1.0))
+glorys_geostrophic = xr.Dataset(
+    {"ugos": -9.81 / f * deta_dy, "vgos": 9.81 / f * deta_dx}
+)
 
 # %% [markdown]
 # ## Parcels v4 field sets
 #
-# The product carries no depth coordinate, so the fields have no `Z` axis and
-# the particle sets below are released with no `z`.
+# The geostrophic fields carry no depth coordinate, so their particles are
+# released with no `z`. The GLORYS12 currents are released at their one depth
+# level.
 
 # %%
-fieldset_eighth = FieldSet.from_sgrid_conventions(
-    copernicusmarine_to_sgrid(
-        fields={"U": currents_eighth["ugos"], "V": currents_eighth["vgos"]}
+fieldsets = {
+    "DUACS": FieldSet.from_sgrid_conventions(
+        copernicusmarine_to_sgrid(fields={"U": duacs["ugos"], "V": duacs["vgos"]}),
+        mesh="spherical",
     ),
-    mesh="spherical",
-)
-fieldset_quarter = FieldSet.from_sgrid_conventions(
-    copernicusmarine_to_sgrid(
-        fields={"U": currents_quarter["ugos"], "V": currents_quarter["vgos"]}
+    "GLORYS12": FieldSet.from_sgrid_conventions(
+        copernicusmarine_to_sgrid(fields={"U": glorys["uo"], "V": glorys["vo"]}),
+        mesh="spherical",
     ),
-    mesh="spherical",
-)
+    "GLORYS12 geostrophic": FieldSet.from_sgrid_conventions(
+        copernicusmarine_to_sgrid(
+            fields={
+                "U": glorys_geostrophic["ugos"],
+                "V": glorys_geostrophic["vgos"],
+            }
+        ),
+        mesh="spherical",
+    ),
+}
+release_depth = {
+    "DUACS": None,
+    "GLORYS12": float(glorys["depth"].values[0]),
+    "GLORYS12 geostrophic": None,
+}
 
 # %% [markdown]
-# ## Seed grid and window
+# ## Seed grid and windows
 #
-# The GLED box at 1/25 degree for both fields, released on 2018-06-01 and read
-# at 30 days, the window of the `eddy_info_30d` product.
+# The GLED box at 1/25 degree, released on 2018-06-01 at 00:00. The 30-day
+# window is GLED's own.
 
 # %%
 t0 = np.datetime64("2018-06-01")
-T = np.timedelta64(30, "D")
-lon_axis = np.arange(2.0, 22.0 + 1e-9, 1 / 25)
-lat_axis = np.arange(-44.0, -28.0 + 1e-9, 1 / 25)
-seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
+windows_days = [10, 15, 20, 30]
+seed = NeighborSeedGrid.from_axes(
+    lon=np.arange(2.0, 22.0 + 1e-9, 1 / 25), lat=np.arange(-44.0, -28.0 + 1e-9, 1 / 25)
+)
 seed
 
 # %% [markdown]
@@ -131,83 +154,27 @@ def set_lost_to_nan(particles, fieldset):
 
 
 # %% [markdown]
-# ## Advect forward
+# ## Advection
+#
+# One forward run per field and window, each released from the seed grid.
+
 
 # %%
-lon, lat = seed.to_parcels_pset()
+def advect(field, *, days):
+    lon, lat = seed.to_parcels_pset()
+    depth = release_depth[field]
+    z = {} if depth is None else {"z": np.full(len(lon), depth)}
+    pset = ParticleSet(fieldsets[field], pclass=Particle, x=lon, y=lat, t=t0, **z)
+    pset.execute(
+        [AdvectionRK4, set_lost_to_nan],
+        dt=np.timedelta64(1, "h"),
+        runtime=np.timedelta64(days, "D"),
+        verbose_progress=False,
+    )
+    return seed.pset_to_flowmap(
+        lon=pset.x, lat=pset.y, t0=t0, t1=t0 + np.timedelta64(days, "D")
+    )
 
-# %%
-# 1/8 degree
-pset_eighth = ParticleSet(fieldset_eighth, pclass=Particle, x=lon, y=lat, t=t0)
-pset_eighth.execute(
-    [AdvectionRK4, set_lost_to_nan],
-    dt=np.timedelta64(1, "h"),
-    runtime=T,
-    verbose_progress=False,
-)
-forward_eighth = seed.pset_to_flowmap(
-    lon=pset_eighth.x, lat=pset_eighth.y, t0=t0, t1=t0 + T
-)
-forward_eighth
-
-# %%
-# 1/4 degree
-pset_quarter = ParticleSet(fieldset_quarter, pclass=Particle, x=lon, y=lat, t=t0)
-pset_quarter.execute(
-    [AdvectionRK4, set_lost_to_nan],
-    dt=np.timedelta64(1, "h"),
-    runtime=T,
-    verbose_progress=False,
-)
-forward_quarter = seed.pset_to_flowmap(
-    lon=pset_quarter.x, lat=pset_quarter.y, t0=t0, t1=t0 + T
-)
-forward_quarter
-
-# %% [markdown]
-# A second run over the first day at each resolution gives the rotation of the
-# flow. The polar rotation angle is defined modulo $2\pi$, and an eddy turns
-# several times in 30 days, so its sign gives the rotation sense only over a
-# short window.
-
-# %%
-one_day = np.timedelta64(1, "D")
-
-# %%
-# 1/8 degree
-pset_day = ParticleSet(fieldset_eighth, pclass=Particle, x=lon, y=lat, t=t0)
-pset_day.execute(
-    [AdvectionRK4, set_lost_to_nan],
-    dt=np.timedelta64(1, "h"),
-    runtime=one_day,
-    verbose_progress=False,
-)
-first_day_eighth = seed.pset_to_flowmap(
-    lon=pset_day.x, lat=pset_day.y, t0=t0, t1=t0 + one_day
-)
-
-# %%
-# 1/4 degree
-pset_day = ParticleSet(fieldset_quarter, pclass=Particle, x=lon, y=lat, t=t0)
-pset_day.execute(
-    [AdvectionRK4, set_lost_to_nan],
-    dt=np.timedelta64(1, "h"),
-    runtime=one_day,
-    verbose_progress=False,
-)
-first_day_quarter = seed.pset_to_flowmap(
-    lon=pset_day.x, lat=pset_day.y, t0=t0, t1=t0 + one_day
-)
-
-# %% [markdown]
-# Particles lost to land or to the domain edge over the 30 days, at 1/8 and at
-# 1/4 degree.
-
-# %%
-(
-    int(np.isnan(np.asarray(pset_eighth.x)).sum()),
-    int(np.isnan(np.asarray(pset_quarter.x)).sum()),
-)
 
 # %% [markdown]
 # ## The GLED records
@@ -285,43 +252,54 @@ gled_90 = load_gled(
 gled_30
 
 # %% [markdown]
-# ## Sweep A, the whole detection chain
+# ## Are the GLED eddies in each field?
 #
-# `elliptic_lcs` picks candidate centres at windowed minima of
-# $\lambda_2 / \lambda_1$, searches them for closed shear lines, and keeps the
-# outermost boundary per vortex, all at the package defaults. It has only the
-# 30-day flow map, so its boundaries carry no rotation sense.
+# The relative vorticity on 2018-06-01, averaged within a third of each GLED
+# eddy's radius of its centre. GLED's polarity is $+1$ anticyclonic, which in
+# the southern hemisphere is positive vorticity. The strength is that mean over
+# the field's root-mean-square vorticity in the box.
+
 
 # %%
-eddies_a_eighth = forward_eighth.elliptic_lcs()
-eddies_a_eighth
+def relative_vorticity(u, v):
+    cos_lat = np.cos(np.deg2rad(u["latitude"]))
+    return v.differentiate("longitude") / (
+        earth_radius_m * cos_lat * np.deg2rad(1.0)
+    ) - u.differentiate("latitude") / (earth_radius_m * np.deg2rad(1.0))
 
-# %%
-eddies_a_quarter = forward_quarter.elliptic_lcs()
-eddies_a_quarter
 
-# %% [markdown]
-# ## Sweep B, from the GLED centres
-#
-# The same search launched from the GLED 30-day eddy centres. A centre GLED
-# found cannot be missed here, so this separates centre selection from the
-# existence of a closed shear line. The boundaries take their rotation sense
-# from the first day.
-
-# %%
-eddies_b_eighth = outermost_shear_lines(
-    closed_shear_lines(
-        forward_eighth, centre_lon=gled_30["lon"], centre_lat=gled_30["lat"]
+day_0 = {
+    "DUACS": relative_vorticity(duacs["ugos"], duacs["vgos"]),
+    "GLORYS12": relative_vorticity(glorys["uo"], glorys["vo"]).squeeze("depth"),
+    "GLORYS12 geostrophic": relative_vorticity(
+        glorys_geostrophic["ugos"], glorys_geostrophic["vgos"]
     ),
-    rotation=first_day_eighth.polar_rotation(),
-)
-eddies_b_quarter = outermost_shear_lines(
-    closed_shear_lines(
-        forward_quarter, centre_lon=gled_30["lon"], centre_lat=gled_30["lat"]
-    ),
-    rotation=first_day_quarter.polar_rotation(),
-)
-eddies_b_quarter
+}
+box = {"longitude": slice(2.0, 22.0), "latitude": slice(-44.0, -28.0)}
+rows = {}
+for field, vorticity in day_0.items():
+    vorticity = vorticity.sel(time=t0).sel(**box)
+    rms = float(np.sqrt((vorticity**2).mean()))
+    agree, strength = 0, []
+    for e in range(gled_30.sizes["gled"]):
+        eddy = gled_30.isel(gled=e)
+        half_lat = float(eddy["radius_m"]) / 3 / 111_195.0
+        half_lon = half_lat / np.cos(np.deg2rad(float(eddy["lat"])))
+        core = vorticity.sel(
+            longitude=slice(
+                float(eddy["lon"]) - half_lon, float(eddy["lon"]) + half_lon
+            ),
+            latitude=slice(
+                float(eddy["lat"]) - half_lat, float(eddy["lat"]) + half_lat
+            ),
+        ).mean()
+        agree += int(np.sign(float(core)) == int(eddy["polarity"]))
+        strength.append(abs(float(core)) / rms)
+    rows[field] = {
+        "sign matches GLED": agree,
+        "core strength, median": float(np.median(strength)),
+    }
+pd.DataFrame(rows).round(2)
 
 # %% [markdown]
 # ## Matching
@@ -341,6 +319,10 @@ def distance_m(*, lon_a, lat_a, lon_b, lat_b):
 
 def match_to_gled(eddies, *, gled):
     """One row per GLED eddy with the nearest boundary, distances and radii in km."""
+    if eddies.sizes["eddy"] == 0:
+        return pd.DataFrame(
+            {"matched": False, "same_polarity": np.nan}, index=gled["gled"].values
+        )
     distance = distance_m(
         lon_a=gled["lon"],
         lat_a=gled["lat"],
@@ -368,60 +350,64 @@ def match_to_gled(eddies, *, gled):
 
 
 # %% [markdown]
-# Each GLED eddy against the nearest sweep-A boundary at 1/4 degree.
-
-# %%
-match_to_gled(eddies_a_quarter, gled=gled_30).round(2)
-
-# %% [markdown]
-# The same at 1/8 degree.
-
-# %%
-match_to_gled(eddies_a_eighth, gled=gled_30).round(2)
-
-# %% [markdown]
-# ## The two resolutions side by side
+# ## The search over fields and windows
 #
-# The radius ratio is the boundary's equivalent radius over the GLED radius. The
-# polarity agreement is over the matched GLED eddies, for sweep B, whose
-# boundaries carry a rotation sense.
-
-
-# %%
-def summary(eddies, *, gled):
-    rows = match_to_gled(eddies, gled=gled)
-    matched = rows[rows["matched"]]
-    distance = distance_m(
-        lon_a=gled["lon"],
-        lat_a=gled["lat"],
-        lon_b=eddies["centroid_lon"],
-        lat_b=eddies["centroid_lat"],
-    )
-    return {
-        "boundaries": eddies.sizes["eddy"],
-        "boundaries inside a GLED eddy": int(
-            (distance <= gled["radius_m"]).any("gled").sum()
-        ),
-        "GLED eddies matched": len(matched),
-        "radius ratio, median": float(
-            (matched["radius_km"] / matched["gled_radius_km"]).median()
-        ),
-        "same polarity": matched["same_polarity"].sum(min_count=1),
-    }
-
+# For each field and window, sweep A runs `elliptic_lcs`, which picks its own
+# candidate centres, and sweep B launches the same search from the GLED
+# centres. Sweep B's boundaries take their rotation sense from a 1-day flow map
+# of the same field, since the polar rotation angle is defined modulo $2\pi$.
 
 # %%
-pd.DataFrame(
-    {
-        "A, 1/8 degree": summary(eddies_a_eighth, gled=gled_30),
-        "A, 1/4 degree": summary(eddies_a_quarter, gled=gled_30),
-        "B, 1/8 degree": summary(eddies_b_eighth, gled=gled_30),
-        "B, 1/4 degree": summary(eddies_b_quarter, gled=gled_30),
-    }
-).round(3)
+first_day = {field: advect(field, days=1) for field in fieldsets}
+
+# %%
+results = []
+last = {}
+for field in fieldsets:
+    for days in windows_days:
+        forward = advect(field, days=days)
+        grad_f = forward.deformation_gradient()
+        det = abs(
+            grad_f.sel(row="x", col="x") * grad_f.sel(row="y", col="y")
+            - grad_f.sel(row="x", col="y") * grad_f.sel(row="y", col="x")
+        )
+        eddies_a = forward.elliptic_lcs()
+        eddies_b = outermost_shear_lines(
+            closed_shear_lines(
+                forward, centre_lon=gled_30["lon"], centre_lat=gled_30["lat"]
+            ),
+            rotation=first_day[field].polar_rotation(),
+        )
+        matched_a = match_to_gled(eddies_a, gled=gled_30)["matched"]
+        rows_b = match_to_gled(eddies_b, gled=gled_30)
+        matched_b = rows_b[rows_b["matched"]]
+        results.append(
+            {
+                "field": field,
+                "window (days)": days,
+                "median |det grad F|": float(det.median()),
+                "boundaries, A": eddies_a.sizes["eddy"],
+                "GLED matched, A": int(matched_a.sum()),
+                "GLED matched, B": len(matched_b),
+                "same polarity, B": int(matched_b["same_polarity"].sum()),
+            }
+        )
+        last[field] = (eddies_a, eddies_b)
+
+# %%
+summary = pd.DataFrame(results).set_index(["field", "window (days)"])
+summary.round(2)
 
 # %% [markdown]
-# ## GLED and the closed shear lines
+# The number of boundaries each field yields against the window. It counts the
+# field's own coherent loops, with no reference to GLED.
+
+# %%
+summary["boundaries, A"].unstack("field").plot(marker="o")
+plt.show()
+
+# %% [markdown]
+# ## GLED and the closed shear lines at 30 days
 #
 # The GLED eddies as circles at their radius, blue for cyclonic and red for
 # anticyclonic, with a thick outline where the 90-day product carries the eddy
@@ -457,25 +443,31 @@ def plot_against_gled(eddies_a, eddies_b):
 
 
 # %%
-# 1/8 degree
-plot_against_gled(eddies_a_eighth, eddies_b_eighth)
+plot_against_gled(*last["DUACS"])
 
 # %%
-# 1/4 degree
-plot_against_gled(eddies_a_quarter, eddies_b_quarter)
+plot_against_gled(*last["GLORYS12"])
+
+# %%
+plot_against_gled(*last["GLORYS12 geostrophic"])
 
 # %% [markdown]
 # ## Outcome
 #
-# The 30-day GLED product places 23 eddies in the box on 1 June 2018. Advection
-# lost 23401 of the 200901 particles at 1/8 degree and 23319 at 1/4 degree.
+# GLED places 23 eddies in the box on 1 June 2018. The DUACS vorticity at their
+# centres has GLED's sign at all 23, with a median core strength of 1.48 times
+# the field's rms. GLORYS12 has it at 17, and its geostrophic part at 18, with
+# median core strengths of 0.54 and 0.59.
 #
-# Sweep A returns 11 boundaries at each resolution. At 1/8 degree 7 of them lie
-# inside a GLED eddy and 7 GLED eddies are matched. At 1/4 degree it is 8 and 8.
-# Sweep B, from the GLED centres, returns 9 boundaries at each resolution, all
-# inside a GLED eddy, so 9 of the 23 GLED eddies have a closed shear line at
-# their centre. Over the first day every one of those 9 turns in the sense
-# GLED's polarity gives, at both resolutions.
+# The number of boundaries falls with the window in every field, from 45 at
+# 10 days to 11 at 30 days in DUACS, from 27 to 4 in the GLORYS12 geostrophic
+# currents, and from 21 to 0 in the GLORYS12 currents. The median
+# $|\det \nabla F|$ stays within 0.3 of 1 up to 20 days in DUACS and up to 15
+# days in both GLORYS12 fields, and reaches 3.38 in DUACS and 11.12 and 12.09
+# in GLORYS12 at 30 days.
 #
-# The median boundary radius over the GLED radius is 0.539 and 0.592 for
-# sweep A at 1/8 and 1/4 degree, and 0.551 and 0.555 for sweep B.
+# At GLED's 30-day window, sweep A matches 7 GLED eddies in DUACS, 0 in the
+# GLORYS12 currents and 2 in their geostrophic part. Launched from the GLED
+# centres, sweep B closes a boundary at 9, 0 and 1 of them. Every boundary
+# sweep B matches, in every field and window, turns over the first day in the
+# sense GLED's polarity gives.

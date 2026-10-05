@@ -65,11 +65,12 @@ from lcs_parcels import (
 
 ## Currents
 
-Hourly CMEMS surface currents at 1/12 degree, the local file that `get_data`
+Daily-mean GLORYS12 reanalysis surface currents at 1/12 degree, the local file
+that `get_data`
 writes.
 
 ```python
-currents = xr.open_dataset("data/cape_cauldron_currents_hourly.nc").load()
+currents = xr.open_dataset("data/cape_cauldron_glorys_daily.nc").load()
 currents
 ```
 
@@ -86,14 +87,15 @@ z_surface = float(currents["depth"].values[0])
 
 ## Seed grid and window
 
-A box across the Cape Cauldron at 1/25 degree, released on 2025-06-01 and read
-at 30 days. An Agulhas ring turns once in roughly 7 to 12 days, so the window
-covers a few revolutions. A vortex boundary belongs to one window, so only the
-forward flow map is needed.
+A box across the Cape Cauldron at 1/25 degree, released on 2018-06-01 and read
+at 15 days. An Agulhas ring turns once in roughly 7 to 12 days, so the window
+covers one to two revolutions. Over 30 days the model's loops stop stretching
+uniformly and the search closes almost none. A vortex boundary belongs to one
+window, so only the forward flow map is needed.
 
 ```python
-t0 = np.datetime64("2025-06-01")
-T = np.timedelta64(30, "D")
+t0 = np.datetime64("2018-06-01")
+T = np.timedelta64(15, "D")
 lon_axis = np.arange(2.0, 22.0 + 1e-9, 1 / 25)
 lat_axis = np.arange(-44.0, -28.0 + 1e-9, 1 / 25)
 seed = NeighborSeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
@@ -138,7 +140,7 @@ forward
 
 A second run over the first day gives the rotation of the flow. The polar
 rotation angle is defined modulo $2\pi$, and an Agulhas ring turns several
-times in 30 days, so its sign gives the rotation sense only over a short
+times in 15 days, so its sign gives the rotation sense only over a short
 window.
 
 ```python
@@ -155,7 +157,7 @@ first_day = seed.pset_to_flowmap(
 first_day
 ```
 
-Particles lost to land or to the domain edge over the 30 days.
+Particles lost to land or to the domain edge over the 15 days.
 
 ```python
 int(np.isnan(np.asarray(pset.x)).sum())
@@ -349,19 +351,19 @@ ax.legend()
 plt.show()
 ```
 
-
 ## Outcome
 
-Of the 501 by 401 seeded particles, 24500 are lost to land or the domain edge.
-$|\det \nabla F|$ runs from 0.172 at the 5 percent quantile to 675 at the 95
-percent, with a median of 4.96.
+Of the 501 by 401 seeded particles, 19016 are lost to land or the domain edge
+over the 15 days. $|\det \nabla F|$ runs from 0.255 at the 5 percent quantile
+to 171 at the 95 percent, with a median of 1.28.
 
-The search over 227 candidate centres closes 25 orbits, all at one centre,
-13.32 E 35.64 S. The outermost one is the single boundary, at
-$\lambda = 1.350$ with an equivalent radius of 41.1 km and its centroid at
-13.28 E 35.64 S. Over the first day it turns counter-clockwise, which south of
-the equator is anticyclonic.
+The search over 241 candidate centres closes 192 orbits, and
+`outermost_shear_lines` keeps 12 boundaries. Six turn counter-clockwise over
+the first day and six clockwise, so south of the equator six are
+anticyclones and six cyclones. The largest, at $\lambda = 1.062$ with an
+equivalent radius of 77.4 km and its centroid at 5.20 E 30.59 S, turns
+counter-clockwise.
 
-Carried through the flow map, the boundary's arc length grows by 1.298
-against its $\lambda$ of 1.350. A circle of the same equivalent radius about
-the same centroid grows by 1.550.
+Carried through the flow map, that boundary's arc length grows by 1.121
+against its $\lambda$ of 1.062. A circle of the same equivalent radius about
+the same centroid grows by 3.371.

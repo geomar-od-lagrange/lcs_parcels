@@ -18,7 +18,7 @@ jupyter:
 
 Run this once. It fetches the subsets the example notebooks open from disk:
 `data/cabo_verde_currents_hourly.nc` for the Cabo Verde notebooks,
-`data/cape_cauldron_currents_hourly.nc` for `cape_cauldron_vortices`, and
+`data/cape_cauldron_glorys_daily.nc` for both Cape Cauldron notebooks, and
 `data/cape_cauldron_geostrophic_daily.nc` plus `data/gled/` for
 `cape_cauldron_gled`. Re-running it is cheap, because nothing is downloaded for
 a file that is already there and opens.
@@ -94,16 +94,19 @@ currents = xr.open_dataset(target)
 currents
 ```
 
-## The Cape Cauldron subset
+## The Cape Cauldron model subset
 
-Same dataset and variables, a box around the Cape Cauldron, the Agulhas-ring
-corridor south-west of South Africa. `cape_cauldron_vortices` releases
-particles on 2025-06-01 in the box 2E to 22E, 44S to 28S and advects them
-30 days. This subset carries an 8 degree margin on every side of that box so
-trajectories stay inside the data.
+Daily-mean surface currents `uo`/`vo` and sea surface height `zos` from the
+GLORYS12 reanalysis `GLOBAL_MULTIYEAR_PHY_001_030`,
+[doi:10.48670/moi-00021](https://doi.org/10.48670/moi-00021), dataset
+`cmems_mod_glo_phy_my_0.083deg_P1D-m`, over a box around the Cape Cauldron,
+the Agulhas-ring corridor south-west of South Africa. The Cape Cauldron
+notebooks release particles on 2018-06-01 in the box 2E to 22E, 44S to 28S
+and advect them 30 days. This subset carries an 8 degree margin on every side
+of that box so trajectories stay inside the data.
 
 ```python
-target_cape = Path("data/cape_cauldron_currents_hourly.nc")
+target_cape = Path("data/cape_cauldron_glorys_daily.nc")
 target_cape.parent.mkdir(parents=True, exist_ok=True)
 ```
 
@@ -124,23 +127,23 @@ print(
 ```python
 if not have_file_cape:
     ds_cape = cm.open_dataset(
-        dataset_id="cmems_mod_glo_phy_anfc_0.083deg_PT1H-m",
-        variables=["uo", "vo"],
+        dataset_id="cmems_mod_glo_phy_my_0.083deg_P1D-m",
+        variables=["uo", "vo", "zos"],
         minimum_longitude=-6.0,
         maximum_longitude=30.0,
         minimum_latitude=-52.0,
         maximum_latitude=-20.0,
         minimum_depth=0.0,
         maximum_depth=1.0,
-        start_datetime="2025-05-31",
-        end_datetime="2025-08-01",
+        start_datetime="2018-05-31",
+        end_datetime="2018-07-03",
     ).load()
     ds_cape.to_netcdf(target_cape)
 
 print(f"{target_cape}: {target_cape.stat().st_size / 1e6:.0f} MB on disk")
 ```
 
-## What landed on disk for the Cape Cauldron
+## What landed on disk for the Cape Cauldron model subset
 
 ```python
 currents_cape = xr.open_dataset(target_cape)

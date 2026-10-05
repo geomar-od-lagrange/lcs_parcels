@@ -488,7 +488,7 @@ closes less well. A quarter-grid tolerance loses 2 boundaries.
 
 ### The measurements that fixed the defaults
 
-The case is the comparison in `examples/cape_cauldron_gled.py`: DUACS
+The case is DUACS
 geostrophic velocity from 2018-06-01 over 30 days, seeded at 1/25 degree over
 2 E to 22 E, 44 S to 28 S, at the native 1/8 degree and block-averaged to 1/4
 degree. GLED v1.0 (Liu & Abernathey 2023,
@@ -514,9 +514,8 @@ degree, against 5 for the rotation angle, so `elliptic_lcs()` uses it.
 
 **Stretching range.** Scanned to $\Lambda = 2$ at a step of 0.03, every orbit
 found from the GLED centres closes inside $[1/1.5, 1.5]$. The extremes are
-0.677 at 1/4 degree and 1.310 at 1/8 degree. On the hourly CMEMS model currents
-of `examples/cape_cauldron_vortices.py` the orbits close between 1.162 and
-1.350. One boundary per field closes at 1.522, and both are boundaries from
+0.677 at 1/4 degree and 1.310 at 1/8 degree. On hourly CMEMS model currents
+from 2025-06-01 over 30 days the orbits close between 1.162 and 1.350. One boundary per field closes at 1.522, and both are boundaries from
 eigenvalue-ratio centres that no GLED eddy matches. So the default
 $\Lambda = 1.5$ brackets every matched boundary.
 

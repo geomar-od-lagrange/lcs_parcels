@@ -105,7 +105,7 @@ itself:
 - [`cape_cauldron_vortices`](https://lcs-parcels.readthedocs.io/page/examples/cape_cauldron_vortices.html) finds coherent
   vortex boundaries as closed shear lines in the Agulhas-ring corridor.
 - [`cape_cauldron_gled`](https://lcs-parcels.readthedocs.io/page/examples/cape_cauldron_gled.html) compares those
-  boundaries with the GLED v1.0 eddy atlas on altimetry currents.
+  boundaries in altimetry and model currents with the GLED v1.0 eddy atlas.
 
 The Parcels examples need the `examples` pixi environment (`pixi install -e
 examples`) and a CMEMS currents file you save yourself. The
