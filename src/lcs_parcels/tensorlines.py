@@ -359,29 +359,17 @@ def _rk2_step(
     return lon, lat, mid_direction
 
 
-def _tensor_interp(
-    flowmap, *, remove_dilation: bool = False
-) -> RegularGridInterpolator:
+def _tensor_interp(flowmap) -> RegularGridInterpolator:
     """Interpolator over ``flowmap.cauchy_green()`` on its rectilinear grid axes.
 
     Returns ``(n, 2, 2)`` tensors for ``(n, 2)`` lon/lat points, and ``NaN`` off
-    the grid. With ``remove_dilation`` it interpolates ``C / |det grad F|``.
+    the grid.
     """
     lon_axis = flowmap.lon_grid.isel(j=0).values
     lat_axis = flowmap.lat_grid.isel(i=0).values
-    cauchy_green = flowmap.cauchy_green()
-    if remove_dilation:
-        # det C = (det grad F)^2, so its square root is the local area change.
-        def component(row, col):
-            return cauchy_green.sel(row=row, col=col, drop=True)
-
-        det = component("x", "x") * component("y", "y") - component(
-            "x", "y"
-        ) * component("y", "x")
-        cauchy_green = cauchy_green / np.sqrt(det)
     # CG_grid is the Cauchy-Green tensor on the diagnostic grid, not an Arakawa
     # C-grid.
-    CG_grid = cauchy_green.transpose("i", "j", "row", "col").values
+    CG_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
     # The tracers leave the label-based xarray API here, because the ODE loop
     # would otherwise build an xarray object per step.
     return RegularGridInterpolator(

@@ -438,7 +438,6 @@ def closed_shear_lines(
     launch_spacing_m: float | None = None,
     step_m: float | None = None,
     closure_tol_m: float | None = None,
-    remove_dilation: bool = False,
 ) -> xr.Dataset:
     """Closed ``eta_lambda`` orbits about each candidate centre.
 
@@ -468,10 +467,6 @@ def closed_shear_lines(
         Launch spacing along the sections, arc-length step, and the largest
         accepted launch-to-return distance, all in metres. They default to the
         smaller median grid spacing, half of it, and half of it.
-    remove_dilation : bool, optional
-        Search ``C / |det grad F|`` instead of ``C`` (default False). An orbit
-        then stretches each tangent element by ``lambda`` times the square root
-        of its local area change.
 
     Returns
     -------
@@ -500,7 +495,7 @@ def closed_shear_lines(
     s_launch = launch_spacing_m * np.arange(
         1, int(np.floor(max_radius_m / launch_spacing_m)) + 1
     )
-    tensor_interp = _tensor_interp(flowmap, remove_dilation=remove_dilation)
+    tensor_interp = _tensor_interp(flowmap)
     trace = {
         "section_m": max_radius_m,
         "tensor_interp": tensor_interp,
@@ -634,7 +629,6 @@ def closed_shear_lines(
         "launch_spacing_m": float(launch_spacing_m),
         "step_m": float(step_m),
         "closure_tol_m": float(closure_tol_m),
-        "remove_dilation": int(remove_dilation),
         "n_centres": int(centre_lon.size),
         "n_never_returned": n_never_returned,
     }
