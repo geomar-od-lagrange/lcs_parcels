@@ -332,8 +332,6 @@ def _area_and_centroid(x, y):
     """Shoelace area (m2) and centroid (m) of a closed polygon in metres."""
     cross = x[:-1] * y[1:] - x[1:] * y[:-1]
     signed_area = 0.5 * cross.sum()
-    if signed_area == 0.0:
-        return 0.0, (np.nan, np.nan)
     centroid_x = ((x[:-1] + x[1:]) * cross).sum() / (6.0 * signed_area)
     centroid_y = ((y[:-1] + y[1:]) * cross).sum() / (6.0 * signed_area)
     return abs(signed_area), (centroid_x, centroid_y)
@@ -662,9 +660,9 @@ def outermost_shear_lines(
 
     With ``rotation``, a :meth:`~lcs_parcels.FlowMap.polar_rotation` field,
     ``rotation_sense`` is the sign of its mean inside each boundary against its
-    domain median, ``+1`` counter-clockwise. The angle is defined modulo
-    ``2 pi``, so pass the rotation of a window short enough for an eddy to turn
-    less than half a turn.
+    domain median, ``+1`` counter-clockwise, and 0 where no point of the field
+    lies inside. The angle is defined modulo ``2 pi``, so pass the rotation of a
+    window short enough for an eddy to turn less than half a turn.
 
     Returns
     -------

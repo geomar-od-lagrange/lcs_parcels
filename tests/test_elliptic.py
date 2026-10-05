@@ -417,6 +417,64 @@ def test_closed_shear_lines_scans_the_given_stretches_only(vortex):
     assert orbits.attrs["n_stretch"] == 1
 
 
+def test_closed_shear_lines_bisects_a_sign_change_of_the_return_map():
+    """In the strained vortex at a 5 m tolerance, the orbits come from bisecting
+    sign changes of P(s) - s, and they still close within 5 m."""
+    fm = _vortex_flowmap(strain=STRAINS[0])
+    orbits = closed_shear_lines(
+        fm,
+        centre_lon=[0.0],
+        centre_lat=[0.0],
+        stretches=np.array([1.0]),
+        max_radius_m=MAX_RADIUS_M,
+        closure_tol_m=5.0,
+    )
+    launch_spacing_m = orbits.attrs["launch_spacing_m"]
+    centre_distance_m = np.abs(orbits["lon"].isel(point=0)) * M_PER_DEG
+    off_launch = np.abs(
+        centre_distance_m / launch_spacing_m
+        - np.round(centre_distance_m / launch_spacing_m)
+    )
+    assert (off_launch > 1e-3).any()
+    np.testing.assert_array_less(orbits["residual_m"], 5.0)
+
+
+def test_closed_shear_lines_off_the_grid_finds_nothing(vortex):
+    orbits = closed_shear_lines(vortex, centre_lon=[5.0], centre_lat=[0.0])
+    assert orbits.sizes["orbit"] == 0
+    assert orbits.attrs["n_never_returned"] == 2 * 2 * orbits.attrs["n_stretch"]
+
+
+def test_closed_shear_lines_needs_matching_centre_arrays(vortex):
+    with pytest.raises(ValueError):
+        closed_shear_lines(vortex, centre_lon=[0.0, 0.1], centre_lat=[0.0])
+
+
+def test_a_line_out_of_steps_does_not_return(vortex):
+    """Two steps cannot take a line round its centre."""
+    from lcs_parcels.elliptic import _section_launch, _trace_to_return
+    from lcs_parcels.tensorlines import _tensor_interp
+
+    one = np.ones(1)
+    lon_0, lat_0 = _section_launch(
+        centre_lon=0 * one, centre_lat=0 * one, direction=one, s=20_000.0 * one
+    )
+    returned_s, _ = _trace_to_return(
+        lon_0,
+        lat_0,
+        centre_lon=0 * one,
+        centre_lat=0 * one,
+        direction=one,
+        stretch=one,
+        branch=one,
+        section_m=MAX_RADIUS_M,
+        tensor_interp=_tensor_interp(vortex),
+        step_m=1_000.0,
+        n_steps=2,
+    )
+    assert np.isnan(returned_s).all()
+
+
 # --- selection ------------------------------------------------------------------
 
 
@@ -435,6 +493,15 @@ def test_rotation_sense_follows_the_vortex(omega_0, sense):
     )
     eddies = outermost_shear_lines(orbits, rotation=fm.polar_rotation())
     assert eddies["rotation_sense"].values.tolist() == [sense]
+
+
+def test_rotation_sense_is_zero_where_the_field_misses_the_boundary(
+    vortex, vortex_orbits
+):
+    """A rotation field with no point inside a boundary gives it no sense."""
+    corner = vortex.polar_rotation().isel(i=slice(0, 10), j=slice(0, 10))
+    eddies = outermost_shear_lines(vortex_orbits, rotation=corner)
+    assert eddies["rotation_sense"].values.tolist() == [0]
 
 
 def test_rotation_sense_needs_a_rotation_field(vortex_orbits):
