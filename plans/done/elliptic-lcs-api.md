@@ -38,6 +38,8 @@ From the review on 2026-10-05:
 
 ## Public surface
 
+As planned. See the Outcome section for what changed.
+
 ```text
 FlowMap.polar_rotation() -> xr.DataArray
 elliptic_centres(field, *, extremum, window_m=100_000.0, edge_m=None) -> xr.Dataset
@@ -240,3 +242,45 @@ recorded next to that default.
   like `shrink_lines`.
 - Tracking eddies across windows. `FlowMap.image()` already evolves a
   boundary, since a boundary is a material curve.
+
+## Outcome
+
+Implemented on branch `elliptic-lcs`. Where the result departs from the plan
+above:
+
+- **`lambda_range` is `stretch_range`, and the data variable is `stretch`.**
+  `cg_eigen()` already returns the eigenvalues as `lambda`, and two quantities
+  never share a name. The keywords follow: `stretches`, `stretch_max`.
+- **There is no self-intersection test.** Two integral curves of a line field
+  cannot cross where the field is defined, and the search stops at the first
+  return. The winding test stays.
+- **The search also accepts direct hits.** On the circles of the analytic
+  vortex every launch closes, so $P(s) - s$ never changes sign. A launch that
+  returns within `closure_tol_m` is an orbit without bisection.
+- **Polarity is `rotation_sense`**, $+1$ counter-clockwise, and the boundary
+  centroid is returned as `centroid_lon`/`centroid_lat`. The candidate centre
+  can lie off-centre in a merged vortex.
+- **The rotation comes from a separate short flow map.** $\theta$ is defined
+  modulo $2\pi$. Read off the 30-day flow map, its sign matched GLED's
+  polarity for 4 or 5 of 7 to 9 matched eddies. Over 1 or 2 days it matched
+  23 of 23 at the GLED centres. `outermost_shear_lines` takes an optional
+  `rotation` field instead of a `flowmap`, and `elliptic_lcs()` returns no
+  rotation sense.
+- **No anisotropy guard on $\eta^\pm_\lambda$.** The analytic vortex closes
+  circles out to 58 km without one.
+
+The measurements are recorded in `docs/numerics.md`, "The measurements that
+fixed the defaults":
+
+- **M1:** $\lambda_2/\lambda_1$ minima match 8 of 23 GLED eddies at 1/4
+  degree, against 5 for polar-rotation extrema and a ceiling of 9 from the
+  GLED centres. `elliptic_lcs()` uses the eigenvalue ratio.
+- **M2:** every GLED-matched closure lies inside $[1/1.5, 1.5]$. Steps of
+  0.02, 0.03 and 0.05 match the same eddies. The defaults stay.
+- **M3:** a launch spacing of one grid cell and a tolerance of half a cell
+  stay. Halving the spacing adds one 8 km boundary.
+- **M4:** halving the stencil arm moves the median $\lvert\det\nabla F\rvert$
+  from 3.38 to 1.46 to 1.14, so the bulk departure from area preservation is
+  truncation.
+- **M5:** 11 s over 250 centres, against about 25 minutes for the
+  exploratory loops.

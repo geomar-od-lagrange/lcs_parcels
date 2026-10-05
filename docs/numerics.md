@@ -415,3 +415,156 @@ The bundles that remain at those settings are curves that run together for
 50–150 km and then separate by more than 30 km (a triple at 26.5 W 16.3 N, a fan
 at 24.8 W 16 N, a pair along 22 W). Each is two distinct structures rather than
 one curve traced twice, and the rule keeps them.
+
+## Closed shear lines
+
+`closed_shear_lines` traces $\eta^\pm_\lambda$ with the RK2 step shrink lines
+use, on the same interpolated $C$. Its tangent diagonalises $C$ in closed form
+and takes $\xi_2$ as $\xi_1$ turned 90 degrees counter-clockwise. An
+eigensolver may flip either eigenvector, and flipping $\xi_2$ alone turns
+$\eta^+$ into $\eta^-$. Tying the two signs together leaves one overall sign,
+which the running heading fixes, so a line stays on its branch.
+
+The tangent carries no anisotropy guard like `min_anisotropy`. It is NaN only
+where $\lambda_1 < \lambda^2 < \lambda_2$ fails. In an incompressible flow
+$\lambda_1 \lambda_2 = 1$, so $\lambda = 1$ lies strictly between the
+eigenvalues wherever $C$ is not isotropic. On the analytic Gaussian vortex of
+`tests/test_elliptic.py` every orbit wider than the two-cell stencil is a
+circle about the centre with a radius scatter of at most 0.3%, out to 58 km, so
+no guard was needed there.
+
+### The return map
+
+Each centre gets two sections, due east and due west, so an orbit whose eastern
+arc runs through a region where $\eta^\pm_\lambda$ is undefined is still found
+from the west. A line launched at arc length $s$ along a section *returns* at
+its first crossing of that section after more than half a turn about the
+centre. Its return $P(s)$ is the arc length of that crossing, and a zero of
+$P(s) - s$ is a closed orbit.
+
+The search keeps two kinds of zero:
+
+- **A launch that already returns within `closure_tol_m`.** On the circles of
+  an axisymmetric vortex every launch closes, so $P(s) - s$ sits near zero
+  along the whole section without changing sign, and a sign-change search
+  alone finds nothing. That was the first result on the analytic vortex, one
+  orbit where there should be one per launch.
+- **A sign change of $P(s) - s$ between neighbouring launches**, neither of
+  them a hit. Bisection narrows it to a quarter of `closure_tol_m`. A bracket
+  whose midpoint does not return straddles a gap in the return map rather than
+  a zero, and is dropped. The final orbit must still close within
+  `closure_tol_m`, which removes brackets that converged onto a jump.
+
+The winding about the centre replaces the circumference test of the
+exploratory notebooks, which kept a loop when its length was within a factor
+of 2 of $2\pi r$. A crossing before half a turn is a line grazing back across
+the section, and it ends the line without a return. A line still out after one
+and a half turns ends without one too, which also bounds the work per line.
+There is no self-intersection test, because two integral curves of a line
+field cannot cross where the field is defined, and the search stops at the
+first return.
+
+### Why the defaults derive from the grid spacing
+
+`launch_spacing_m`, `step_m` and `closure_tol_m` default to the grid spacing,
+half of it, and half of it, so they mean the same at another resolution.
+`max_radius_m` is the largest eddy radius looked for, a physical length like
+`window_m`. On the 1/4 degree geostrophic case below, launched from the 23 GLED
+centres, the number of GLED eddies with a boundary is:
+
+| launch spacing | `closure_tol_m` | GLED eddies matched |
+|---|---|---|
+| 0.5 grid | 0.25 grid | 9 |
+| 0.5 grid | 0.5 grid | 10 |
+| 0.5 grid | 1 grid | 10 |
+| 1 grid | 0.25 grid | 7 |
+| **1 grid** | **0.5 grid** | **9** |
+| 1 grid | 1 grid | 9 |
+| 2 grid | 0.5 grid | 8 |
+
+Halving the launch spacing adds one boundary 8 km in radius. Doubling the
+tolerance enlarges one boundary from 28 to 37 km, by accepting a loop that
+closes less well. A quarter-grid tolerance loses 2 boundaries.
+
+### The measurements that fixed the defaults
+
+The case is the comparison in `examples/cape_cauldron_gled.py`: DUACS
+geostrophic velocity from 2018-06-01 over 30 days, seeded at 1/25 degree over
+2 E to 22 E, 44 S to 28 S, at the native 1/8 degree and block-averaged to 1/4
+degree. GLED v1.0 (Liu & Abernathey 2023,
+[doi:10.5194/essd-15-1765-2023](https://doi.org/10.5194/essd-15-1765-2023))
+lists 23 coherent eddies for that window. A GLED eddy counts as matched when an
+eddy centroid lies within its radius.
+
+**Centre rule.** Windowed minima of $\lambda_2 / \lambda_1$ against windowed
+maxima of $\lvert \theta - \operatorname{median} \theta \rvert$, both over
+100 km, with the GLED centres as the ceiling:
+
+| field | centres from | centres | GLED matched | boundaries outside GLED |
+|---|---|---|---|---|
+| 1/4 degree | $\lambda_2 / \lambda_1$ minima | 250 | 8 | 3 |
+| 1/4 degree | $\theta$ extrema | 234 | 5 | 2 |
+| 1/4 degree | GLED centres | 23 | 9 | 0 |
+| 1/8 degree | $\lambda_2 / \lambda_1$ minima | 226 | 7 | 4 |
+| 1/8 degree | $\theta$ extrema | 238 | 3 | 0 |
+| 1/8 degree | GLED centres | 23 | 9 | 0 |
+
+The eigenvalue ratio reaches 8 of the 9 eddies the ceiling reaches at 1/4
+degree, against 5 for the rotation angle, so `elliptic_lcs()` uses it.
+
+**Stretching range.** Scanned to $\Lambda = 2$ at a step of 0.03, every orbit
+found from the GLED centres closes inside $[1/1.5, 1.5]$. The extremes are
+0.677 at 1/4 degree and 1.310 at 1/8 degree. On the hourly CMEMS model currents
+of `examples/cape_cauldron_vortices.py` the orbits close between 1.162 and
+1.350. One boundary per field closes at 1.522, and both are boundaries from
+eigenvalue-ratio centres that no GLED eddy matches. So the default
+$\Lambda = 1.5$ brackets every matched boundary.
+
+**Stretching step.** From the GLED centres at 1/4 degree, steps of 0.02, 0.03
+and 0.05 match the same 9 eddies. The outermost radius of each agrees within
+1 km across the three steps, except one at 53, 48 and 47 km.
+
+**Truncation against divergence.** Halving the stencil arm moves a
+truncation-driven $\det \nabla F$ toward 1 and leaves a physical one where it
+is. On the 1/8 degree geostrophic field:
+
+| stencil | median $\lvert \det \nabla F \rvert$ | 95th percentile |
+|---|---|---|
+| neighbour, 1/25 degree | 3.38 | 667 |
+| auxiliary, 2 km arm, 1/10 degree | 1.46 | 1317 |
+| auxiliary, 1 km arm, 1/10 degree | 1.14 | 1966 |
+
+The median approaches 1 as the arm shrinks, so in the bulk of the field the
+departure from area preservation is truncation, and widening $\Lambda$ to
+absorb it would fit noise. The upper tail grows instead, in the filaments where
+a smaller arm resolves more stretching.
+
+**Runtime.** The search traces every centre, section, stretching factor,
+branch and launch in one array per step, and drops a line from the array once
+it ends. Over the 250 eigenvalue-ratio centres at 1/4 degree it takes 11 s,
+where the per-centre loops of the exploratory notebook took about 25 minutes.
+
+**Rotation sense.** The sign of $\theta$ at the 23 GLED centres, on the 1/4
+degree field, against GLED's polarity, by the length of the window $\theta$ is
+taken over:
+
+| window | median $\lvert\theta\rvert$ | sign matches GLED |
+|---|---|---|
+| 1 day | 0.52 rad | 23 of 23 |
+| 2 days | 1.04 rad | 23 of 23 |
+| 4 days | 1.66 rad | 19 of 23 |
+| 8 days | 1.44 rad | 14 of 23 |
+| 30 days | 1.90 rad | 9 of 23 |
+
+$\theta$ is defined modulo $2\pi$, and past half a turn its sign flips. The
+examples take the rotation from a 1-day flow map.
+
+**Separatrix.** For the analytic vortex in a uniform strain $s$, the steady
+flow has saddles where $\Omega(r) = s$, at radius $r_*$, and its closed
+streamlines lie within $r_*$ of the centre. The outermost boundary falls just
+inside, which `tests/test_elliptic.py` checks:
+
+| strain $s$ (1/s) | $r_*$ | outermost `radius_m` |
+|---|---|---|
+| $2.3 \times 10^{-7}$ | 60.7 km | 59.0 km |
+| $4.6 \times 10^{-7}$ | 50.7 km | 47.0 km |

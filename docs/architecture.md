@@ -426,6 +426,74 @@ steps for the same reason. The measurements behind the two derived constants
 are in
 [`docs/numerics.md`](numerics.md#why-pruning-is-a-run-length-in-a-tube).
 
+## Walkthrough: extracting elliptic LCS as closed shear lines
+
+The elliptic layer
+([`src/lcs_parcels/elliptic.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/elliptic.py))
+follows the shape of the hyperbolic one: free functions over a `FlowMap`'s
+outputs, each runnable by hand, and a one-call method on `FlowMap`.
+
+- `elliptic_centres(field, extremum=...)` picks candidate centres;
+- `closed_shear_lines(flowmap, centre_lon=..., centre_lat=...)` returns every
+  closed $\eta^\pm_\lambda$ orbit about them, on `(orbit, point)`;
+- `outermost_shear_lines(orbits, rotation=...)` keeps one boundary per vortex,
+  on `(eddy, point)`.
+
+`FlowMap.elliptic_lcs()` runs the chain, and `FlowMap.polar_rotation()` is the
+one new gridded diagnostic. The search shares `_rk2_step` and `_tensor_interp`
+with `shrink_lines`, so both layers step and interpolate $C$ the same way.
+
+### Why the search returns every orbit
+
+A vortex is a nested family of closed shear lines, one or more per stretching
+factor, and its boundary is the outermost member over the whole family. Which
+member that is depends on the scan: its range, its step, and the sections and
+launches. `closed_shear_lines` returns the family so the caller can see it, plot
+it, and judge the scan. `outermost_shear_lines` is a separate step for the same
+reason `prune_shrink_lines` is, and dropping it leaves the unselected result.
+
+### Why the stretching factors are an argument and not a knob
+
+`stretches` takes the array to scan, and `stretch_range` builds the default one
+in the open. A single default $\lambda$ would mean $\lambda = 1$, the
+area-preserving case, and on the hourly model field of the Cape Cauldron
+example no orbit closes there, since they close between 1.16 and 1.35. A scan
+log-symmetric about 1 brackets divergence and convergence alike. The default
+$\Lambda = 1.5$ and the step are measured in
+[`numerics.md`](numerics.md#the-measurements-that-fixed-the-defaults).
+
+### Why centres take a field
+
+`elliptic_centres` takes a field and an `extremum`, as `ftle_ridge_seeds` takes
+a field, so the indicator is built where the caller can see it. The two
+indicators measured, $\lambda_2 / \lambda_1$ and $\theta$, need opposite
+extrema, so `extremum` has no default. `elliptic_lcs()` uses
+$\lambda_2 / \lambda_1$ minima, which found more of the GLED eddies than
+$\theta$ extrema did.
+
+### Why the rotation sense comes from $\nabla F$
+
+$C = (\nabla F)^\top \nabla F$ discards the rotation of the flow map, so no
+quantity derived from $C$ can tell a cyclone from an anticyclone. The polar
+rotation angle reads it from $\nabla F$ itself, so the package needs no
+velocity or vorticity. Its median over the domain is subtracted before taking
+the sign. A frame rotating rigidly with angle $\phi(t)$ shifts $\theta$ by the
+same amount everywhere, so the anomaly does not depend on the frame.
+
+$\nabla F$ holds the rotation only modulo $2\pi$, and a vortex turns several
+times over a window long enough for its boundary to be found. So
+`outermost_shear_lines` takes the rotation as a separate field, from a flow
+map of its own window, rather than reading it off the orbits' flow map. The
+first design read it off that flow map, and at 30 days its sign matched GLED's
+polarity for 4 or 5 of the 7 to 9 matched eddies, which is chance.
+`elliptic_lcs()` has one flow map, so it returns no rotation sense.
+
+### Why `stretch`, not `lambda`
+
+`cg_eigen()` returns the eigenvalues of $C$ as `lambda`. The stretching factor
+of a closed shear line is a different quantity, and two quantities never share
+a name, so it is `stretch` in the data and in the keywords.
+
 ## Reprs
 
 `SeedGrid` and `FlowMap` carry terse reprs, defined on the base classes and

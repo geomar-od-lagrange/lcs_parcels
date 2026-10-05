@@ -32,8 +32,11 @@ Haller (2015).
 | $w$ | ridge-seed window: the **side**, in metres, of the square window a seed must be the FTLE maximum over; two seed points can therefore be about $w/2$ apart |  | `window_m` |
 | $\Lambda \ge \Lambda_{\min}$ | FTLE magnitude floor a seed must also clear, set either as a quantile of the field at hand or as an absolute value in the field's units (1/s) |  | `quantile`, `ftle_min` |
 | $\lambda_2 / \lambda_1 \ge a_{\min}$ | anisotropy floor: the ratio of the Cauchy–Green eigenvalues below which $\xi_1$ is not a well-defined direction (dimensionless) |  | `min_anisotropy` |
+| $\lambda$ (no subscript) | uniform stretching factor of a closed shear line: every tangent element of the curve is stretched by $\lambda$ over the window. Distinct from the eigenvalues $\lambda_1, \lambda_2$ |  | `stretch`, `stretches`, `stretch_range` |
+| $\eta^\pm_\lambda = \sqrt{\frac{\lambda_2 - \lambda^2}{\lambda_2 - \lambda_1}}\,\xi_1 \pm \sqrt{\frac{\lambda^2 - \lambda_1}{\lambda_2 - \lambda_1}}\,\xi_2$ | shear direction fields of Haller & Beron-Vera (2013, Eq. 14), defined where $\lambda_1 < \lambda^2 < \lambda_2$; a closed curve tangent to one is a coherent vortex boundary (elliptic LCS) |  | `closed_shear_lines`, `branch` ($\pm 1$) |
+| $P(s)$ | return map of a section: where a line launched at arc length $s$ from the centre first crosses the section again after one turn; a zero of $P(s) - s$ is a closed orbit |  | (internal, `_trace_to_return`) |
+| $\theta$ | polar rotation angle, the rotation of $R$ in $\nabla F = R\,U$, counter-clockwise positive (Farazmand & Haller 2016) |  | `polar_rotation` |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 |  |
-| $\eta^\pm(x_0)$ | shear vector field; stretch/shear lines (**deferred**) | 10, 11, Table 1 |  |
 
 ## Conventions in detail
 
@@ -350,3 +353,11 @@ Mechanics, 47, 137–162.
 Haller, G. & Sapsis, T. (2011). *Lagrangian coherent structures and the smallest
 finite-time Lyapunov exponent.* Chaos, 21, 023115.
 [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597).
+
+Haller, G. & Beron-Vera, F. J. (2013). *Coherent Lagrangian vortices: the black
+holes of turbulence.* Journal of Fluid Mechanics, 731, R4.
+[doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391).
+
+Farazmand, M. & Haller, G. (2016). *Polar rotation angle identifies elliptic
+islands in unsteady dynamical systems.* Physica D, 315, 1–12.
+[doi:10.1016/j.physd.2015.09.007](https://doi.org/10.1016/j.physd.2015.09.007).

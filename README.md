@@ -11,6 +11,9 @@ Lagrangian coherent structure (LCS) diagnostics on top of
 Cauchy-Green tensor `(grad F)^T grad F`, its eigen-analysis, and the
 finite-time Lyapunov exponent (FTLE), following Haller (2015),
 [doi:10.1146/annurev-fluid-010313-141322](https://doi.org/10.1146/annurev-fluid-010313-141322).
+On top of those, hyperbolic LCS as shrink lines, and coherent vortex boundaries
+as closed shear lines, following Haller & Beron-Vera (2013),
+[doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391).
 
 The documentation is at
 [lcs-parcels.readthedocs.io](https://lcs-parcels.readthedocs.io/) and the source
@@ -69,6 +72,9 @@ ftle = flowmap.ftle()  # xr.DataArray of the FTLE (1/s) on the (i, j) grid
 
 # 4. Or go straight to the hyperbolic LCS curves, FTLE field included.
 lcs = flowmap.hyperbolic_lcs()
+
+# 5. Or to the coherent vortex boundaries.
+eddies = flowmap.elliptic_lcs()
 ```
 
 Every returned array carries `long_name` and `units`, so
@@ -85,8 +91,9 @@ itself:
 
 ## Examples
 
-- [`get_data`](https://lcs-parcels.readthedocs.io/page/examples/get_data.html) downloads the CMEMS subset the
-  Cabo Verde notebooks read. Run once, before them. Needs CMEMS credentials.
+- [`get_data`](https://lcs-parcels.readthedocs.io/page/examples/get_data.html) downloads the CMEMS subsets and
+  the GLED records the examples read. Run once, before them. Needs CMEMS
+  credentials.
 - [`example_grid_pset`](https://lcs-parcels.readthedocs.io/page/examples/example_grid_pset.html) exercises the package API
   on its own, without Parcels.
 - [`cabo_verde_ftle`](https://lcs-parcels.readthedocs.io/page/examples/cabo_verde_ftle.html) shows the Parcels v4 wiring
@@ -95,6 +102,10 @@ itself:
   LCS as strain tensor lines.
 - [`cabo_verde_lcs_evolution`](https://lcs-parcels.readthedocs.io/page/examples/cabo_verde_lcs_evolution.html) evolves an
   extracted LCS as a material curve.
+- [`cape_cauldron_vortices`](https://lcs-parcels.readthedocs.io/page/examples/cape_cauldron_vortices.html) finds coherent
+  vortex boundaries as closed shear lines in the Agulhas-ring corridor.
+- [`cape_cauldron_gled`](https://lcs-parcels.readthedocs.io/page/examples/cape_cauldron_gled.html) compares those
+  boundaries with the GLED v1.0 eddy atlas on altimetry currents.
 
 The Parcels examples need the `examples` pixi environment (`pixi install -e
 examples`) and a CMEMS currents file you save yourself. The
