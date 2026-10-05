@@ -242,9 +242,11 @@ CENTRE_AXIS = np.arange(0.0, 4.0 + 1e-9, 0.05)
 
 
 def _field(values):
+    """``values`` on the centre grid, tilted by 1e-3 per degree so no stretch of
+    it is a plateau, every cell of which would tie as a windowed extremum."""
     lon_grid, lat_grid = np.meshgrid(CENTRE_AXIS, CENTRE_AXIS, indexing="ij")
     return xr.DataArray(
-        values,
+        values + 1e-3 * (lon_grid + lat_grid),
         dims=("i", "j"),
         coords={
             "lon_grid": (("i", "j"), lon_grid),
@@ -318,7 +320,11 @@ def test_closed_shear_lines_finds_orbits_in_the_vortex(vortex_orbits):
 
 
 def test_every_vortex_orbit_is_a_circle_about_the_centre(vortex_orbits):
-    for orbit in range(vortex_orbits.sizes["orbit"]):
+    """Orbits wider than the two-cell span of the central-difference stencil are
+    circles. A loop one cell across is below the resolution of grad F."""
+    stencil_span_m = 2 * float(vortex_orbits.attrs["launch_spacing_m"])
+    resolved = vortex_orbits["radius_m"] > stencil_span_m
+    for orbit in np.flatnonzero(resolved.values):
         line = vortex_orbits.isel(orbit=orbit)
         r = _distance_from_origin_m(line["lon"].values, line["lat"].values)
         r = r[np.isfinite(r)]
@@ -450,10 +456,21 @@ def test_outermost_shear_lines_of_no_orbits_is_empty(vortex):
 # --- the vortex in strain --------------------------------------------------------
 
 
+STRAINS = (2.3e-7, 4.6e-7)
+
+
+def _saddle_radius_m(strain):
+    """Radius of the saddles of the steady flow, where Omega(r) equals the strain.
+
+    The closed streamlines lie inside the separatrix through them, within this
+    radius of the centre."""
+    return VORTEX_R_M * np.sqrt(np.log(OMEGA_0 / strain))
+
+
 @pytest.fixture(scope="module")
 def strained_boundaries():
     radii = {}
-    for strain in (2.3e-7, 4.6e-7):
+    for strain in STRAINS:
         fm = _vortex_flowmap(strain=strain)
         orbits = closed_shear_lines(
             fm, centre_lon=[0.0], centre_lat=[0.0], max_radius_m=MAX_RADIUS_M
@@ -463,13 +480,13 @@ def strained_boundaries():
     return radii
 
 
-def test_strain_bounds_the_boundary_inside_the_sections(strained_boundaries):
-    for radius in strained_boundaries.values():
-        assert 0.0 < radius < 0.9 * MAX_RADIUS_M
+@pytest.mark.parametrize("strain", STRAINS)
+def test_the_boundary_lies_inside_the_separatrix(strained_boundaries, strain):
+    assert 0.0 < strained_boundaries[strain] < _saddle_radius_m(strain)
 
 
 def test_stronger_strain_moves_the_boundary_inward(strained_boundaries):
-    assert strained_boundaries[4.6e-7] < strained_boundaries[2.3e-7]
+    assert strained_boundaries[STRAINS[1]] < strained_boundaries[STRAINS[0]]
 
 
 # --- one call -------------------------------------------------------------------

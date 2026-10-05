@@ -328,6 +328,54 @@ def _step_lonlat_by_meters(
     )
 
 
+def _rk2_step(
+    lon: np.ndarray,
+    lat: np.ndarray,
+    heading: np.ndarray,
+    *,
+    tangent,
+    step_m: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """One midpoint (RK2) step of ``dr/ds = tangent(r)`` along a direction field.
+
+    ``tangent(lon, lat, heading)`` returns unit ``(east, north)`` vectors
+    oriented to ``heading``, or NaN rows where the field is not well defined.
+    Evaluate it at the current point, half-step along it, evaluate again at that
+    midpoint, and take the full step along the midpoint direction.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, np.ndarray]
+        The stepped ``lon``, ``lat`` and the midpoint direction, which is the
+        heading for the next step.
+    """
+    direction = tangent(lon, lat, heading)
+    mid_lon, mid_lat = _step_lonlat_by_meters(lon, lat, 0.5 * direction, step_m=step_m)
+    # The tangent is evaluated at the RK2 midpoint too, so a step with sound
+    # endpoints still terminates on an ill-defined field halfway along.
+    mid_direction = tangent(mid_lon, mid_lat, direction)
+    lon, lat = _step_lonlat_by_meters(lon, lat, mid_direction, step_m=step_m)
+    return lon, lat, mid_direction
+
+
+def _tensor_interp(flowmap) -> RegularGridInterpolator:
+    """Interpolator over ``flowmap.cauchy_green()`` on its rectilinear grid axes.
+
+    Returns ``(n, 2, 2)`` tensors for ``(n, 2)`` lon/lat points, and ``NaN`` off
+    the grid.
+    """
+    lon_axis = flowmap.lon_grid.isel(j=0).values
+    lat_axis = flowmap.lat_grid.isel(i=0).values
+    # CG_grid is the Cauchy-Green tensor on the diagnostic grid, not an Arakawa
+    # C-grid.
+    CG_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
+    # The one place this package leaves the label-based xarray API, because the
+    # ODE loop would otherwise build an xarray object per step.
+    return RegularGridInterpolator(
+        (lon_axis, lat_axis), CG_grid, bounds_error=False, fill_value=np.nan
+    )
+
+
 def _trace_half_line(
     seed_lon: np.ndarray,
     seed_lat: np.ndarray,
@@ -340,9 +388,8 @@ def _trace_half_line(
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """March every seed ``n_steps`` steps in one of the two ``xi_1`` directions.
 
-    Integrates ``dr/ds = xi_1(r)`` with RK2 (the midpoint / modified-Euler
-    scheme): evaluate ``xi_1`` at the current point, half-step along it, evaluate
-    again at that midpoint, and take the full step along the midpoint direction.
+    Integrates ``dr/ds = xi_1(r)`` with the midpoint (RK2) step of
+    :func:`_rk2_step`.
 
     Parameters
     ----------
@@ -381,28 +428,18 @@ def _trace_half_line(
     lon[untraceable] = np.nan
     lat[untraceable] = np.nan
     track = [(lon.copy(), lat.copy())]
-    for _ in range(n_steps):
-        direction = _shrink_line_tangent(
+
+    def tangent(lon, lat, heading):
+        return _shrink_line_tangent(
             lon,
             lat,
             heading,
             tensor_interp=tensor_interp,
             min_anisotropy=min_anisotropy,
         )
-        mid_lon, mid_lat = _step_lonlat_by_meters(
-            lon, lat, 0.5 * direction, step_m=step_m
-        )
-        # The guard runs at the RK2 midpoint too, so a step with sound endpoints
-        # still terminates on a degenerate tensor halfway along.
-        mid_direction = _shrink_line_tangent(
-            mid_lon,
-            mid_lat,
-            direction,
-            tensor_interp=tensor_interp,
-            min_anisotropy=min_anisotropy,
-        )
-        lon, lat = _step_lonlat_by_meters(lon, lat, mid_direction, step_m=step_m)
-        heading = mid_direction
+
+    for _ in range(n_steps):
+        lon, lat, heading = _rk2_step(lon, lat, heading, tangent=tangent, step_m=step_m)
         # All seeds march in one array, so a terminated line is NaN-filled rather
         # than broken out of. That costs work on lines that died early, see #11.
         track.append((lon.copy(), lat.copy()))
@@ -467,19 +504,8 @@ def shrink_lines(
         seed, ordered along the curve. Terminated points are ``NaN``.
     """
     n_steps = max(1, round(line_length_m / (2.0 * step_m)))
-    lon_axis = flowmap.lon_grid.isel(j=0).values
-    lat_axis = flowmap.lat_grid.isel(i=0).values
-    # CG_grid is the Cauchy-Green tensor on the diagnostic grid, not an Arakawa
-    # C-grid.
-    CG_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
-    # The one place this package leaves the label-based xarray API, because the
-    # ODE loop would otherwise build an xarray object per step.
-    tensor_interp = RegularGridInterpolator(
-        (lon_axis, lat_axis), CG_grid, bounds_error=False, fill_value=np.nan
-    )
-
     trace_kwargs = {
-        "tensor_interp": tensor_interp,
+        "tensor_interp": _tensor_interp(flowmap),
         "min_anisotropy": min_anisotropy,
         "step_m": step_m,
         "n_steps": n_steps,

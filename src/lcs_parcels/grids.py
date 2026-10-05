@@ -616,6 +616,33 @@ class FlowMap(abc.ABC):
             units="1/s",
         )
 
+    def polar_rotation(self) -> xr.DataArray:
+        """Rotation angle of the polar decomposition ``grad F = R U``.
+
+        Farazmand & Haller (2016), doi:10.1016/j.physd.2015.09.007
+        (https://doi.org/10.1016/j.physd.2015.09.007). In two dimensions
+        ``theta = atan2(F_yx - F_xy, F_xx + F_yy)``, in ``(-pi, pi]``.
+
+        Returns
+        -------
+        xr.DataArray
+            ``theta`` on ``(i, j)`` in radians, counter-clockwise positive in the
+            local east/north frame.
+        """
+        grad_f = self.deformation_gradient()
+
+        def component(row, col):
+            return grad_f.sel(row=row, col=col, drop=True)
+
+        theta = np.arctan2(
+            component("y", "x") - component("x", "y"),
+            component("x", "x") + component("y", "y"),
+        )
+        return theta.rename("polar_rotation").assign_attrs(
+            long_name="rotation angle of the polar decomposition grad F = R U",
+            units="rad",
+        )
+
     def image(self, *, lon_0: xr.DataArray, lat_0: xr.DataArray) -> xr.Dataset:
         """Advected positions ``F_{t0}^{t1}(x_0)`` at arbitrary reference points.
 
@@ -795,6 +822,82 @@ class FlowMap(abc.ABC):
                 "with the FTLE field their seeds were picked from"
             ),
             **ridge_attrs,
+        )
+
+    def elliptic_lcs(
+        self,
+        *,
+        window_m: float | None = None,
+        edge_m: float | None = None,
+        stretches=None,
+        max_radius_m: float | None = None,
+        launch_spacing_m: float | None = None,
+        step_m: float | None = None,
+        closure_tol_m: float | None = None,
+    ) -> xr.Dataset:
+        """Elliptic LCS of this flow map: centres, closed shear lines, boundaries.
+
+        Picks candidate centres at windowed minima of the Cauchy-Green eigenvalue
+        ratio ``lambda_2 / lambda_1`` (:func:`~lcs_parcels.elliptic_centres`),
+        searches each for closed orbits (:func:`~lcs_parcels.closed_shear_lines`),
+        and keeps the outermost orbit per vortex
+        (:func:`~lcs_parcels.outermost_shear_lines`).
+
+        Parameters
+        ----------
+        window_m, edge_m : float, optional
+            Passed to :func:`~lcs_parcels.elliptic_centres`.
+        stretches, max_radius_m, launch_spacing_m, step_m, closure_tol_m : optional
+            Passed to :func:`~lcs_parcels.closed_shear_lines`.
+
+        Returns
+        -------
+        xr.Dataset
+            The :func:`~lcs_parcels.outermost_shear_lines` result, with the
+            eigenvalue ratio ``cg_anisotropy`` on ``(i, j)`` that the centres were
+            picked from, and the centre and search ``attrs``.
+        """
+        # Deferred import: `elliptic` imports from this module.
+        from lcs_parcels.elliptic import (
+            closed_shear_lines,
+            elliptic_centres,
+            outermost_shear_lines,
+        )
+
+        def passed(**kwargs):
+            return {key: value for key, value in kwargs.items() if value is not None}
+
+        eigen = self.cg_eigen()
+        anisotropy = (
+            (
+                eigen["lambda"].isel(eig=1, drop=True)
+                / eigen["lambda"].isel(eig=0, drop=True)
+            )
+            .rename("cg_anisotropy")
+            .assign_attrs(
+                long_name="Cauchy-Green eigenvalue ratio lambda_2 / lambda_1",
+                units="1",
+            )
+        )
+        centres = elliptic_centres(
+            anisotropy, extremum="min", **passed(window_m=window_m, edge_m=edge_m)
+        )
+        orbits = closed_shear_lines(
+            self,
+            centre_lon=centres["lon"].values,
+            centre_lat=centres["lat"].values,
+            **passed(
+                stretches=stretches,
+                max_radius_m=max_radius_m,
+                launch_spacing_m=launch_spacing_m,
+                step_m=step_m,
+                closure_tol_m=closure_tol_m,
+            ),
+        )
+        eddies = outermost_shear_lines(orbits, flowmap=self)
+        centre_attrs = {f"centres_{key}": value for key, value in centres.attrs.items()}
+        return eddies.assign(cg_anisotropy=anisotropy).assign_attrs(
+            orbits.attrs | centre_attrs
         )
 
     def to_seed(self) -> SeedGrid:

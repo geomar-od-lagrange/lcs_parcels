@@ -12,6 +12,12 @@ from __future__ import annotations
 
 import importlib.metadata
 
+from lcs_parcels.elliptic import (
+    closed_shear_lines,
+    elliptic_centres,
+    outermost_shear_lines,
+    stretch_range,
+)
 from lcs_parcels.grids import (
     AuxiliaryFlowMap,
     AuxiliarySeedGrid,
@@ -33,7 +39,11 @@ __all__ = [
     "NeighborFlowMap",
     "NeighborSeedGrid",
     "SeedGrid",
+    "closed_shear_lines",
+    "elliptic_centres",
     "ftle_ridge_seeds",
+    "outermost_shear_lines",
     "prune_shrink_lines",
     "shrink_lines",
+    "stretch_range",
 ]
