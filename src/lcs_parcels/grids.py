@@ -620,8 +620,11 @@ class FlowMap(abc.ABC):
         """Rotation angle of the polar decomposition ``grad F = R U``.
 
         Farazmand & Haller (2016), doi:10.1016/j.physd.2015.09.007
-        (https://doi.org/10.1016/j.physd.2015.09.007). In two dimensions
+        (https://doi.org/10.1016/j.physd.2015.09.007). In two dimensions it is
         ``theta = atan2(F_yx - F_xy, F_xx + F_yy)``, in ``(-pi, pi]``.
+
+        ``theta`` is the rotation modulo ``2 pi``. Its sign is the rotation sense
+        only where the flow turns less than half a turn over the window.
 
         Returns
         -------
@@ -837,11 +840,13 @@ class FlowMap(abc.ABC):
     ) -> xr.Dataset:
         """Elliptic LCS of this flow map: centres, closed shear lines, boundaries.
 
-        Picks candidate centres at windowed minima of the Cauchy-Green eigenvalue
-        ratio ``lambda_2 / lambda_1`` (:func:`~lcs_parcels.elliptic_centres`),
-        searches each for closed orbits (:func:`~lcs_parcels.closed_shear_lines`),
-        and keeps the outermost orbit per vortex
-        (:func:`~lcs_parcels.outermost_shear_lines`).
+        Picks centres at windowed minima of ``lambda_2 / lambda_1``
+        (:func:`~lcs_parcels.elliptic_centres`), searches them
+        (:func:`~lcs_parcels.closed_shear_lines`), and keeps the outermost orbits.
+
+        The result carries no ``rotation_sense``. A vortex turns several times
+        over a window long enough to find it, and :meth:`polar_rotation` reads
+        the rotation only modulo ``2 pi``.
 
         Parameters
         ----------
@@ -894,7 +899,7 @@ class FlowMap(abc.ABC):
                 closure_tol_m=closure_tol_m,
             ),
         )
-        eddies = outermost_shear_lines(orbits, flowmap=self)
+        eddies = outermost_shear_lines(orbits)
         centre_attrs = {f"centres_{key}": value for key, value in centres.attrs.items()}
         return eddies.assign(cg_anisotropy=anisotropy).assign_attrs(
             orbits.attrs | centre_attrs

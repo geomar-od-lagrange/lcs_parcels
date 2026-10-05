@@ -651,26 +651,32 @@ def _points_inside(x_poly, y_poly, x, y):
     return (straddles & (x < x_cross)).sum(axis=0) % 2 == 1
 
 
-def outermost_shear_lines(orbits: xr.Dataset, *, flowmap) -> xr.Dataset:
-    """The outermost closed shear line of each vortex, with its rotation sense.
+def outermost_shear_lines(
+    orbits: xr.Dataset, *, rotation: xr.DataArray | None = None
+) -> xr.Dataset:
+    """The outermost closed shear line of each vortex.
 
     Keeps the largest-area orbit per candidate centre, then drops any whose
     centre lies inside a larger kept boundary, so several candidate centres in
-    one vortex give one eddy. ``rotation_sense`` is the sign of the mean
-    :meth:`~lcs_parcels.FlowMap.polar_rotation` inside the boundary against its
-    domain median, ``+1`` counter-clockwise and ``-1`` clockwise.
+    one vortex give one eddy.
+
+    With ``rotation``, a :meth:`~lcs_parcels.FlowMap.polar_rotation` field,
+    ``rotation_sense`` is the sign of its mean inside each boundary against its
+    domain median, ``+1`` counter-clockwise. The angle is defined modulo
+    ``2 pi``, so pass the rotation of a window short enough for an eddy to turn
+    less than half a turn.
 
     Returns
     -------
     xr.Dataset
         The kept rows of ``orbits`` on ``(eddy, point)``, with their original
-        ``orbit`` index, plus ``centroid_lon``/``centroid_lat`` of each boundary
-        and ``rotation_sense``.
+        ``orbit_index``, plus ``centroid_lon``/``centroid_lat`` of each boundary
+        and, with ``rotation``, ``rotation_sense``.
     """
-    theta = flowmap.polar_rotation()
-    theta_lon = theta["lon_grid"].values.ravel()
-    theta_lat = theta["lat_grid"].values.ravel()
-    theta_anomaly = (theta - theta.median()).values.ravel()
+    if rotation is not None:
+        theta_lon = rotation["lon_grid"].values.ravel()
+        theta_lat = rotation["lat_grid"].values.ravel()
+        theta_anomaly = (rotation - rotation.median()).values.ravel()
 
     area = orbits["area_m2"].values
     best = {}
@@ -701,13 +707,16 @@ def outermost_shear_lines(orbits: xr.Dataset, *, flowmap) -> xr.Dataset:
             continue
         x, y = _polygon_metres(lon, lat, centre_lon=centre_lon, centre_lat=centre_lat)
         _, (centroid_x, centroid_y) = _area_and_centroid(x, y)
-        gx, gy = _polygon_metres(
-            theta_lon, theta_lat, centre_lon=centre_lon, centre_lat=centre_lat
-        )
-        near = (np.abs(gx) <= np.abs(x).max()) & (np.abs(gy) <= np.abs(y).max())
-        inside = np.zeros_like(near)
-        inside[near] = _points_inside(x, y, gx[near], gy[near])
-        mean_anomaly = np.nanmean(theta_anomaly[inside]) if inside.any() else np.nan
+        mean_anomaly = np.nan
+        if rotation is not None:
+            gx, gy = _polygon_metres(
+                theta_lon, theta_lat, centre_lon=centre_lon, centre_lat=centre_lat
+            )
+            near = (np.abs(gx) <= np.abs(x).max()) & (np.abs(gy) <= np.abs(y).max())
+            inside = np.zeros_like(near)
+            inside[near] = _points_inside(x, y, gx[near], gy[near])
+            if inside.any():
+                mean_anomaly = np.nanmean(theta_anomaly[inside])
         kept.append({"index": k, "lon": lon, "lat": lat})
         centroids.append(
             (
@@ -741,15 +750,18 @@ def outermost_shear_lines(orbits: xr.Dataset, *, flowmap) -> xr.Dataset:
             {"long_name": "latitude of the eddy boundary centroid"}
             | _LONLAT_ATTRS["lat"],
         ),
-        rotation_sense=(
-            "eddy",
-            np.array(senses, dtype=int),
-            {
-                "long_name": "rotation sense, +1 counter-clockwise, -1 clockwise",
-                "units": "1",
-            },
-        ),
     )
+    if rotation is not None:
+        eddies = eddies.assign(
+            rotation_sense=(
+                "eddy",
+                np.array(senses, dtype=int),
+                {
+                    "long_name": "rotation sense, +1 counter-clockwise, -1 clockwise",
+                    "units": "1",
+                },
+            )
+        )
     finite_rows = np.isfinite(eddies["lon"]).any("eddy")
     n_points = int(finite_rows.values.nonzero()[0].max()) + 1 if index else 0
     return (
