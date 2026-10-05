@@ -429,17 +429,18 @@ The GLED eddies as circles at their radius, blue for cyclonic and red for
 anticyclonic, with a thick outline where the 90-day product carries the eddy
 too. A 90-day eddy is coherent over three times the window here, so its
 outline marks persistence and not a 30-day boundary. The boundaries of sweep A
-are drawn solid and those of sweep B dashed, over the eigenvalue ratio the
-sweep-A centres were picked from.
+are drawn solid and those of sweep B dashed, over the decimal logarithm of the
+eigenvalue ratio the sweep-A centres were picked from.
 
 
 ```python
 def plot_against_gled(eddies_a, eddies_b):
     angle = np.linspace(0.0, 2 * np.pi, 200)
     _, ax = plt.subplots(figsize=(11, 8))
-    np.log10(eddies_a["cg_anisotropy"]).plot.pcolormesh(
-        x="lon_grid", y="lat_grid", ax=ax, cmap="Greys"
-    )
+    np.log10(eddies_a["cg_anisotropy"]).assign_attrs(
+        long_name="log10 of the Cauchy-Green eigenvalue ratio lambda_2 / lambda_1",
+        units="1",
+    ).plot.pcolormesh(x="lon_grid", y="lat_grid", ax=ax, cmap="Greys")
     for records, width in ((gled_30, 1.2), (gled_90, 3.0)):
         for e in range(records.sizes["gled"]):
             eddy = records.isel(gled=e)
