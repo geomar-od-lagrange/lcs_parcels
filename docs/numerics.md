@@ -560,6 +560,27 @@ taken over:
 $\theta$ is defined modulo $2\pi$, and past half a turn its sign flips. The
 examples take the rotation from a 1-day flow map.
 
+**Removing the local dilation, measured and not adopted.** Divergence that
+varies around a loop stretches its elements unevenly, so searching
+$C / \lvert\det\nabla F\rvert$ instead of $C$ makes such a loop uniformly
+stretched again. On an analytic vortex followed by a conformal map, whose
+isotropic dilation varies across the domain, it recovers the circles the plain
+search loses. On the 2018-06-01 window over 30 days, GLED eddies matched out of
+23, plain against dilation removed:
+
+| field | from own centres | from the GLED centres |
+|---|---|---|
+| DUACS geostrophic, 1/8 degree | 7, 7 | 9, 8 |
+| GLORYS12 daily currents | 0, 1 | 0, 1 |
+| GLORYS12 geostrophic from `zos` | 2, 2 | 1, 0 |
+| GLORYS12 geostrophic, 1/50 degree seeds | 3, 4 | 3, 3 |
+| GLORYS12 geostrophic, 15 days | 5, 6 | 4, 4 |
+
+It changes no count by more than one, so the search takes $C$ only. A band of
+$\pm 10\%$ on the stretching instead of an exact $\lambda$, prototyped with the
+direction in the band nearest the azimuth about the centre, changed the counts
+by at most four on DUACS and by at most one on GLORYS12.
+
 **Separatrix.** For the analytic vortex in a uniform strain $s$, the steady
 flow has saddles where $\Omega(r) = s$, at radius $r_*$, and its closed
 streamlines lie within $r_*$ of the centre. The outermost boundary falls just
