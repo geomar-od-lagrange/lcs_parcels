@@ -85,7 +85,7 @@ Rules that fall out of it:
   (`no shared frame: each pair defines its own`). Use a preposition or a
   conjunction. No `--` or em-dash as an aside. A semicolon joining two
   independent clauses becomes a conjunction. The one dash that stays is the one
-  introducing a definition on first use, as in `tensorlines.py`'s "A repelling
+  introducing a definition on first use, as in `hyperbolic.py`'s "A repelling
   LCS is a *shrink line* -- a curve tangent to ...".
 - **No downward or lateral references.** A docstring may name what it depends
   on, never what depends on it. A base class does not name its subclasses, a
@@ -205,7 +205,7 @@ that reader.
   the current one builds on, never at one of the same rank, so the reading order
   stays linear and no two examples explain themselves by each other. The ranks:
   `example_grid_pset` is standalone; `cabo_verde_ftle` < `cabo_verde_lcs` <
-  `cabo_verde_lcs_evolution`.
+  `cabo_verde_lcs_evolution`; `cabo_verde_ftle` < `cape_cauldron_vortices`.
 - **No claimed result you haven't seen.** Never write a summary/conclusion cell
   (or "this shows X" prose) without actually running the notebook and reading the
   real output first. State what the run produced, not what you expect it to.

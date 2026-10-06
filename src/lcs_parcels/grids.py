@@ -53,11 +53,19 @@ from typing import Self
 import numpy as np
 import xarray as xr
 
-EARTH_RADIUS_M = 6_371_000.0
-"""Mean Earth radius in metres. All distances are taken on a sphere of this radius."""
-
-_M_PER_DEG = EARTH_RADIUS_M * (np.pi / 180.0)
-"""Metres per degree of latitude, and of longitude at the equator."""
+from lcs_parcels._numerics import (
+    _M_PER_DEG,
+    EARTH_RADIUS_M,  # noqa: F401, a public name of this module
+    _circular_mean_lon,
+    _separation_m,
+    _wrap_lon,
+)
+from lcs_parcels.elliptic import (
+    closed_shear_lines,
+    elliptic_centres,
+    outermost_shear_lines,
+)
+from lcs_parcels.hyperbolic import ftle_ridge_seeds, prune_shrink_lines, shrink_lines
 
 # --- output metadata -------------------------------------------------------
 #
@@ -102,53 +110,6 @@ EIG_ATTRS = {
         "0 is the weak-stretch lambda_1, 1 is lambda_max = lambda_2"
     )
 }
-
-
-def _wrap_lon(dlon):
-    """Wrap a longitude *difference* (degrees) into ``[-180, 180]``.
-
-    Takes plain arrays or xarray objects. Applied to differences and to the
-    offsets a circular mean is built from, never to a stored position.
-    """
-    # Subtracting the nearest multiple of 360, rather than shifting and taking a
-    # modulo, returns an argument already inside the range bit-for-bit.
-    return dlon - 360.0 * np.round(dlon / 360.0)
-
-
-def _separation_m(*, lon_a, lat_a, lon_b, lat_b):
-    """East/north separation of point ``b`` from point ``a``, in metres.
-
-    Takes plain arrays or xarray objects. The pair is differenced in its own
-    local frame, with the longitude difference wrapped and scaled by the cosine
-    of the pair's mid-latitude and the latitude difference by the Earth radius
-    alone. No shared projection and no standard parallel enter, so the accuracy
-    of the result is set by the separation of the pair rather than by the size
-    or the position of the domain.
-
-    Returns
-    -------
-    tuple
-        ``(dx, dy)``, the eastward and northward components in metres.
-    """
-    dlon = _wrap_lon(lon_b - lon_a)
-    lat_mid = 0.5 * (lat_a + lat_b)
-    dx = _M_PER_DEG * np.cos(np.deg2rad(lat_mid)) * dlon
-    # A position is a pair, so `0.0 * dlon` carries a lost longitude into the
-    # north component, which otherwise never touches lon.
-    dy = _M_PER_DEG * ((lat_b - lat_a) + 0.0 * dlon)
-    return dx, dy
-
-
-def _circular_mean_lon(lon: xr.DataArray, dim: str) -> xr.DataArray:
-    """Mean longitude over ``dim``, taken on the circle.
-
-    Anchored on the first element along ``dim`` and averaged over wrapped
-    offsets from it, so the result stays on the anchor's branch. ``skipna=False``
-    makes the mean NaN if any member is, matching the gradient path, where one
-    lost stencil point already invalidates the grid point.
-    """
-    anchor = lon.isel({dim: 0}, drop=True)
-    return anchor + _wrap_lon(lon - anchor).mean(dim, skipna=False)
 
 
 def _central_separation_m(lon: xr.DataArray, lat: xr.DataArray, dim: str):
@@ -212,6 +173,11 @@ def _assemble_tensor(
 def _extent(values: xr.DataArray) -> str:
     """``min..max`` of a coordinate in degrees, or ``nan..nan`` if it is all NaN."""
     return f"{float(values.min()):.2f}..{float(values.max()):.2f}"
+
+
+def _given(**kwargs) -> dict:
+    """``kwargs`` without the ones left at ``None``, so the callee's default applies."""
+    return {key: value for key, value in kwargs.items() if value is not None}
 
 
 class SeedGrid(abc.ABC):
@@ -616,6 +582,36 @@ class FlowMap(abc.ABC):
             units="1/s",
         )
 
+    def polar_rotation(self) -> xr.DataArray:
+        """Rotation angle of the polar decomposition ``grad F = R U``.
+
+        Farazmand & Haller (2016), doi:10.1016/j.physd.2015.09.007
+        (https://doi.org/10.1016/j.physd.2015.09.007). In two dimensions it is
+        ``theta = atan2(F_yx - F_xy, F_xx + F_yy)``, in ``(-pi, pi]``.
+
+        ``theta`` is the rotation modulo ``2 pi``. Its sign is the rotation sense
+        only where the flow turns less than half a turn over the window.
+
+        Returns
+        -------
+        xr.DataArray
+            ``theta`` on ``(i, j)`` in radians, counter-clockwise positive in the
+            local east/north frame.
+        """
+        grad_f = self.deformation_gradient()
+
+        def component(row, col):
+            return grad_f.sel(row=row, col=col, drop=True)
+
+        theta = np.arctan2(
+            component("y", "x") - component("x", "y"),
+            component("x", "x") + component("y", "y"),
+        )
+        return theta.rename("polar_rotation").assign_attrs(
+            long_name="rotation angle of the polar decomposition grad F = R U",
+            units="rad",
+        )
+
     def image(self, *, lon_0: xr.DataArray, lat_0: xr.DataArray) -> xr.Dataset:
         """Advected positions ``F_{t0}^{t1}(x_0)`` at arbitrary reference points.
 
@@ -748,36 +744,22 @@ class FlowMap(abc.ABC):
             and the pruning attributes, ``n_lines_dropped`` among them, are on
             the result.
         """
-        # Deferred import: `tensorlines` imports from this module.
-        from lcs_parcels.tensorlines import (
-            ftle_ridge_seeds,
-            prune_shrink_lines,
-            shrink_lines,
-        )
-
-        # An explicit None would bind over the callee's default, so unset
-        # arguments are dropped rather than forwarded.
-        def _filter_kwargs(**kwargs) -> dict[str, float]:
-            return {k: v for k, v in kwargs.items() if v is not None}
-
         ftle = self.ftle()
         seeds = ftle_ridge_seeds(
             ftle,
-            **_filter_kwargs(window_m=window_m, quantile=quantile, ftle_min=ftle_min),
+            **_given(window_m=window_m, quantile=quantile, ftle_min=ftle_min),
         )
         lines = shrink_lines(
             self,
             seed_lon=seeds["lon"].values,
             seed_lat=seeds["lat"].values,
-            **_filter_kwargs(
+            **_given(
                 min_anisotropy=min_anisotropy,
                 step_m=step_m,
                 line_length_m=line_length_m,
             ),
         )
-        lines = prune_shrink_lines(
-            lines, ftle=ftle, **_filter_kwargs(window_m=window_m)
-        )
+        lines = prune_shrink_lines(lines, ftle=ftle, **_given(window_m=window_m))
         # The forward-backward duality belongs to the diagnostic, so the LCS
         # family is named here rather than on the flow map.
         direction = self._time_direction()
@@ -795,6 +777,74 @@ class FlowMap(abc.ABC):
                 "with the FTLE field their seeds were picked from"
             ),
             **ridge_attrs,
+        )
+
+    def elliptic_lcs(
+        self,
+        *,
+        window_m: float | None = None,
+        edge_m: float | None = None,
+        stretches=None,
+        max_radius_m: float | None = None,
+        launch_spacing_m: float | None = None,
+        step_m: float | None = None,
+        closure_tol_m: float | None = None,
+    ) -> xr.Dataset:
+        """Elliptic LCS of this flow map: centres, closed shear lines, boundaries.
+
+        Picks centres at windowed minima of ``lambda_2 / lambda_1``
+        (:func:`~lcs_parcels.elliptic_centres`), searches them
+        (:func:`~lcs_parcels.closed_shear_lines`), and keeps the outermost orbits.
+
+        The result carries no ``rotation_sense``. For one, pass the
+        :meth:`polar_rotation` of a short window to
+        :func:`~lcs_parcels.outermost_shear_lines`.
+
+        Parameters
+        ----------
+        window_m, edge_m : float, optional
+            Passed to :func:`~lcs_parcels.elliptic_centres`.
+        stretches, max_radius_m, launch_spacing_m, step_m, closure_tol_m : optional
+            Passed to :func:`~lcs_parcels.closed_shear_lines`.
+
+        Returns
+        -------
+        xr.Dataset
+            The :func:`~lcs_parcels.outermost_shear_lines` result, with the
+            eigenvalue ratio ``cg_anisotropy`` on ``(i, j)`` that the centres were
+            picked from, and the centre and search ``attrs``.
+        """
+        eigen = self.cg_eigen()
+        anisotropy = (
+            (
+                eigen["lambda"].isel(eig=1, drop=True)
+                / eigen["lambda"].isel(eig=0, drop=True)
+            )
+            .rename("cg_anisotropy")
+            .assign_attrs(
+                long_name="Cauchy-Green eigenvalue ratio lambda_2 / lambda_1",
+                units="1",
+            )
+        )
+        centres = elliptic_centres(
+            anisotropy, extremum="min", **_given(window_m=window_m, edge_m=edge_m)
+        )
+        orbits = closed_shear_lines(
+            self,
+            centre_lon=centres["lon"].values,
+            centre_lat=centres["lat"].values,
+            **_given(
+                stretches=stretches,
+                max_radius_m=max_radius_m,
+                launch_spacing_m=launch_spacing_m,
+                step_m=step_m,
+                closure_tol_m=closure_tol_m,
+            ),
+        )
+        eddies = outermost_shear_lines(orbits)
+        centre_attrs = {f"centres_{key}": value for key, value in centres.attrs.items()}
+        return eddies.assign(cg_anisotropy=anisotropy).assign_attrs(
+            orbits.attrs | centre_attrs
         )
 
     def to_seed(self) -> SeedGrid:

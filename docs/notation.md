@@ -32,8 +32,11 @@ Haller (2015).
 | $w$ | ridge-seed window: the **side**, in metres, of the square window a seed must be the FTLE maximum over; two seed points can therefore be about $w/2$ apart |  | `window_m` |
 | $\Lambda \ge \Lambda_{\min}$ | FTLE magnitude floor a seed must also clear, set either as a quantile of the field at hand or as an absolute value in the field's units (1/s) |  | `quantile`, `ftle_min` |
 | $\lambda_2 / \lambda_1 \ge a_{\min}$ | anisotropy floor: the ratio of the Cauchy–Green eigenvalues below which $\xi_1$ is not a well-defined direction (dimensionless) |  | `min_anisotropy` |
+| $\lambda$ (no subscript) | uniform stretching factor of a closed shear line: every tangent element of the curve is stretched by $\lambda$ over the window. Distinct from the eigenvalues $\lambda_1, \lambda_2$ |  | `stretch`, `stretches`, `stretch_range` |
+| $\eta^\pm_\lambda = \sqrt{\frac{\lambda_2 - \lambda^2}{\lambda_2 - \lambda_1}}\,\xi_1 \pm \sqrt{\frac{\lambda^2 - \lambda_1}{\lambda_2 - \lambda_1}}\,\xi_2$ | shear direction fields of Haller & Beron-Vera (2013, Eq. 14), defined where $\lambda_1 < \lambda^2 < \lambda_2$. A closed curve tangent to one is a coherent vortex boundary (elliptic LCS) |  | `closed_shear_lines`, `branch` ($\pm 1$) |
+| $P(s)$ | return map of a section: where a line launched at arc length $s$ from the centre first crosses the section again after more than half a turn. A zero of $P(s) - s$ is a closed orbit |  | (internal, `_trace_to_return`) |
+| $\theta$ | polar rotation angle, the rotation of $R$ in $\nabla F = R\,U$, counter-clockwise positive (Farazmand & Haller 2016) |  | `polar_rotation` |
 | $E_\lambda(x_0)$ | generalized Green–Lagrange strain tensor (**deferred**) | 8 |  |
-| $\eta^\pm(x_0)$ | shear vector field; stretch/shear lines (**deferred**) | 10, 11, Table 1 |  |
 
 ## Conventions in detail
 
@@ -227,7 +230,7 @@ anchor's branch; `AuxiliaryFlowMap.grid_image` uses it for the longitude of the
 four-arm centroid.
 
 Stepping *along* a direction, rather than differencing between two points,
-inverts `_separation_m`. `tensorlines._step_lonlat_by_meters` advances
+inverts `_separation_m`. `_numerics._step_lonlat_by_meters` advances
 $(\lambda, \phi)$ by a local east/north vector $d$ of length `step_m` as
 
 $$\Delta\phi = \frac{d_{\text{north}}}{R}\tfrac{180}{\pi},
@@ -247,7 +250,7 @@ antimeridian stays on its seed's branch.
 
 Hyperbolic LCS are extracted as **shrink lines**, tensor lines tangent to
 $\xi_1$ solving $\dot r = \xi_1(r)$ (Haller Table 1, $n = 2$), in
-[`src/lcs_parcels/tensorlines.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/tensorlines.py)
+[`src/lcs_parcels/hyperbolic.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/hyperbolic.py)
 (`shrink_lines`, with `ftle_ridge_seeds` for the seed points). Repelling LCS
 are the shrink lines of the forward flow map; attracting LCS those of the
 backward flow map (forward–backward duality, Haller & Sapsis 2011,
@@ -291,11 +294,8 @@ to a perturbation of $C$, and so whether $\xi_1$ is a direction or numerical
 noise. Default $a_{\min} = 1.15$. It is a well-definedness guard, not an LCS
 selector; the selection is made by $\Lambda_{\min}$.
 
-The following remain deferred:
-
-- $E_\lambda(x_0)$, the generalized Green–Lagrange strain tensor (Eq. 8).
-- $\eta^\pm(x_0)$, the shear vector field, with stretch and shear (elliptic) lines
-  (Eqs. 10–11, Table 1).
+The generalized Green–Lagrange strain tensor $E_\lambda(x_0)$ (Eq. 8) remains
+deferred.
 
 ## Array and dimension conventions
 
@@ -350,3 +350,11 @@ Mechanics, 47, 137–162.
 Haller, G. & Sapsis, T. (2011). *Lagrangian coherent structures and the smallest
 finite-time Lyapunov exponent.* Chaos, 21, 023115.
 [doi:10.1063/1.3579597](https://doi.org/10.1063/1.3579597).
+
+Haller, G. & Beron-Vera, F. J. (2013). *Coherent Lagrangian vortices: the black
+holes of turbulence.* Journal of Fluid Mechanics, 731, R4.
+[doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391).
+
+Farazmand, M. & Haller, G. (2016). *Polar rotation angle identifies elliptic
+islands in unsteady dynamical systems.* Physica D, 315, 1–12.
+[doi:10.1016/j.physd.2015.09.007](https://doi.org/10.1016/j.physd.2015.09.007).

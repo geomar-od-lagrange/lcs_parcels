@@ -1,4 +1,4 @@
-"""Tensor-line tests: ftle_ridge_seeds and shrink_lines.
+"""Hyperbolic LCS tests: ftle_ridge_seeds, shrink_lines and prune_shrink_lines.
 
 ``conftest.advected_flowmap`` advects a seed through a constant linear map ``M``
 acting in the one tangent frame at the seed centroid (``AuxiliarySeedGrid``, so
@@ -36,13 +36,13 @@ from lcs_parcels import (
     prune_shrink_lines,
     shrink_lines,
 )
-from lcs_parcels.grids import _M_PER_DEG, _separation_m
-from lcs_parcels.tensorlines import (
-    _shrink_line_tangent,
+from lcs_parcels._numerics import (
+    _M_PER_DEG,
+    _separation_m,
     _step_lonlat_by_meters,
-    _trace_half_line,
     _window_geometry,
 )
+from lcs_parcels.hyperbolic import _shrink_line_tangent, _trace_half_line
 
 RELEASE_TIME = np.datetime64("2020-01-01")
 END_TIME = np.datetime64("2020-01-02")
@@ -69,7 +69,7 @@ def _gridded_field(values, lon_axis, lat_axis):
 
 def _cells(geometry):
     """The ``(i, j)`` window cell counts of a
-    :func:`~lcs_parcels.tensorlines._window_geometry` dict, or of a seed
+    :func:`~lcs_parcels._numerics._window_geometry` dict, or of a seed
     dataset's attrs, which carry the same keys."""
     return geometry["window_cells_i"], geometry["window_cells_j"]
 
@@ -82,7 +82,7 @@ def _three_cell_window_m(field):
     window chosen for the zonal spacing is a single cell meridionally, and every
     grid point is then trivially a local maximum along ``j``. Three times the
     *larger* median spacing clears three cells either way. That is
-    :func:`~lcs_parcels.tensorlines._window_geometry` behaving as documented --
+    :func:`~lcs_parcels._numerics._window_geometry` behaving as documented --
     one median per dimension, so the test states the grid it wants rather than
     a number that happens to suit one latitude.
     """
@@ -283,7 +283,7 @@ def test_min_seed_separation_m_bounds_the_returned_seeds(lat_max):
     """No two seeds are closer than the reported ``min_seed_separation_m``, and
     they are a good deal closer than ``window_m``.
 
-    Measured with :func:`~lcs_parcels.grids._separation_m`, the same frame the
+    Measured with :func:`~lcs_parcels._numerics._separation_m`, the same frame the
     package works in. The field packs its crests at exactly the reported
     separation, so the bound is attained and not merely respected: the measured
     closest pair is about ``window_m / 2``, which is the whole content of #21 --
@@ -982,7 +982,7 @@ def test_shrink_line_steps_in_the_frame_the_tensor_lives_in():
     runs along the local ``xi_1`` measured at that segment's midpoint.
 
     ``C`` is built from separations in the local east/north frame of each pair
-    (:func:`~lcs_parcels.grids._separation_m`), so a segment must be measured the
+    (:func:`~lcs_parcels._numerics._separation_m`), so a segment must be measured the
     same way, which is what this checks, by taking ``_separation_m`` between
     consecutive points of the line and comparing its heading with the tangent the
     integrator would read there. Measured in the same frame the tensor is built
@@ -1041,7 +1041,7 @@ def _local_frame_flowmap(lon_axis, lat_axis, M):
     point's own east/north frame: read each arm's offset from its grid point in
     that frame, map it with ``M``, and place the advected arm back at the mapped
     offset. The arithmetic is written out rather than taken from
-    ``lcs_parcels.grids``, since what the frame *is* is the thing under test.
+    ``lcs_parcels._numerics``, since what the frame *is* is the thing under test.
     """
     seed = AuxiliarySeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     lon_c, lat_c = seed.ds["lon_grid"], seed.ds["lat_grid"]

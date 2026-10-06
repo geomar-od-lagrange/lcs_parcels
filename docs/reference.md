@@ -32,7 +32,7 @@ A `FlowMap` holds the advected positions and computes the diagnostics.
    lcs_parcels.AuxiliaryFlowMap
 ```
 
-## Tensor lines
+## Hyperbolic LCS
 
 Hyperbolic LCS as strain tensor lines, taking the gridded outputs of a
 `FlowMap`.
@@ -47,15 +47,34 @@ Hyperbolic LCS as strain tensor lines, taking the gridded outputs of a
    lcs_parcels.prune_shrink_lines
 ```
 
+## Elliptic LCS
+
+Elliptic LCS as closed shear lines, taking the gridded outputs of a
+`FlowMap`.
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   lcs_parcels.elliptic_centres
+   lcs_parcels.stretch_range
+   lcs_parcels.closed_shear_lines
+   lcs_parcels.outermost_shear_lines
+```
+
 ## Modules
 
-The two modules' own docstrings. Their members are the classes and functions
+The modules' own docstrings. Their members are the classes and functions
 above, documented there rather than a second time here.
 
 ```{eval-rst}
 .. automodule:: lcs_parcels.grids
    :no-members:
 
-.. automodule:: lcs_parcels.tensorlines
+.. automodule:: lcs_parcels.hyperbolic
+   :no-members:
+
+.. automodule:: lcs_parcels.elliptic
    :no-members:
 ```
