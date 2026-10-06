@@ -230,7 +230,7 @@ anchor's branch; `AuxiliaryFlowMap.grid_image` uses it for the longitude of the
 four-arm centroid.
 
 Stepping *along* a direction, rather than differencing between two points,
-inverts `_separation_m`. `tensorlines._step_lonlat_by_meters` advances
+inverts `_separation_m`. `_numerics._step_lonlat_by_meters` advances
 $(\lambda, \phi)$ by a local east/north vector $d$ of length `step_m` as
 
 $$\Delta\phi = \frac{d_{\text{north}}}{R}\tfrac{180}{\pi},
@@ -250,7 +250,7 @@ antimeridian stays on its seed's branch.
 
 Hyperbolic LCS are extracted as **shrink lines**, tensor lines tangent to
 $\xi_1$ solving $\dot r = \xi_1(r)$ (Haller Table 1, $n = 2$), in
-[`src/lcs_parcels/tensorlines.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/tensorlines.py)
+[`src/lcs_parcels/hyperbolic.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/hyperbolic.py)
 (`shrink_lines`, with `ftle_ridge_seeds` for the seed points). Repelling LCS
 are the shrink lines of the forward flow map; attracting LCS those of the
 backward flow map (forward–backward duality, Haller & Sapsis 2011,

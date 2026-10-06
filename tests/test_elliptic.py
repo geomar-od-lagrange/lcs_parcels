@@ -7,6 +7,8 @@ An axisymmetric vortex turns each circle rigidly, so every circle is a closed
 ``eta_lambda`` orbit at ``lambda = 1``.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -451,8 +453,8 @@ def test_closed_shear_lines_needs_matching_centre_arrays(vortex):
 
 def test_a_line_out_of_steps_does_not_return(vortex):
     """Two steps cannot take a line round its centre."""
+    from lcs_parcels._numerics import _tensor_interp
     from lcs_parcels.elliptic import _section_launch, _trace_to_return
-    from lcs_parcels.tensorlines import _tensor_interp
 
     one = np.ones(1)
     lon_0, lat_0 = _section_launch(
@@ -467,7 +469,7 @@ def test_a_line_out_of_steps_does_not_return(vortex):
         stretch=one,
         branch=one,
         section_m=MAX_RADIUS_M,
-        tensor_interp=_tensor_interp(vortex),
+        tensor_interp=_tensor_interp(vortex.cauchy_green()),
         step_m=1_000.0,
         n_steps=2,
     )
@@ -503,6 +505,19 @@ def test_rotation_sense_is_zero_where_the_field_misses_the_boundary(
     assert eddies["rotation_sense"].values.tolist() == [0]
 
 
+def test_rotation_sense_is_zero_where_the_field_is_nan_inside_the_boundary(
+    vortex, vortex_orbits
+):
+    """A rotation field that is NaN inside a boundary gives it no sense, silently."""
+    rotation = vortex.polar_rotation()
+    distance = _distance_from_origin_m(rotation["lon_grid"], rotation["lat_grid"])
+    rotation = rotation.where(distance > 2 * MAX_RADIUS_M)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        eddies = outermost_shear_lines(vortex_orbits, rotation=rotation)
+    assert eddies["rotation_sense"].values.tolist() == [0]
+
+
 def test_rotation_sense_needs_a_rotation_field(vortex_orbits):
     """Without a rotation field the boundaries carry no rotation sense."""
     assert "rotation_sense" not in outermost_shear_lines(vortex_orbits)
@@ -516,6 +531,7 @@ def test_outermost_shear_lines_merges_centres_inside_one_boundary(vortex):
         centre_lat=[0.0, 0.0],
         max_radius_m=MAX_RADIUS_M,
     )
+    assert set(np.unique(orbits["centre"])) == {0, 1}
     eddies = outermost_shear_lines(orbits)
     assert eddies.sizes["eddy"] == 1
 

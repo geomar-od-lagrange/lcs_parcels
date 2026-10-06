@@ -4,26 +4,20 @@ Haller (2015) §5.1 / Table 1 (n=2), doi:10.1146/annurev-fluid-010313-141322
 (https://doi.org/10.1146/annurev-fluid-010313-141322).
 
 A repelling LCS is a *shrink line* -- a curve tangent to the weak-stretch
-eigenvector ``xi_1`` of the Cauchy-Green tensor ``C`` (equivalently, normal to
-the strong-stretch ``xi_2`` that the FTLE ridge marks). It solves the tensor-line
-ODE ``dr/ds = xi_1(r)``. Attracting LCS need no separate machinery. By the
-forward-backward duality (Haller & Sapsis 2011, https://doi.org/10.1063/1.3579597)
-they are the shrink lines of the *backward* flow, so :func:`shrink_lines` of a
-backward :class:`~lcs_parcels.FlowMap` gives them.
+eigenvector ``xi_1`` of the Cauchy-Green tensor ``C``, normal to the
+strong-stretch ``xi_2`` that the FTLE ridge marks.
 
-The workflow is :func:`ftle_ridge_seeds`, which picks seed points,
-:func:`shrink_lines`, which integrates the tensor lines through them, and
-:func:`prune_shrink_lines`, which drops the near-duplicate lines that several
-seeds on one ridge produce. All take the gridded xarray outputs of a
-:class:`~lcs_parcels.FlowMap`, and :meth:`~lcs_parcels.FlowMap.hyperbolic_lcs`
-runs them in one call.
+Attracting LCS are the shrink lines of the *backward* flow (Haller & Sapsis
+2011, doi:10.1063/1.3579597, https://doi.org/10.1063/1.3579597), so
+:func:`shrink_lines` of a backward :class:`~lcs_parcels.FlowMap` gives them.
 
-Rectilinear grids only. The tensor is interpolated on axis-aligned
-``lon_grid``/``lat_grid`` axes (``lon_grid`` varying along ``i``, ``lat_grid``
-along ``j``), and the ``lon_grid`` axis must be monotonic, so a domain crossing
+:func:`ftle_ridge_seeds` picks seed points, :func:`shrink_lines` integrates the
+tensor lines through them, and :func:`prune_shrink_lines` drops the
+near-duplicate lines that several seeds on one ridge produce.
+
+Rectilinear grids only, with a monotonic ``lon_grid`` axis, so a domain crossing
 the antimeridian is seeded on ``170, 175, 180, 185`` rather than ``170, 175,
-180, -175``. Only the axis is constrained. A traced line may cross the
-antimeridian, though it terminates where it leaves the grid.
+180, -175``. A traced line may still cross the antimeridian.
 """
 
 from __future__ import annotations
@@ -34,68 +28,14 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
 
-from lcs_parcels.grids import _M_PER_DEG, EARTH_RADIUS_M, _separation_m
-
-
-def _odd_cells(window_m: float, spacing_m: float) -> int:
-    """Number of cells covering ``window_m`` at spacing ``spacing_m``, made odd.
-
-    An odd count has a middle cell, which is what lets the rolling window sit
-    centred on its own grid point. The count is rounded to nearest and then
-    dropped by one if even, so the window it spans is within a cell of
-    ``window_m`` except where the floor of one cell raises it.
-    """
-    cells = round(window_m / spacing_m)
-    if cells % 2 == 0:
-        cells -= 1
-    return max(1, cells)
-
-
-def _window_geometry(ftle: xr.DataArray, window_m: float) -> dict[str, float]:
-    """Convert a window in metres into cell counts on this field's grid.
-
-    The rolling window is counted in cells, so ``window_m`` has to be divided by
-    a cell size, and the two returned quantities need different ones.
-
-    The cell counts use the **median** adjacent-point separation, the size most
-    of the grid has. ``min_seed_separation_m``, the closest two seeds can be,
-    uses the **minimum** instead, since that is where seeds get closest. A window
-    of ``cells`` reaches ``(cells - 1) // 2`` cells either side, so the nearest
-    competing maximum is one cell beyond that.
-
-    The bound holds for strict maxima only. Selection is ``ftle >= rolling max``,
-    so every cell of a plateau of equal values ties and adjacent cells can all be
-    seeds.
-    """
-    lon_grid, lat_grid = ftle["lon_grid"], ftle["lat_grid"]
-    dx, _ = _separation_m(
-        lon_a=lon_grid.shift(i=1),
-        lat_a=lat_grid.shift(i=1),
-        lon_b=lon_grid,
-        lat_b=lat_grid,
-    )
-    _, dy = _separation_m(
-        lon_a=lon_grid.shift(j=1),
-        lat_a=lat_grid.shift(j=1),
-        lon_b=lon_grid,
-        lat_b=lat_grid,
-    )
-    dx, dy = np.abs(dx), np.abs(dy)
-    spacing_i = float(dx.median())
-    spacing_j = float(dy.median())
-    cells_i = _odd_cells(window_m, spacing_i)
-    cells_j = _odd_cells(window_m, spacing_j)
-    return {
-        "window_m": float(window_m),
-        "window_cells_i": cells_i,
-        "window_cells_j": cells_j,
-        "grid_spacing_i_m": spacing_i,
-        "grid_spacing_j_m": spacing_j,
-        "min_seed_separation_m": min(
-            ((cells_i - 1) // 2 + 1) * float(dx.min()),
-            ((cells_j - 1) // 2 + 1) * float(dy.min()),
-        ),
-    }
+from lcs_parcels._numerics import (
+    _LONLAT_ATTRS,
+    EARTH_RADIUS_M,
+    _rk2_step,
+    _separation_m,
+    _tensor_interp,
+    _windowed_extrema,
+)
 
 
 def ftle_ridge_seeds(
@@ -166,7 +106,7 @@ def ftle_ridge_seeds(
         quantile = 0.90
     threshold = float(ftle.quantile(quantile)) if ftle_min is None else float(ftle_min)
 
-    geometry = _window_geometry(ftle, window_m)
+    is_peak, geometry = _windowed_extrema(ftle, window_m=window_m, extremum="max")
     cells_i = geometry["window_cells_i"]
     cells_j = geometry["window_cells_j"]
     if cells_i < 3 or cells_j < 3:
@@ -181,8 +121,7 @@ def ftle_ridge_seeds(
             stacklevel=2,
         )
 
-    peak = ftle.rolling(i=cells_i, j=cells_j, center=True, min_periods=1).max()
-    is_seed = (ftle >= peak) & (ftle >= threshold)
+    is_seed = is_peak & (ftle >= threshold)
     picked = (
         xr.Dataset({"lon": ftle["lon_grid"], "lat": ftle["lat_grid"]})
         .stack(seed=("i", "j"))
@@ -195,18 +134,14 @@ def ftle_ridge_seeds(
             "lon": xr.DataArray(
                 lon,
                 dims="seed",
-                attrs={
-                    "long_name": "longitude of the FTLE ridge seed",
-                    "units": "degrees_east",
-                },
+                attrs={"long_name": "longitude of the FTLE ridge seed"}
+                | _LONLAT_ATTRS["lon"],
             ),
             "lat": xr.DataArray(
                 lat,
                 dims="seed",
-                attrs={
-                    "long_name": "latitude of the FTLE ridge seed",
-                    "units": "degrees_north",
-                },
+                attrs={"long_name": "latitude of the FTLE ridge seed"}
+                | _LONLAT_ATTRS["lat"],
             ),
         },
         coords={
@@ -286,97 +221,6 @@ def _shrink_line_tangent(
     return direction
 
 
-def _step_lonlat_by_meters(
-    lon: np.ndarray,
-    lat: np.ndarray,
-    direction: np.ndarray,
-    *,
-    step_m: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Advance ``(lon, lat)`` by ``step_m`` metres along ``direction``.
-
-    ``direction`` is a local east/north vector at ``(lon, lat)``, the frame ``C``
-    is built in. The step is the exact inverse of the measurement that built it
-    (:func:`~lcs_parcels.grids._separation_m`), so measuring it afterwards
-    returns the vector asked for. A unit ``direction`` moves ``step_m``, and a
-    shorter one moves proportionally less.
-
-    Inverting the measurement, rather than solving the direct great-circle
-    problem, is what keeps the traced curve on the direction field. Latitude is
-    not folded at the pole, so a line stepped past 90 degrees runs off the chart
-    and terminates at the next tangent lookup.
-
-    Parameters
-    ----------
-    lon, lat : np.ndarray
-        Positions (degrees), shape ``(n,)``.
-    direction : np.ndarray
-        Shape ``(n, 2)``, local ``(east, north)`` components.
-    step_m : float
-        Arc length in metres for a unit ``direction``.
-
-    Returns
-    -------
-    tuple[np.ndarray, np.ndarray]
-        The stepped ``(lon, lat)`` in degrees.
-    """
-    dlat = direction[:, 1] * step_m / _M_PER_DEG
-    lat_mid = lat + 0.5 * dlat
-    return (
-        lon + direction[:, 0] * step_m / (_M_PER_DEG * np.cos(np.deg2rad(lat_mid))),
-        lat + dlat,
-    )
-
-
-def _rk2_step(
-    lon: np.ndarray,
-    lat: np.ndarray,
-    heading: np.ndarray,
-    *,
-    tangent,
-    step_m: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """One midpoint (RK2) step of ``dr/ds = tangent(r)`` along a direction field.
-
-    ``tangent(lon, lat, heading)`` returns unit ``(east, north)`` vectors
-    oriented to ``heading``, or NaN rows where the field is not well defined.
-
-    The step evaluates ``tangent`` at the current point and at the half-step
-    midpoint, and takes the full step along the midpoint direction.
-
-    Returns
-    -------
-    tuple[np.ndarray, np.ndarray, np.ndarray]
-        The stepped ``lon``, ``lat`` and the midpoint direction, which is the
-        heading for the next step.
-    """
-    direction = tangent(lon, lat, heading)
-    mid_lon, mid_lat = _step_lonlat_by_meters(lon, lat, 0.5 * direction, step_m=step_m)
-    # The tangent is evaluated at the RK2 midpoint too, so a step with sound
-    # endpoints still terminates on an ill-defined field halfway along.
-    mid_direction = tangent(mid_lon, mid_lat, direction)
-    lon, lat = _step_lonlat_by_meters(lon, lat, mid_direction, step_m=step_m)
-    return lon, lat, mid_direction
-
-
-def _tensor_interp(flowmap) -> RegularGridInterpolator:
-    """Interpolator over ``flowmap.cauchy_green()`` on its rectilinear grid axes.
-
-    Returns ``(n, 2, 2)`` tensors for ``(n, 2)`` lon/lat points, and ``NaN`` off
-    the grid.
-    """
-    lon_axis = flowmap.lon_grid.isel(j=0).values
-    lat_axis = flowmap.lat_grid.isel(i=0).values
-    # CG_grid is the Cauchy-Green tensor on the diagnostic grid, not an Arakawa
-    # C-grid.
-    CG_grid = flowmap.cauchy_green().transpose("i", "j", "row", "col").values
-    # The tracers leave the label-based xarray API here, because the ODE loop
-    # would otherwise build an xarray object per step.
-    return RegularGridInterpolator(
-        (lon_axis, lat_axis), CG_grid, bounds_error=False, fill_value=np.nan
-    )
-
-
 def _trace_half_line(
     seed_lon: np.ndarray,
     seed_lat: np.ndarray,
@@ -400,7 +244,7 @@ def _trace_half_line(
         ``+1`` or ``-1``, selecting which of the two opposite ``xi_1`` branches
         this half follows away from the seeds.
     tensor_interp, min_anisotropy, step_m
-        As for :func:`_shrink_line_tangent` and :func:`_step_lonlat_by_meters`.
+        As for :func:`_shrink_line_tangent` and :func:`_rk2_step`.
     n_steps : int
         Number of steps taken; the returned track has ``n_steps + 1`` entries,
         the first being the seeds themselves.
@@ -506,7 +350,7 @@ def shrink_lines(
     """
     n_steps = max(1, round(line_length_m / (2.0 * step_m)))
     trace_kwargs = {
-        "tensor_interp": _tensor_interp(flowmap),
+        "tensor_interp": _tensor_interp(flowmap.cauchy_green()),
         "min_anisotropy": min_anisotropy,
         "step_m": step_m,
         "n_steps": n_steps,
@@ -522,18 +366,14 @@ def shrink_lines(
             "lon": xr.DataArray(
                 lon_lines,
                 dims=("line", "point"),
-                attrs={
-                    "long_name": "longitude along the shrink line",
-                    "units": "degrees_east",
-                },
+                attrs={"long_name": "longitude along the shrink line"}
+                | _LONLAT_ATTRS["lon"],
             ),
             "lat": xr.DataArray(
                 lat_lines,
                 dims=("line", "point"),
-                attrs={
-                    "long_name": "latitude along the shrink line",
-                    "units": "degrees_north",
-                },
+                attrs={"long_name": "latitude along the shrink line"}
+                | _LONLAT_ATTRS["lat"],
             ),
         },
         coords={

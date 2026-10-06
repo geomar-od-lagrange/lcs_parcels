@@ -105,8 +105,9 @@ itself:
   vortex boundaries as closed shear lines in the Agulhas-ring corridor.
 
 The Parcels examples need the `examples` pixi environment (`pixi install -e
-examples`) and a CMEMS currents file you save yourself. The
-[examples index](https://lcs-parcels.readthedocs.io/page/examples/README.html) has the reading order and the data.
+examples`) and the CMEMS currents files that `get_data` downloads. The
+[examples index](https://lcs-parcels.readthedocs.io/page/examples/README.html)
+has the reading order and the data.
 
 ## Scope
 

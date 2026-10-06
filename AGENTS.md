@@ -85,7 +85,7 @@ Rules that fall out of it:
   (`no shared frame: each pair defines its own`). Use a preposition or a
   conjunction. No `--` or em-dash as an aside. A semicolon joining two
   independent clauses becomes a conjunction. The one dash that stays is the one
-  introducing a definition on first use, as in `tensorlines.py`'s "A repelling
+  introducing a definition on first use, as in `hyperbolic.py`'s "A repelling
   LCS is a *shrink line* -- a curve tangent to ...".
 - **No downward or lateral references.** A docstring may name what it depends
   on, never what depends on it. A base class does not name its subclasses, a

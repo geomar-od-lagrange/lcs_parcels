@@ -67,7 +67,7 @@ z_surface = float(currents["depth"].values[0])
 # ## Seed grid and window
 #
 # A box across the Cape Cauldron at 1/25 degree, released on 2018-06-01 and read
-# at 15 days, one to two turns of an Agulhas ring.
+# at 15 days.
 
 # %%
 t0 = np.datetime64("2018-06-01")
@@ -138,11 +138,17 @@ first_day
 # %%
 eigen = forward.cg_eigen()
 anisotropy = (
-    eigen["lambda"].isel(eig=1, drop=True) / eigen["lambda"].isel(eig=0, drop=True)
-).assign_attrs(long_name="Cauchy-Green eigenvalue ratio lambda_2 / lambda_1", units="1")
+    (eigen["lambda"].isel(eig=1, drop=True) / eigen["lambda"].isel(eig=0, drop=True))
+    .rename("cg_anisotropy")
+    .assign_attrs(
+        long_name="Cauchy-Green eigenvalue ratio lambda_2 / lambda_1", units="1"
+    )
+)
 # The ratio spans many decades, so it is drawn as its decimal logarithm.
-log_anisotropy = np.log10(anisotropy).assign_attrs(
-    long_name="log10 of the Cauchy-Green eigenvalue ratio", units="1"
+log_anisotropy = (
+    np.log10(anisotropy)
+    .rename("log10_cg_anisotropy")
+    .assign_attrs(long_name="log10 of the Cauchy-Green eigenvalue ratio", units="1")
 )
 log_anisotropy.plot.pcolormesh(x="lon_grid", y="lat_grid", robust=True)
 plt.show()
@@ -162,8 +168,8 @@ plt.show()
 # %% [markdown]
 # ## The scan over $\lambda$
 #
-# `stretch_range` is the default scan, log-symmetric about 1 from $1/1.5$ to
-# $1.5$ in steps of 0.03 in $\ln \lambda$.
+# `stretch_range` is the default scan, log-symmetric about 1 from about 0.68 to
+# 1.48 in steps of 0.03 in $\ln \lambda$.
 
 # %%
 stretches = stretch_range(stretch_max=1.5, step=0.03)
@@ -186,8 +192,8 @@ orbits = closed_shear_lines(
 orbits
 
 # %% [markdown]
-# Each orbit's equivalent radius against the $\lambda$ it closed at. A vortex
-# shows up as a run of orbits growing with $\lambda$.
+# Each orbit's equivalent radius against the $\lambda$ it closed at, all centres
+# together.
 
 # %%
 orbits.plot.scatter(x="stretch", y="radius_m")

@@ -27,16 +27,19 @@ from __future__ import annotations
 import numpy as np
 import xarray as xr
 
-from lcs_parcels.grids import _M_PER_DEG, _separation_m, _wrap_lon
-from lcs_parcels.tensorlines import _rk2_step, _tensor_interp, _window_geometry
+from lcs_parcels._numerics import (
+    _LONLAT_ATTRS,
+    _M_PER_DEG,
+    _grid_spacing_m,
+    _rk2_step,
+    _separation_m,
+    _tensor_interp,
+    _windowed_extrema,
+    _wrap_lon,
+)
 
 #: Lines traced together in one array. Bounds the memory of the search.
 _LINES_PER_CHUNK = 200_000
-
-_LONLAT_ATTRS = {
-    "lon": {"units": "degrees_east"},
-    "lat": {"units": "degrees_north"},
-}
 
 
 def _eta_tangent(
@@ -82,11 +85,11 @@ def _eta_tangent(
 
 
 def stretch_range(*, stretch_max: float = 1.5, step: float = 0.03) -> np.ndarray:
-    """Stretching factors log-symmetric about 1, from ``1 / stretch_max`` up.
+    """Stretching factors log-symmetric about 1, at most ``stretch_max`` and at
+    least ``1 / stretch_max``.
 
     The values are ``exp(k * step)`` for integer ``k``, so 1 is always included
-    and the spacing is ``step`` in ``ln lambda``, about ``step`` near 1. The
-    largest value is at most ``stretch_max``.
+    and the spacing is ``step`` in ``ln lambda``, about ``step`` near 1.
 
     Raises
     ------
@@ -125,19 +128,10 @@ def elliptic_centres(
         ``lon``/``lat`` (degrees) on a ``centre`` dim. The ``attrs`` record
         ``extremum``, ``window_m``, ``edge_m`` and the cell counts they became.
     """
-    if extremum not in ("min", "max"):
-        raise ValueError(f'extremum must be "min" or "max", got {extremum!r}')
+    is_extremum, geometry = _windowed_extrema(
+        field, window_m=window_m, extremum=extremum
+    )
     edge_m = 0.5 * window_m if edge_m is None else edge_m
-    geometry = _window_geometry(field, window_m)
-    rolling = field.rolling(
-        i=geometry["window_cells_i"],
-        j=geometry["window_cells_j"],
-        center=True,
-        min_periods=1,
-    )
-    is_extremum = (
-        field <= rolling.min() if extremum == "min" else field >= rolling.max()
-    )
 
     edge_cells_i = int(np.ceil(edge_m / geometry["grid_spacing_i_m"]))
     edge_cells_j = int(np.ceil(edge_m / geometry["grid_spacing_j_m"]))
@@ -486,8 +480,8 @@ def closed_shear_lines(
         if stretches is None
         else np.asarray(stretches, dtype=float).ravel()
     )
-    geometry = _window_geometry(flowmap.lon_grid, 1.0)
-    spacing_m = min(geometry["grid_spacing_i_m"], geometry["grid_spacing_j_m"])
+    dx, dy = _grid_spacing_m(flowmap.lon_grid)
+    spacing_m = min(float(dx.median()), float(dy.median()))
     launch_spacing_m = spacing_m if launch_spacing_m is None else launch_spacing_m
     step_m = 0.5 * spacing_m if step_m is None else step_m
     closure_tol_m = 0.5 * spacing_m if closure_tol_m is None else closure_tol_m
@@ -495,7 +489,7 @@ def closed_shear_lines(
     s_launch = launch_spacing_m * np.arange(
         1, int(np.floor(max_radius_m / launch_spacing_m)) + 1
     )
-    tensor_interp = _tensor_interp(flowmap)
+    tensor_interp = _tensor_interp(flowmap.cauchy_green())
     trace = {
         "section_m": max_radius_m,
         "tensor_interp": tensor_interp,
@@ -710,8 +704,9 @@ def outermost_shear_lines(
             near = (np.abs(gx) <= np.abs(x).max()) & (np.abs(gy) <= np.abs(y).max())
             inside = np.zeros_like(near)
             inside[near] = _points_inside(x, y, x=gx[near], y=gy[near])
+            inside &= np.isfinite(theta_anomaly)
             if inside.any():
-                mean_anomaly = np.nanmean(theta_anomaly[inside])
+                mean_anomaly = theta_anomaly[inside].mean()
         kept.append({"index": k, "lon": lon, "lat": lat})
         centroids.append(
             (

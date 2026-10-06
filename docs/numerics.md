@@ -447,8 +447,8 @@ The search keeps these zeros:
 - **A launch that already returns within `closure_tol_m`.** On the circles of
   an axisymmetric vortex every launch closes, so $P(s) - s$ sits near zero
   along the whole section without changing sign, and a sign-change search
-  alone finds nothing. That was the first result on the analytic vortex, one
-  orbit where there should be one per launch.
+  alone finds nothing. On the analytic vortex it returns one orbit instead of
+  one per launch.
 - **A sign change of $P(s) - s$ between neighbouring launches**, neither of
   them a hit. Bisection narrows it to a quarter of `closure_tol_m`. A bracket
   whose midpoint does not return straddles a gap in the return map rather than
@@ -515,10 +515,11 @@ degree, against 5 for the rotation angle, so `elliptic_lcs()` uses it.
 
 **Stretching range.** Scanned to $\Lambda = 2$ at a step of 0.03, every orbit
 found from the GLED centres closes inside $[1/1.5, 1.5]$. The extremes are
-0.677 at 1/4 degree and 1.310 at 1/8 degree. On hourly CMEMS model currents
-from 2025-06-01 over 30 days the orbits close between 1.162 and 1.350. One boundary per field closes at 1.522, and both are boundaries from
-eigenvalue-ratio centres that no GLED eddy matches. So the default
-$\Lambda = 1.5$ brackets every matched boundary.
+0.677 at 1/4 degree and 1.310 at 1/8 degree. One boundary per field closes at
+1.522, and both are boundaries from eigenvalue-ratio centres that no GLED eddy
+matches. On hourly CMEMS model currents from 2025-06-01 over 30 days the orbits
+close between 1.162 and 1.350. So the default $\Lambda = 1.5$ brackets every
+matched boundary.
 
 **Stretching step.** From the GLED centres at 1/4 degree, steps of 0.02, 0.03
 and 0.05 match the same 9 eddies. The outermost radius of each agrees within
@@ -558,7 +559,7 @@ taken over:
 | 30 days | 1.90 rad | 9 of 23 |
 
 $\theta$ is defined modulo $2\pi$, and past half a turn its sign flips. The
-examples take the rotation from a 1-day flow map.
+example takes the rotation from a 1-day flow map.
 
 **Removing the local dilation, measured and not adopted.** Divergence that
 varies around a loop stretches its elements unevenly, so searching

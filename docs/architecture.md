@@ -30,9 +30,9 @@ They are *siblings*: a `FlowMap` is not a kind of `SeedGrid`, because it emits
 nothing to Parcels, and a `SeedGrid` is not a kind of `FlowMap`, because it has no
 advected positions and no window. Neither base inherits from the other, and
 there is no common base above both, because there is almost nothing the two
-families would share in one. The separation helpers are module-level functions
-called only from the `FlowMap` side (`AuxiliarySeedGrid.from_axes` inverts the same
-relation inline to place its arms). The two families share `__init__`, which
+families would share in one. Of the two families only the `FlowMap` side calls
+the separation helpers (`AuxiliarySeedGrid.from_axes` inverts the same relation
+inline to place its arms). The two families share `__init__`, which
 stores the dataset on `.ds`, and the `lon_grid`/`lat_grid` accessors, which read
 it back; each is one line, written identically on `SeedGrid` and on `FlowMap`.
 Each base class also carries its own complete `__repr__`.
@@ -89,6 +89,30 @@ $\Lambda = \tfrac{1}{|T|}\log\sqrt{\lambda_{\max}}$, plus `image` and
 
 Signatures for all of this are in [`docs/api.md`](api.md); on the public
 surface every adjacent lon/lat pair is keyword-only.
+
+### Module layout
+
+`grids` holds the `SeedGrid` and `FlowMap` families and their one-call
+methods, `hyperbolic` the shrink-line extraction and `elliptic` the
+closed-shear-line extraction. The private module `_numerics` holds the
+spherical metric (`EARTH_RADIUS_M`, `_wrap_lon`, `_separation_m`,
+`_circular_mean_lon`, `_step_lonlat_by_meters`) and the primitives both
+extraction modules use. These are the windowed-extremum search behind
+`ftle_ridge_seeds` and `elliptic_centres`, and the line stepping and
+interpolation of $C$ (`_rk2_step`, `_tensor_interp`) that `shrink_lines` and
+`closed_shear_lines` both trace with. It imports only numpy, xarray and scipy.
+
+The imports run one way:
+
+```text
+_numerics  <-  hyperbolic, elliptic  <-  grids  <-  __init__
+```
+
+The metric sits in the leaf because the gradients in `grids` and both
+extraction modules measure separations with it, while `grids` imports both
+extraction modules for `hyperbolic_lcs()` and `elliptic_lcs()`. Kept in
+`grids`, it would make each extraction module import `grids` back. Nothing
+below `grids` imports `grids`, so every import sits at module level.
 
 ## Design decisions
 
@@ -176,7 +200,7 @@ opposed to a pair) to metres. `_wrap_lon` applies to differences only and
 longitudes keep whatever convention they arrived in. Nothing normalises them
 onto a branch of the package's choosing.
 
-`tensorlines._step_lonlat_by_meters` applies the same rule on the integration
+`_numerics._step_lonlat_by_meters` applies the same rule on the integration
 side. It is written as the *exact inverse* of `_separation_m`, the same
 mid-latitude cosine solved for the longitude increment, rather than as the
 direct great-circle problem, so that measuring the step it took reproduces the
@@ -258,10 +282,9 @@ step but the advection is a method call on a `SeedGrid` or a `FlowMap`:
    eigenvectors, and `ftle()` (§4.1) reduces that to
    $\Lambda(i, j) = \tfrac{1}{|T|}\log\sqrt{\lambda_{\max}}$ in 1/s.
 
-Those last four steps are the concrete base-class chain that a single
-`fm.ftle()` call invokes under the hood; they are spelled out here to show where
-each Haller quantity enters. `fm.to_seed()` drops the advected positions, `t0`
-and `T` to recover a seed grid for re-release.
+Steps 5 and 6 are the base-class chain a single `fm.ftle()` call runs, spelled
+out to show where each Haller quantity enters. `fm.to_seed()` drops the
+advected positions, `t0` and `T` to recover a seed grid for re-release.
 
 The `Auxiliary*` pair follows the identical workflow; the only differences are
 that the particle set is additionally stacked over the four-arm `displacement`
@@ -274,7 +297,7 @@ rejected with `ValueError`.
 ## Walkthrough: extracting LCS as shrink lines
 
 Downstream of the FTLE, the geometric layer
-([`src/lcs_parcels/tensorlines.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/tensorlines.py)) turns the
+([`src/lcs_parcels/hyperbolic.py`](https://github.com/geomar-od-lagrange/lcs_parcels/blob/main/src/lcs_parcels/hyperbolic.py)) turns the
 strain field into LCS **curves**. The extraction is implemented as free
 functions that consume a `FlowMap`'s xarray outputs rather than as methods on
 `FlowMap`, which stays a gridded-diagnostics object. That keeps the one new
@@ -337,14 +360,6 @@ argument, since the flow map already carries $\mathrm{sign}(T)$, and the returne
 dataset announces repelling or attracting in its own `long_name` attributes.
 What those parameters mean and why they are stated in the units they are is in
 [`docs/numerics.md`](numerics.md).
-
-`hyperbolic_lcs()` being a method while the extraction lives in `tensorlines`
-means `grids` would import `tensorlines`, which already imports the separation
-helpers from `grids`. The two names are therefore imported inside
-`hyperbolic_lcs()` rather than at module level. The alternative, moving those
-helpers into a third module, would touch every import in the package to buy
-back two lines, so the deferred import stands until something else needs that
-module to exist.
 
 ### Why `window_m` was not redefined as the seed separation
 
@@ -440,8 +455,7 @@ outputs, each runnable by hand, and a one-call method on `FlowMap`.
   on `(eddy, point)`.
 
 `FlowMap.elliptic_lcs()` runs the chain, and `FlowMap.polar_rotation()` is the
-one new gridded diagnostic. The search shares `_rk2_step` and `_tensor_interp`
-with `shrink_lines`, so both layers step and interpolate $C$ the same way.
+gridded diagnostic the layer adds.
 
 ### Why the search returns every orbit
 
@@ -456,21 +470,19 @@ reason `prune_shrink_lines` is, and dropping it leaves the unselected result.
 
 `stretches` takes the array to scan, and `stretch_range` builds the default one
 in the open. A single default $\lambda$ would mean $\lambda = 1$, the
-area-preserving case. On hourly CMEMS model currents over the Cape Cauldron
-from 2025-06-01 no orbit closes there, because they close between 1.16 and
-1.35. A scan
-log-symmetric about 1 covers boundaries that shrink and boundaries that grow. The default
-$\Lambda = 1.5$ and the step are measured in
+area-preserving case. On hourly CMEMS model currents over the Cape Cauldron from
+2025-06-01 no orbit closes there, because they close between 1.16 and 1.35. A
+scan log-symmetric about 1 covers boundaries that shrink and boundaries that
+grow. The default $\Lambda = 1.5$ and the step are measured in
 [`numerics.md`](numerics.md#the-measurements-that-fixed-the-defaults).
 
 ### Why centres take a field
 
 `elliptic_centres` takes a field and an `extremum`, as `ftle_ridge_seeds` takes
 a field, so the indicator is built where the caller can see it.
-$\lambda_2 / \lambda_1$ and $\theta$ need opposite extrema, so `extremum` has no
-default. `elliptic_lcs()` uses
-$\lambda_2 / \lambda_1$ minima, which found more of the GLED eddies than
-$\theta$ extrema did.
+$\lambda_2 / \lambda_1$ and $\theta$ need opposite extrema, so `extremum` has
+no default. `elliptic_lcs()` uses $\lambda_2 / \lambda_1$ minima, which found
+more of the GLED eddies than $\theta$ extrema did.
 
 ### Why the rotation sense comes from $\nabla F$
 
@@ -481,8 +493,8 @@ velocity or vorticity. Its median over the domain is subtracted before taking
 the sign. A frame rotating rigidly with angle $\phi(t)$ shifts $\theta$ by the
 same amount everywhere, so the anomaly does not depend on the frame.
 
-$\nabla F$ holds the rotation only modulo $2\pi$, and a vortex turns several
-times over a window long enough for its boundary to be found. So
+$\nabla F$ holds the rotation only modulo $2\pi$, and a vortex turns once or twice
+over a window long enough for its boundary to be found. So
 `outermost_shear_lines` takes the rotation as a separate field, from a flow
 map of its own window, rather than reading it off the orbits' flow map. The
 first design read it off that flow map, and at 30 days its sign matched GLED's

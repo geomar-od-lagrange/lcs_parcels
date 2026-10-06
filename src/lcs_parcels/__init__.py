@@ -6,8 +6,9 @@ FTLE) and the geometric layer (hyperbolic LCS as shrink lines, ``shrink_lines`` 
 doi:10.1146/annurev-fluid-010313-141322
 (https://doi.org/10.1146/annurev-fluid-010313-141322). Elliptic LCS as closed
 shear lines (``closed_shear_lines``) follow Haller & Beron-Vera (2013),
-doi:10.1017/jfm.2013.391 (https://doi.org/10.1017/jfm.2013.391). This package contains no
-Parcels code. It only emits particle sets and ingests their advected positions.
+doi:10.1017/jfm.2013.391 (https://doi.org/10.1017/jfm.2013.391). This package
+contains no Parcels code. It only emits particle sets and ingests their advected
+positions.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from lcs_parcels.grids import (
     NeighborSeedGrid,
     SeedGrid,
 )
-from lcs_parcels.tensorlines import ftle_ridge_seeds, prune_shrink_lines, shrink_lines
+from lcs_parcels.hyperbolic import ftle_ridge_seeds, prune_shrink_lines, shrink_lines
 
 #: Read from the installed distribution, whose version hatch-vcs derived from the
 #: git tag at build time. Nothing in the source tree carries a version literal.

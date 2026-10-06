@@ -228,9 +228,10 @@ A single `NaN` (lost particle or missing stencil point) propagates
 
 ## Hyperbolic LCS: shrink lines
 
-Three module-level functions (in `lcs_parcels.tensorlines`, exported from the
-package root) turn a `FlowMap`'s strain field into LCS **curves**, following
-Haller (2015) §5.1 / Table 1 ($n = 2$):
+The module-level functions `ftle_ridge_seeds`, `shrink_lines` and
+`prune_shrink_lines` (in `lcs_parcels.hyperbolic`, exported from the package
+root) turn a `FlowMap`'s strain field into LCS **curves**, following Haller
+(2015) §5.1 / Table 1 ($n = 2$):
 
 ```python
 from lcs_parcels import ftle_ridge_seeds, prune_shrink_lines, shrink_lines
@@ -452,15 +453,15 @@ outermost_shear_lines(orbits, *, rotation=None) -> xr.Dataset
   `(i, j)` in radians, counter-clockwise positive. $C$ discards the rotation,
   so this is where the rotation sense of a vortex comes from. $\theta$ is the
   rotation modulo $2\pi$, so its sign is the rotation sense only over a window
-  in which the flow turns less than half a turn. A vortex turns several times
-  over a window long enough to find it, so take $\theta$ from a second, short
-  flow map: one or two days of the same release.
+  in which the flow turns less than half a turn. A window long enough to find
+  a vortex spans one to two of its turns, so take $\theta$ from a second, short
+  flow map of one or two days of the same release.
 - **`elliptic_centres(field, *, extremum)`** picks grid points that are the
   minimum (`"min"`) or maximum (`"max"`) of `field` over a square window of
   side `window_m` metres, and drops any within `edge_m` (default
   `window_m / 2`) of the domain edge or of a NaN cell. `extremum` has no
   default. Like `ftle_ridge_seeds`, it takes a field, so any indicator can be
-  passed: the eigenvalue ratio $\lambda_2 / \lambda_1$ (minima) or
+  passed, such as the eigenvalue ratio $\lambda_2 / \lambda_1$ (minima) or
   $\lvert \theta - \operatorname{median} \theta \rvert$ (maxima). Returns
   `lon`/`lat` on a `centre` dim, with the window attributes.
 - **`stretch_range()`** returns the default scan, $\lambda = e^{k\,\delta}$ for

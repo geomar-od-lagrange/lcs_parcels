@@ -6,8 +6,9 @@ deprecation shims: the old form is deleted and every call site updated.
 
 ## Unreleased
 
-Coherent vortex boundaries as closed shear lines. Nothing existing changed
-signature, so no call has to be rewritten.
+Coherent vortex boundaries as closed shear lines. No existing signature
+changed, and imports from the package root are unchanged. The renamed
+submodule is under Changed.
 
 ### Added
 
@@ -29,6 +30,12 @@ signature, so no call has to be rewritten.
   [doi:10.1016/j.physd.2015.09.007](https://doi.org/10.1016/j.physd.2015.09.007)).
 - `FlowMap.elliptic_lcs()`, which runs centres, search and selection in one
   call.
+
+### Changed
+
+- **`lcs_parcels.tensorlines` is now `lcs_parcels.hyperbolic`.** Code that
+  imports from the old submodule path imports from `lcs_parcels.hyperbolic` or
+  from the package root instead.
 
 ## 2026.8.27.1
 
