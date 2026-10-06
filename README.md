@@ -44,7 +44,7 @@ To work on the package code instead, or to run the examples, use
 ```console
 $ pixi install
 $ pixi run test                       # run the test suite, including the Parcels-free example
-$ pixi run -e examples get-data       # download the CMEMS subset the Cabo Verde examples read (once)
+$ pixi run -e examples get-data       # download the CMEMS subsets the examples read (once)
 $ pixi run -e examples test-examples  # execute every example against the current API
 ```
 
@@ -91,9 +91,8 @@ itself:
 
 ## Examples
 
-- [`get_data`](https://lcs-parcels.readthedocs.io/page/examples/get_data.html) downloads the CMEMS subsets and
-  the GLED records the examples read. Run once, before them. Needs CMEMS
-  credentials.
+- [`get_data`](https://lcs-parcels.readthedocs.io/page/examples/get_data.html) downloads the CMEMS subsets the
+  examples read. Run once, before them. Needs CMEMS credentials.
 - [`example_grid_pset`](https://lcs-parcels.readthedocs.io/page/examples/example_grid_pset.html) exercises the package API
   on its own, without Parcels.
 - [`cabo_verde_ftle`](https://lcs-parcels.readthedocs.io/page/examples/cabo_verde_ftle.html) shows the Parcels v4 wiring
@@ -104,8 +103,6 @@ itself:
   extracted LCS as a material curve.
 - [`cape_cauldron_vortices`](https://lcs-parcels.readthedocs.io/page/examples/cape_cauldron_vortices.html) finds coherent
   vortex boundaries as closed shear lines in the Agulhas-ring corridor.
-- [`cape_cauldron_gled`](https://lcs-parcels.readthedocs.io/page/examples/cape_cauldron_gled.html) compares those
-  boundaries in altimetry and model currents with the GLED v1.0 eddy atlas.
 
 The Parcels examples need the `examples` pixi environment (`pixi install -e
 examples`) and a CMEMS currents file you save yourself. The

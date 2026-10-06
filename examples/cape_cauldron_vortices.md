@@ -16,33 +16,15 @@ jupyter:
 
 # Cape Cauldron coherent vortices
 
-The Cape Cauldron is the Agulhas-ring corridor south-west of South Africa.
-Haller & Beron-Vera (2013,
-[doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391)) found
-coherent Lagrangian vortices there with the construction this notebook uses.
-
-The FTLE ridges of `cabo_verde_ftle` mark hyperbolic stretching. A coherent
-Lagrangian vortex is a region that stays together as it advects, bounded by a
-material loop that stretches uniformly. From the same Cauchy–Green tensor
-$C = (\nabla F)^\top \nabla F$, with eigenpairs $C\xi_i = \lambda_i \xi_i$ and
-$0 < \lambda_1 \le \lambda_2$, Haller & Beron-Vera (2013, Eq. 14) build the
-direction fields
-
-$$
-\eta_\lambda^{\pm} = \sqrt{\frac{\lambda_2 - \lambda^2}{\lambda_2 - \lambda_1}}\,\xi_1
-  \;\pm\; \sqrt{\frac{\lambda^2 - \lambda_1}{\lambda_2 - \lambda_1}}\,\xi_2 \,,
-$$
-
-defined where $\lambda_1 < \lambda^2 < \lambda_2$. They satisfy
-$|\nabla F\,\eta_\lambda| = \lambda$ at every point, so a curve tangent to one
-has its arc length multiplied by $\lambda$ over the window. A closed curve
-tangent to one is a *closed shear line*. Each vortex holds a nested family of
-them over $\lambda$, and the outermost member is its boundary.
-
-`closed_shear_lines` finds them with the return map of Haller & Beron-Vera
-(2013). Lines are launched along a section running east or west from a
-candidate centre and traced until they cross it again, and a launch that comes
-back to itself is a closed orbit.
+A coherent Lagrangian vortex boundary is a *closed shear line*, a closed curve
+tangent to $\eta^\pm_\lambda$ and so stretched uniformly by $\lambda$ over the
+window (Haller & Beron-Vera 2013,
+[doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391)). This
+notebook finds them in the Cape Cauldron, the Agulhas-ring corridor south-west
+of South Africa, step by step with the elliptic API. The construction and
+every parameter are described in the
+[API guide](https://lcs-parcels.readthedocs.io/page/api.html), and
+`cabo_verde_ftle` explains the Parcels wiring.
 
 ```python tags=["remove-output"]
 # Importing Parcels pulls in the holoviews/bokeh bootstrap and prints an
@@ -66,8 +48,7 @@ from lcs_parcels import (
 ## Currents
 
 Daily-mean GLORYS12 reanalysis surface currents at 1/12 degree, the local file
-that `get_data`
-writes.
+that `get_data` writes.
 
 ```python
 currents = xr.open_dataset("data/cape_cauldron_glorys_daily.nc").load()
@@ -75,9 +56,6 @@ currents
 ```
 
 ## Parcels v4 field set
-
-`copernicusmarine_to_sgrid` tags the CMEMS A-grid with SGRID metadata, and
-`from_sgrid_conventions` wraps it as a spherical `FieldSet`.
 
 ```python
 sgrid = copernicusmarine_to_sgrid(fields={"U": currents["uo"], "V": currents["vo"]})
@@ -88,10 +66,7 @@ z_surface = float(currents["depth"].values[0])
 ## Seed grid and window
 
 A box across the Cape Cauldron at 1/25 degree, released on 2018-06-01 and read
-at 15 days. An Agulhas ring turns once in roughly 7 to 12 days, so the window
-covers one to two revolutions. Over 30 days the model's loops stop stretching
-uniformly and the search closes almost none. A vortex boundary belongs to one
-window, so only the forward flow map is needed.
+at 15 days, one to two turns of an Agulhas ring.
 
 ```python
 t0 = np.datetime64("2018-06-01")
@@ -131,17 +106,13 @@ pset.execute(
     runtime=T,
     verbose_progress=False,
 )
-```
-
-```python
 forward = seed.pset_to_flowmap(lon=pset.x, lat=pset.y, t0=t0, t1=t0 + T)
 forward
 ```
 
-A second run over the first day gives the rotation of the flow. The polar
-rotation angle is defined modulo $2\pi$, and an Agulhas ring turns several
-times in 15 days, so its sign gives the rotation sense only over a short
-window.
+A second run over the first day gives the rotation sense. The polar rotation
+angle is defined modulo $2\pi$, so it has to come from a window shorter than
+half a turn.
 
 ```python
 pset_day = ParticleSet(fieldset, pclass=Particle, x=lon, y=lat, z=z, t=t0)
@@ -157,69 +128,34 @@ first_day = seed.pset_to_flowmap(
 first_day
 ```
 
-Particles lost to land or to the domain edge over the 15 days.
+## Candidate centres
 
-```python
-int(np.isnan(np.asarray(pset.x)).sum())
-```
-
-## Eigendecomposition and FTLE
-
-The FTLE is the backdrop the centres and the boundaries are drawn on below.
-Cells that contract in every direction have a negative FTLE, which would
-centre the colour range on zero, so it starts at 0.
+`elliptic_centres` takes any field. Here it is the Cauchy–Green eigenvalue
+ratio $\lambda_2 / \lambda_1$, whose windowed minima mark the vortex cores.
 
 ```python
 eigen = forward.cg_eigen()
-eigen
-```
-
-```python
-ftle = forward.ftle()
-ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", vmin=0.0)
-```
-
-## Where $\eta_\lambda$ exists, at $\lambda = 1$
-
-$\eta_1$ needs $\lambda_1 < 1 < \lambda_2$, a neighbourhood stretched along one
-eigendirection and contracted along the other. Where that fails, no direction
-has a stretching factor of 1, and a traced line ends.
-
-```python
-lambda1 = eigen["lambda"].isel(eig=0)
-lambda2 = eigen["lambda"].isel(eig=1)
-((lambda1 < 1.0) & (1.0 < lambda2)).plot.pcolormesh(x="lon_grid", y="lat_grid")
-```
-
-## How far from area-preserving
-
-$|\det \nabla F| = \sqrt{\lambda_1\lambda_2}$ is the area change of a grid cell
-over the window. A loop whose interior changes area by $J$ and keeps its shape
-changes its length by $\sqrt{J}$, so a boundary closes near
-$\lambda = \sqrt{J}$ rather than at 1, and the search scans a range of
-$\lambda$.
-
-```python
-np.sqrt(lambda1 * lambda2).quantile([0.05, 0.25, 0.5, 0.75, 0.95])
-```
-
-## Candidate centres
-
-Windowed minima of $\lambda_2 / \lambda_1$, the points where the
-eigendirections come closest to undefined, over a 100 km window and at least
-50 km from the domain edge and from land.
-
-```python
-anisotropy = (lambda2 / lambda1).assign_attrs(
-    long_name="Cauchy-Green eigenvalue ratio", units="1"
+anisotropy = (
+    eigen["lambda"].isel(eig=1, drop=True) / eigen["lambda"].isel(eig=0, drop=True)
+).assign_attrs(long_name="Cauchy-Green eigenvalue ratio lambda_2 / lambda_1", units="1")
+# The ratio spans many decades, so it is drawn as its decimal logarithm.
+log_anisotropy = np.log10(anisotropy).assign_attrs(
+    long_name="log10 of the Cauchy-Green eigenvalue ratio", units="1"
 )
+log_anisotropy.plot.pcolormesh(x="lon_grid", y="lat_grid", robust=True)
+plt.show()
+```
+
+```python
 centres = elliptic_centres(anisotropy, extremum="min", window_m=100_000.0)
 centres
 ```
 
 ```python
 _, ax = plt.subplots()
-ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", vmin=0.0, ax=ax, cmap="Greys")
+log_anisotropy.plot.pcolormesh(
+    x="lon_grid", y="lat_grid", ax=ax, cmap="Greys", robust=True
+)
 ax.scatter(centres["lon"], centres["lat"], marker="x", color="tab:orange")
 plt.show()
 ```
@@ -227,8 +163,7 @@ plt.show()
 ## The scan over $\lambda$
 
 `stretch_range` is the default scan, log-symmetric about 1 from $1/1.5$ to
-$1.5$ in steps of 0.03 in $\ln \lambda$, so it covers boundaries that shrink
-and boundaries that grow.
+$1.5$ in steps of 0.03 in $\ln \lambda$.
 
 ```python
 stretches = stretch_range(stretch_max=1.5, step=0.03)
@@ -251,7 +186,7 @@ orbits = closed_shear_lines(
 orbits
 ```
 
-Each orbit's equivalent radius against the $\lambda$ it closed at. One vortex
+Each orbit's equivalent radius against the $\lambda$ it closed at. A vortex
 shows up as a run of orbits growing with $\lambda$.
 
 ```python
@@ -262,9 +197,9 @@ plt.show()
 ## The outermost boundary per vortex
 
 `outermost_shear_lines` keeps the largest orbit per centre and merges centres
-that one boundary encloses. `rotation_sense` is the sign of the first day's
-polar rotation angle inside the boundary, counter-clockwise positive. South of
-the equator a clockwise eddy is cyclonic.
+that one boundary encloses. With the first day's polar rotation it adds
+`rotation_sense`, counter-clockwise positive. South of the equator a clockwise
+eddy is cyclonic.
 
 ```python
 eddies = outermost_shear_lines(orbits, rotation=first_day.polar_rotation())
@@ -273,7 +208,9 @@ eddies
 
 ```python
 _, ax = plt.subplots()
-ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", vmin=0.0, ax=ax, cmap="Greys")
+log_anisotropy.plot.pcolormesh(
+    x="lon_grid", y="lat_grid", ax=ax, cmap="Greys", robust=True
+)
 ax.plot(orbits["lon"].T, orbits["lat"].T, color="tab:green", lw=0.5)
 ax.plot(eddies["lon"].T, eddies["lat"].T, color="tab:red", lw=2.0)
 plt.show()
@@ -291,79 +228,38 @@ ax.plot(eddies["lon"].T, eddies["lat"].T, color="black", lw=1.5)
 plt.show()
 ```
 
-## Material check
+## The boundaries at the end of the window
 
-A boundary stretches every tangent element by its $\lambda$, so its arc length
-over the window should grow by that factor. `forward.image` carries a curve
-through the flow map already computed, with no second Parcels run. A circle of
-the same equivalent radius about the same centre is not tangent to
-$\eta_\lambda$, so nothing constrains its ratio.
-
+A boundary is a material curve, so `forward.image` carries it to $t_1$
+through the flow map already computed, with no second Parcels run.
 
 ```python
-def arc_length_m(curve):
-    lon, lat = curve["lon"], curve["lat"]
-    lat_mid = np.deg2rad(0.5 * (lat + lat.shift(point=-1)))
-    dx = 6_371_000.0 * np.cos(lat_mid) * np.deg2rad(lon.shift(point=-1) - lon)
-    dy = 6_371_000.0 * np.deg2rad(lat.shift(point=-1) - lat)
-    return np.hypot(dx, dy).sum("point")
-
-
-boundary = eddies.isel(eddy=0)
-evolved = forward.image(lon_0=boundary["lon"], lat_0=boundary["lat"])
-
-angle = xr.DataArray(np.linspace(0.0, 2 * np.pi, 361), dims="point")
-radius_deg = boundary["radius_m"] / 111_195.0
-circle = xr.Dataset(
-    {
-        "lon": boundary["centroid_lon"]
-        + radius_deg * np.cos(angle) / np.cos(np.deg2rad(boundary["centroid_lat"])),
-        "lat": boundary["centroid_lat"] + radius_deg * np.sin(angle),
-    }
-)
-evolved_circle = forward.image(lon_0=circle["lon"], lat_0=circle["lat"])
-```
-
-The boundary's $\lambda$, its arc-length ratio, and the circle's.
-
-```python
-(
-    float(boundary["stretch"]),
-    float(arc_length_m(evolved) / arc_length_m(boundary)),
-    float(arc_length_m(evolved_circle) / arc_length_m(circle)),
-)
+evolved = forward.image(lon_0=eddies["lon"], lat_0=eddies["lat"])
 ```
 
 ```python
 _, ax = plt.subplots()
-ftle.plot.pcolormesh(x="lon_grid", y="lat_grid", vmin=0.0, ax=ax, cmap="Greys")
-ax.plot(boundary["lon"].T, boundary["lat"].T, color="tab:red", label="boundary, t0")
-ax.plot(evolved["lon"].T, evolved["lat"].T, color="tab:red", ls="--", label="t1")
-ax.plot(circle["lon"].T, circle["lat"].T, color="tab:blue", label="circle, t0")
-ax.plot(
-    evolved_circle["lon"].T,
-    evolved_circle["lat"].T,
-    color="tab:blue",
-    ls="--",
-    label="t1",
+log_anisotropy.plot.pcolormesh(
+    x="lon_grid", y="lat_grid", ax=ax, cmap="Greys", robust=True
 )
-ax.legend()
+ax.plot(eddies["lon"].T, eddies["lat"].T, color="tab:red", lw=1.5)
+ax.plot(evolved["lon"].T, evolved["lat"].T, color="tab:red", lw=1.5, ls="--")
 plt.show()
+```
+
+## In one call
+
+`elliptic_lcs` runs the centres, the search and the selection at the package
+defaults. It has only the 15-day flow map, so its boundaries carry no
+rotation sense.
+
+```python
+forward.elliptic_lcs()
 ```
 
 ## Outcome
 
-Of the 501 by 401 seeded particles, 19016 are lost to land or the domain edge
-over the 15 days. $|\det \nabla F|$ runs from 0.255 at the 5 percent quantile
-to 171 at the 95 percent, with a median of 1.28.
-
-The search over 241 candidate centres closes 192 orbits, and
-`outermost_shear_lines` keeps 12 boundaries. Six turn counter-clockwise over
-the first day and six clockwise, so south of the equator six are
-anticyclones and six cyclones. The largest, at $\lambda = 1.062$ with an
-equivalent radius of 77.4 km and its centroid at 5.20 E 30.59 S, turns
-counter-clockwise.
-
-Carried through the flow map, that boundary's arc length grows by 1.121
-against its $\lambda$ of 1.062. A circle of the same equivalent radius about
-the same centroid grows by 3.371.
+`elliptic_centres` picks 241 candidate centres, and `closed_shear_lines`
+closes 192 orbits at 13 of them. `outermost_shear_lines` keeps 12 boundaries,
+six turning counter-clockwise over the first day and six clockwise.
+`elliptic_lcs` returns the same 12 boundaries in one call.

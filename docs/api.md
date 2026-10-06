@@ -406,16 +406,34 @@ the window. $\eta^\pm_\lambda$ exists only where
 $\lambda_1 < \lambda^2 < \lambda_2$. The stretching factor $\lambda$ is stored
 as `stretch`.
 
-```python
-from lcs_parcels import closed_shear_lines, elliptic_centres, outermost_shear_lines
+The whole chain, for a `forward` flow map over the window and a `first_day`
+flow map of the same release over one day:
 
-eigen = flowmap.cg_eigen()
+```python
+from lcs_parcels import (
+    closed_shear_lines, elliptic_centres, outermost_shear_lines, stretch_range,
+)
+
+eigen = forward.cg_eigen()
 anisotropy = eigen["lambda"].isel(eig=1) / eigen["lambda"].isel(eig=0)
-centres = elliptic_centres(anisotropy, extremum="min")                # candidates
-orbits = closed_shear_lines(flowmap, centre_lon=centres["lon"],
-                            centre_lat=centres["lat"])                # every orbit
-eddies = outermost_shear_lines(orbits)                                # boundaries
+centres = elliptic_centres(anisotropy, extremum="min")       # candidate centres
+orbits = closed_shear_lines(
+    forward,
+    centre_lon=centres["lon"],
+    centre_lat=centres["lat"],
+    stretches=stretch_range(stretch_max=1.5, step=0.03),       # the default scan
+)                                                              # every closed orbit
+eddies = outermost_shear_lines(
+    orbits, rotation=first_day.polar_rotation()                # rotation sense
+)                                                              # one per vortex
+evolved = forward.image(lon_0=eddies["lon"], lat_0=eddies["lat"])  # at t1
+
+eddies = forward.elliptic_lcs()            # the same chain in one call, no rotation sense
 ```
+
+The example
+[`cape_cauldron_vortices`](https://lcs-parcels.readthedocs.io/page/examples/cape_cauldron_vortices.html)
+runs it step by step on GLORYS12 currents.
 
 ```text
 FlowMap.polar_rotation() -> xr.DataArray
@@ -491,12 +509,27 @@ outermost_shear_lines(orbits, *, rotation=None) -> xr.Dataset
   eddies = outermost_shear_lines(orbits, rotation=short.polar_rotation())
   ```
 
-`radius_m` is the radius of the circle with the same area, the definition
-eddy atlases such as GLED (Liu & Abernathey 2023,
-[doi:10.5194/essd-15-1765-2023](https://doi.org/10.5194/essd-15-1765-2023))
-use, so a boundary compares with an atlas radius directly. A boundary is a
+`radius_m` is the radius of the circle with the same area. A boundary is a
 material curve, so `FlowMap.image(lon_0=eddies["lon"], lat_0=eddies["lat"])`
 evolves it.
+
+### Choosing the parameters
+
+- **The window `T`** of the flow map sets how long a boundary has to stay
+  uniformly stretched. One to two turns of the eddies sought is a working
+  choice. Over longer windows the filaments grow thinner than the seed spacing,
+  `|det grad F|` rises far above 1, and fewer orbits close.
+- **`window_m`** of `elliptic_centres` is about the spacing of the eddies
+  sought. Two eddies closer than `window_m / 2` give one centre.
+- **`max_radius_m`** of `closed_shear_lines` is the largest boundary radius
+  sought. A line is traced for at most two circumferences at that radius, so it
+  also bounds the work.
+- **`stretches`.** When the outermost orbits of many centres close at the
+  first or last value of the scan, widen it with `stretch_range(stretch_max=...)`.
+- **`attrs["n_never_returned"]`** counts the (centre, section, stretch, branch)
+  families of which no launch came back to its section. On real currents it is
+  most of them. When it equals `4 * n_stretch * n_centres`, every family
+  searched, no launch returned at all.
 
 ### One call: `FlowMap.elliptic_lcs()`
 

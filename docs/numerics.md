@@ -488,7 +488,8 @@ closes less well. A quarter-grid tolerance loses 2 boundaries.
 
 ### The measurements that fixed the defaults
 
-The case is DUACS
+The measurements below are dated records. The DUACS field and the GLED records
+they use were fetched by an example since removed. The case is DUACS
 geostrophic velocity from 2018-06-01 over 30 days, seeded at 1/25 degree over
 2 E to 22 E, 44 S to 28 S, at the native 1/8 degree and block-averaged to 1/4
 degree. GLED v1.0 (Liu & Abernathey 2023,
@@ -562,23 +563,13 @@ examples take the rotation from a 1-day flow map.
 **Removing the local dilation, measured and not adopted.** Divergence that
 varies around a loop stretches its elements unevenly, so searching
 $C / \lvert\det\nabla F\rvert$ instead of $C$ makes such a loop uniformly
-stretched again. On an analytic vortex followed by a conformal map, whose
-isotropic dilation varies across the domain, it recovers the circles the plain
-search loses. On the 2018-06-01 window over 30 days, GLED eddies matched out of
-23, plain against dilation removed:
-
-| field | from own centres | from the GLED centres |
-|---|---|---|
-| DUACS geostrophic, 1/8 degree | 7, 7 | 9, 8 |
-| GLORYS12 daily currents | 0, 1 | 0, 1 |
-| GLORYS12 geostrophic from `zos` | 2, 2 | 1, 0 |
-| GLORYS12 geostrophic, 1/50 degree seeds | 3, 4 | 3, 3 |
-| GLORYS12 geostrophic, 15 days | 5, 6 | 4, 4 |
-
-It changes no count by more than one, so the search takes $C$ only. A band of
-$\pm 10\%$ on the stretching instead of an exact $\lambda$, prototyped with the
-direction in the band nearest the azimuth about the centre, changed the counts
-by at most four on DUACS and by at most one on GLORYS12.
+stretched again. On an analytic vortex followed by a conformal map it recovers
+the circles the plain search loses. On the 2018-06-01 window it changed no count
+of matched GLED eddies by more than one, on DUACS, on GLORYS12 currents and on
+GLORYS12 geostrophic currents, at 1/25 and 1/50 degree and over 15 and 30 days.
+So the search takes $C$ only. A band of $\pm 10\%$ on the stretching instead of
+an exact $\lambda$ changed the counts by at most four on DUACS and at most one
+on GLORYS12.
 
 **Separatrix.** For the analytic vortex in a uniform strain $s$, the steady
 flow has saddles where $\Omega(r) = s$, at radius $r_*$, and its closed

@@ -16,7 +16,6 @@ examples/cabo_verde_ftle
 examples/cabo_verde_lcs
 examples/cabo_verde_lcs_evolution
 examples/cape_cauldron_vortices
-examples/cape_cauldron_gled
 ```
 
 ```{toctree}

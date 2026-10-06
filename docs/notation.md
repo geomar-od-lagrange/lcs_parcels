@@ -294,11 +294,8 @@ to a perturbation of $C$, and so whether $\xi_1$ is a direction or numerical
 noise. Default $a_{\min} = 1.15$. It is a well-definedness guard, not an LCS
 selector; the selection is made by $\Lambda_{\min}$.
 
-The following remain deferred:
-
-- $E_\lambda(x_0)$, the generalized Green–Lagrange strain tensor (Eq. 8).
-- $\eta^\pm(x_0)$, the shear vector field, with stretch and shear (elliptic) lines
-  (Eqs. 10–11, Table 1).
+The generalized Green–Lagrange strain tensor $E_\lambda(x_0)$ (Eq. 8) remains
+deferred.
 
 ## Array and dimension conventions
 

@@ -303,8 +303,8 @@ lcs = forward.hyperbolic_lcs()   # repelling; backward.hyperbolic_lcs() for attr
 ```
 
 The method is named for the family of LCS it extracts. Elliptic LCS are a
-separate extraction with a separate parameter set, so the generic name `lcs()`
-would have to be undone when that extraction lands (GitHub issue #8).
+separate extraction with a separate parameter set, `FlowMap.elliptic_lcs()`, so
+a generic name `lcs()` would have fitted neither.
 
 `hyperbolic_lcs()` is a convenience wrapper and introduces no new type. It
 evaluates the FTLE once and hands that field to the ridge finder, so a caller
