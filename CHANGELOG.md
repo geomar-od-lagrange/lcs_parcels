@@ -4,6 +4,39 @@ Versions are CalVer, `YYYY.M.D.N`. The API breaks whenever the design improves,
 so each entry says what broke and what to write instead. There are no
 deprecation shims: the old form is deleted and every call site updated.
 
+## Unreleased
+
+Coherent vortex boundaries as closed shear lines. No existing signature
+changed, and imports from the package root are unchanged. The renamed
+submodule is under Changed.
+
+### Added
+
+- `closed_shear_lines(flowmap, *, centre_lon, centre_lat, stretches=None,
+  max_radius_m=150_000.0, ...)`, which returns every closed
+  `eta^pm_lambda` orbit (Haller & Beron-Vera 2013,
+  [doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391)) about each
+  candidate centre over a scan of stretching factors, with its area,
+  equivalent radius and closure residual.
+- `outermost_shear_lines(orbits, *, rotation=None)`, which keeps the outermost
+  orbit per vortex, and gives it a rotation sense from the polar rotation of a
+  short window when one is passed.
+- `elliptic_centres(field, *, extremum, window_m=100_000.0, edge_m=None)`,
+  which picks candidate centres at windowed extrema of a field.
+- `stretch_range(*, stretch_max=1.5, step=0.03)`, the default scan,
+  log-symmetric about 1.
+- `FlowMap.polar_rotation()`, the rotation angle of the polar decomposition of
+  `grad F` (Farazmand & Haller 2016,
+  [doi:10.1016/j.physd.2015.09.007](https://doi.org/10.1016/j.physd.2015.09.007)).
+- `FlowMap.elliptic_lcs()`, which runs centres, search and selection in one
+  call.
+
+### Changed
+
+- **`lcs_parcels.tensorlines` is now `lcs_parcels.hyperbolic`.** Code that
+  imports from the old submodule path imports from `lcs_parcels.hyperbolic` or
+  from the package root instead.
+
 ## 2026.8.27.1
 
 Pruning of the near-duplicate shrink lines that several seeds on one FTLE ridge

@@ -13,7 +13,7 @@ import xarray as xr
 from conftest import advected_flowmap
 
 from lcs_parcels import AuxiliarySeedGrid, NeighborFlowMap, NeighborSeedGrid
-from lcs_parcels.grids import _separation_m
+from lcs_parcels._numerics import _separation_m
 
 # Release/end times supplied only at ingest (the seed grid carries no time).
 RELEASE_TIME = np.datetime64("2020-01-01")

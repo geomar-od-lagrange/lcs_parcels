@@ -30,7 +30,8 @@ from conftest import (
 )
 
 from lcs_parcels import AuxiliarySeedGrid, NeighborSeedGrid
-from lcs_parcels.grids import _arm_separation_m, _central_separation_m, _separation_m
+from lcs_parcels._numerics import _separation_m
+from lcs_parcels.grids import _arm_separation_m, _central_separation_m
 
 # Release time and integration end time; the signed window T = END_TIME - RELEASE_TIME spans one
 # day (|T| = 86400 s).

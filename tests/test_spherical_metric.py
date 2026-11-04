@@ -26,7 +26,7 @@ import pytest
 import xarray as xr
 
 from lcs_parcels import AuxiliarySeedGrid, NeighborSeedGrid
-from lcs_parcels.grids import (
+from lcs_parcels._numerics import (
     _circular_mean_lon,
     _wrap_lon,
 )
