@@ -6,6 +6,8 @@ Positions are lon/lat in degrees, distances are metres on a sphere of radius
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
@@ -176,7 +178,8 @@ def _windowed_extrema(
     window of side ``window_m`` centred on the point.
 
     Returns the boolean mask on ``(i, j)``, False at NaN cells, and the
-    :func:`_window_geometry` of ``window_m``.
+    :func:`_window_geometry` of ``window_m``. Warns when the window spans fewer
+    than three cells in either dimension, since every point then qualifies.
 
     Raises
     ------
@@ -186,6 +189,17 @@ def _windowed_extrema(
     if extremum not in ("min", "max"):
         raise ValueError(f'extremum must be "min" or "max", got {extremum!r}')
     geometry = _window_geometry(field, window_m)
+    cells_i, cells_j = geometry["window_cells_i"], geometry["window_cells_j"]
+    if cells_i < 3 or cells_j < 3:
+        warnings.warn(
+            f"window_m={window_m} spans {cells_i}x{cells_j} cells of this grid "
+            f"({geometry['grid_spacing_i_m']:.0f} x "
+            f"{geometry['grid_spacing_j_m']:.0f} m). A window under three cells "
+            "makes every point a windowed extremum in that dimension, so the "
+            "extremum test stops selecting. Consider wider window_m or finer grid.",
+            UserWarning,
+            stacklevel=3,
+        )
     rolling = field.rolling(
         i=geometry["window_cells_i"],
         j=geometry["window_cells_j"],

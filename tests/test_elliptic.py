@@ -20,6 +20,7 @@ from lcs_parcels import (
     closed_shear_lines,
     elliptic_centres,
     outermost_shear_lines,
+    rotation_sense,
     stretch_range,
 )
 from lcs_parcels.elliptic import _eta_tangent
@@ -247,6 +248,18 @@ def test_polar_rotation_is_labelled_and_on_the_grid():
     assert {"lon_grid", "lat_grid"} <= set(theta.coords)
 
 
+def test_cg_anisotropy_is_the_eigenvalue_ratio(vortex):
+    eigen = vortex.cg_eigen()["lambda"]
+    ratio = vortex.cg_anisotropy()
+    np.testing.assert_allclose(
+        ratio.values, (eigen.isel(eig=1) / eigen.isel(eig=0)).values
+    )
+    assert ratio.name == "cg_anisotropy"
+    assert ratio.attrs["units"] == "1"
+    assert ratio.attrs["long_name"]
+    assert set(ratio.dims) == {"i", "j"}
+
+
 # --- elliptic_centres -----------------------------------------------------------
 
 CENTRE_AXIS = np.arange(0.0, 4.0 + 1e-9, 0.05)
@@ -312,6 +325,13 @@ def test_elliptic_centres_keeps_clear_of_nan_cells():
     np.testing.assert_allclose(found, [(3.0, 2.5)], atol=0.051)
 
 
+def test_elliptic_centres_warns_when_the_window_is_under_three_cells():
+    """The 0.05 degree grid has 5.6 km cells, so a 10 km window is one cell and
+    every point is a windowed minimum."""
+    with pytest.warns(UserWarning, match="three cells"):
+        elliptic_centres(_two_dips(), extremum="min", window_m=10_000.0)
+
+
 def test_elliptic_centres_output_structure():
     centres = elliptic_centres(_two_dips(), extremum="min", window_m=100_000.0)
     assert set(centres.data_vars) >= {"lon", "lat"}
@@ -370,7 +390,7 @@ def test_closed_shear_lines_output_structure(vortex_orbits):
     for name in ("lon", "lat"):
         assert vortex_orbits[name].dims == ("orbit", "point")
     for name in (
-        "centre",
+        "centre_index",
         "centre_lon",
         "centre_lat",
         "stretch",
@@ -378,9 +398,11 @@ def test_closed_shear_lines_output_structure(vortex_orbits):
         "area_m2",
         "radius_m",
         "residual_m",
+        "at_scan_edge",
     ):
         assert vortex_orbits[name].dims == ("orbit",)
     assert set(np.unique(vortex_orbits["branch"])) <= {-1, 1}
+    assert vortex_orbits["at_scan_edge"].dtype == bool
     for key in (
         "stretch_min",
         "stretch_max",
@@ -389,7 +411,7 @@ def test_closed_shear_lines_output_structure(vortex_orbits):
         "launch_spacing_m",
         "step_m",
         "closure_tol_m",
-        "n_never_returned",
+        "grid_spacing_m",
     ):
         assert key in vortex_orbits.attrs
 
@@ -418,6 +440,38 @@ def test_closed_shear_lines_scans_the_given_stretches_only(vortex):
     assert orbits.attrs["n_stretch"] == 1
 
 
+def test_at_scan_edge_marks_orbits_at_the_ends_of_the_scan(vortex, vortex_orbits):
+    """The vortex orbits close at lambda = 1, inside the default scan, and at the
+    end of a scan that starts at 1."""
+    assert not vortex_orbits["at_scan_edge"].any()
+    orbits = closed_shear_lines(
+        vortex,
+        centre_lon=[0.0],
+        centre_lat=[0.0],
+        stretches=np.array([1.0, 1.03]),
+        max_radius_m=MAX_RADIUS_M,
+    )
+    at_end = orbits["stretch"].isin([1.0, 1.03])
+    assert bool(orbits["at_scan_edge"].any())
+    np.testing.assert_array_equal(orbits["at_scan_edge"].values, at_end.values)
+
+
+def test_grid_spacing_m_does_not_follow_launch_spacing(vortex, vortex_orbits):
+    orbits = closed_shear_lines(
+        vortex,
+        centre_lon=[0.0],
+        centre_lat=[0.0],
+        stretches=np.array([1.0]),
+        max_radius_m=MAX_RADIUS_M,
+        launch_spacing_m=10_000.0,
+    )
+    assert orbits.attrs["launch_spacing_m"] == 10_000.0
+    assert orbits.attrs["grid_spacing_m"] == vortex_orbits.attrs["grid_spacing_m"]
+    assert vortex_orbits.attrs["grid_spacing_m"] == pytest.approx(
+        0.02 * M_PER_DEG, rel=1e-3
+    )
+
+
 def test_closed_shear_lines_bisects_a_sign_change_of_the_return_map():
     """In the strained vortex at a 5 m tolerance, the orbits come from bisecting
     sign changes of P(s) - s, and they still close within 5 m."""
@@ -443,7 +497,6 @@ def test_closed_shear_lines_bisects_a_sign_change_of_the_return_map():
 def test_closed_shear_lines_off_the_grid_finds_nothing(vortex):
     orbits = closed_shear_lines(vortex, centre_lon=[5.0], centre_lat=[0.0])
     assert orbits.sizes["orbit"] == 0
-    assert orbits.attrs["n_never_returned"] == 2 * 2 * orbits.attrs["n_stretch"]
 
 
 def test_closed_shear_lines_needs_matching_centre_arrays(vortex):
@@ -451,76 +504,17 @@ def test_closed_shear_lines_needs_matching_centre_arrays(vortex):
         closed_shear_lines(vortex, centre_lon=[0.0, 0.1], centre_lat=[0.0])
 
 
-def test_a_line_out_of_steps_does_not_return(vortex):
-    """Two steps cannot take a line round its centre."""
-    from lcs_parcels._numerics import _tensor_interp
-    from lcs_parcels.elliptic import _section_launch, _trace_to_return
-
-    one = np.ones(1)
-    lon_0, lat_0 = _section_launch(
-        centre_lon=0 * one, centre_lat=0 * one, direction=one, s=20_000.0 * one
-    )
-    returned_s, _ = _trace_to_return(
-        lon_0,
-        lat_0,
-        centre_lon=0 * one,
-        centre_lat=0 * one,
-        direction=one,
-        stretch=one,
-        branch=one,
-        section_m=MAX_RADIUS_M,
-        tensor_interp=_tensor_interp(vortex.cauchy_green()),
-        step_m=1_000.0,
-        n_steps=2,
-    )
-    assert np.isnan(returned_s).all()
-
-
 # --- selection ------------------------------------------------------------------
 
 
-def test_outermost_shear_lines_keeps_the_largest_orbit(vortex, vortex_orbits):
+def test_outermost_shear_lines_keeps_the_largest_orbit(vortex_orbits):
+    """The kept row keeps its ``orbit`` label, so it selects back into the
+    search result."""
     eddies = outermost_shear_lines(vortex_orbits)
-    assert eddies.sizes["eddy"] == 1
+    largest = vortex_orbits["area_m2"].idxmax("orbit")
+    assert eddies["orbit"].values.tolist() == [int(largest)]
+    assert eddies["lon"].dims == ("orbit", "point")
     assert float(eddies["area_m2"].max()) == float(vortex_orbits["area_m2"].max())
-    assert eddies["lon"].dims == ("eddy", "point")
-
-
-@pytest.mark.parametrize(("omega_0", "sense"), [(OMEGA_0, 1), (-OMEGA_0, -1)])
-def test_rotation_sense_follows_the_vortex(omega_0, sense):
-    fm = _vortex_flowmap(omega_0=omega_0)
-    orbits = closed_shear_lines(
-        fm, centre_lon=[0.0], centre_lat=[0.0], max_radius_m=MAX_RADIUS_M
-    )
-    eddies = outermost_shear_lines(orbits, rotation=fm.polar_rotation())
-    assert eddies["rotation_sense"].values.tolist() == [sense]
-
-
-def test_rotation_sense_is_zero_where_the_field_misses_the_boundary(
-    vortex, vortex_orbits
-):
-    """A rotation field with no point inside a boundary gives it no sense."""
-    corner = vortex.polar_rotation().isel(i=slice(0, 10), j=slice(0, 10))
-    eddies = outermost_shear_lines(vortex_orbits, rotation=corner)
-    assert eddies["rotation_sense"].values.tolist() == [0]
-
-
-def test_rotation_sense_is_zero_where_the_field_is_nan_inside_the_boundary(
-    vortex, vortex_orbits
-):
-    """A rotation field that is NaN inside a boundary gives it no sense, silently."""
-    rotation = vortex.polar_rotation()
-    distance = _distance_from_origin_m(rotation["lon_grid"], rotation["lat_grid"])
-    rotation = rotation.where(distance > 2 * MAX_RADIUS_M)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        eddies = outermost_shear_lines(vortex_orbits, rotation=rotation)
-    assert eddies["rotation_sense"].values.tolist() == [0]
-
-
-def test_rotation_sense_needs_a_rotation_field(vortex_orbits):
-    """Without a rotation field the boundaries carry no rotation sense."""
-    assert "rotation_sense" not in outermost_shear_lines(vortex_orbits)
 
 
 def test_outermost_shear_lines_merges_centres_inside_one_boundary(vortex):
@@ -531,12 +525,12 @@ def test_outermost_shear_lines_merges_centres_inside_one_boundary(vortex):
         centre_lat=[0.0, 0.0],
         max_radius_m=MAX_RADIUS_M,
     )
-    assert set(np.unique(orbits["centre"])) == {0, 1}
+    assert set(np.unique(orbits["centre_index"])) == {0, 1}
     eddies = outermost_shear_lines(orbits)
-    assert eddies.sizes["eddy"] == 1
+    assert eddies.sizes["orbit"] == 1
 
 
-def test_eddy_centroid_is_the_vortex_centre(vortex, vortex_orbits):
+def test_eddy_centroid_is_the_vortex_centre(vortex_orbits):
     eddies = outermost_shear_lines(vortex_orbits)
     distance = _distance_from_origin_m(
         float(eddies["centroid_lon"][0]), float(eddies["centroid_lat"][0])
@@ -544,10 +538,103 @@ def test_eddy_centroid_is_the_vortex_centre(vortex, vortex_orbits):
     assert distance < 2_000.0
 
 
+def test_outermost_shear_lines_trims_the_padding(vortex_orbits):
+    eddies = outermost_shear_lines(vortex_orbits)
+    assert bool(eddies["lon"].isel(point=-1).notnull().any())
+
+
 def test_outermost_shear_lines_of_no_orbits_is_empty(vortex):
     orbits = closed_shear_lines(vortex, centre_lon=[], centre_lat=[])
-    eddies = outermost_shear_lines(orbits, rotation=vortex.polar_rotation())
-    assert eddies.sizes["eddy"] == 0
+    assert outermost_shear_lines(orbits).sizes["orbit"] == 0
+
+
+# --- rotation sense ---------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def vortex_eddies(vortex_orbits):
+    return outermost_shear_lines(vortex_orbits)
+
+
+@pytest.mark.parametrize(("omega_0", "sense"), [(OMEGA_0, 1), (-OMEGA_0, -1)])
+def test_rotation_sense_follows_the_vortex(omega_0, sense):
+    fm = _vortex_flowmap(omega_0=omega_0)
+    orbits = closed_shear_lines(
+        fm, centre_lon=[0.0], centre_lat=[0.0], max_radius_m=MAX_RADIUS_M
+    )
+    eddies = rotation_sense(outermost_shear_lines(orbits), rotation=fm.polar_rotation())
+    assert eddies["rotation_sense"].values.tolist() == [sense]
+    assert np.sign(eddies["rotation_rad"].values).tolist() == [sense]
+
+
+def test_rotation_rad_is_the_mean_angle_inside_the_boundary(vortex, vortex_eddies):
+    theta = vortex.polar_rotation()
+    radius = float(vortex_eddies["radius_m"][0])
+    inside = _distance_from_origin_m(theta["lon_grid"], theta["lat_grid"]) < radius
+    eddies = rotation_sense(vortex_eddies, rotation=theta)
+    assert float(eddies["rotation_rad"][0]) == pytest.approx(
+        float(theta.where(inside).mean()), rel=0.02
+    )
+
+
+def test_rotation_rad_keeps_a_rotation_common_to_the_domain(vortex, vortex_eddies):
+    """No background is subtracted, so a uniform offset passes straight through."""
+    theta = vortex.polar_rotation()
+    plain = rotation_sense(vortex_eddies, rotation=theta)
+    offset = rotation_sense(vortex_eddies, rotation=theta + 0.1)
+    np.testing.assert_allclose(
+        offset["rotation_rad"] - plain["rotation_rad"], 0.1, rtol=1e-9
+    )
+
+
+def test_rotation_sense_is_nan_where_the_field_misses_the_boundary(
+    vortex, vortex_eddies
+):
+    corner = vortex.polar_rotation().isel(i=slice(0, 10), j=slice(0, 10))
+    eddies = rotation_sense(vortex_eddies, rotation=corner)
+    assert np.isnan(eddies["rotation_rad"]).all()
+    assert np.isnan(eddies["rotation_sense"]).all()
+
+
+def test_rotation_sense_is_nan_where_the_field_is_nan_inside_the_boundary(
+    vortex, vortex_eddies
+):
+    """A rotation field that is NaN inside a boundary gives it no sense, silently."""
+    rotation = vortex.polar_rotation()
+    distance = _distance_from_origin_m(rotation["lon_grid"], rotation["lat_grid"])
+    rotation = rotation.where(distance > 2 * MAX_RADIUS_M)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        eddies = rotation_sense(vortex_eddies, rotation=rotation)
+    assert np.isnan(eddies["rotation_sense"]).all()
+
+
+def test_rotation_sense_of_a_curve_with_no_finite_point_is_nan(vortex, vortex_eddies):
+    """An image that left the grid everywhere is all NaN."""
+    lost = vortex_eddies.assign(lon=vortex_eddies["lon"] * np.nan)
+    eddies = rotation_sense(lost, rotation=vortex.polar_rotation())
+    assert np.isnan(eddies["rotation_sense"]).all()
+
+
+def test_rotation_sense_of_an_evolved_boundary(vortex, vortex_eddies):
+    """Any lon/lat curves on a ``point`` dim will do, such as an image."""
+    evolved = vortex.image(lon_0=vortex_eddies["lon"], lat_0=vortex_eddies["lat"])
+    eddies = rotation_sense(evolved, rotation=vortex.polar_rotation())
+    assert eddies["rotation_sense"].values.tolist() == [1]
+
+
+def test_rotation_sense_takes_the_rotation_by_keyword(vortex, vortex_eddies):
+    with pytest.raises(TypeError):
+        rotation_sense(vortex_eddies, vortex.polar_rotation())
+
+
+def test_rotation_sense_of_no_boundaries_is_empty(vortex):
+    orbits = closed_shear_lines(vortex, centre_lon=[], centre_lat=[])
+    eddies = rotation_sense(
+        outermost_shear_lines(orbits), rotation=vortex.polar_rotation()
+    )
+    assert eddies.sizes["orbit"] == 0
+    assert "rotation_sense" in eddies
 
 
 # --- the vortex in strain --------------------------------------------------------
@@ -591,17 +678,35 @@ def test_stronger_strain_moves_the_boundary_inward(strained_boundaries):
 
 def test_elliptic_lcs_finds_the_vortex(vortex):
     eddies = vortex.elliptic_lcs(window_m=60_000.0, max_radius_m=MAX_RADIUS_M)
-    assert eddies.sizes["eddy"] == 1
+    assert eddies.sizes["orbit"] == 1
     distance = _distance_from_origin_m(
         float(eddies["centroid_lon"][0]), float(eddies["centroid_lat"][0])
     )
     assert distance < 2_000.0
     assert "rotation_sense" not in eddies
+    np.testing.assert_array_equal(
+        eddies["cg_anisotropy"].values, vortex.cg_anisotropy().values
+    )
+
+
+def test_elliptic_lcs_adds_the_rotation_sense_given_a_rotation(vortex):
+    eddies = vortex.elliptic_lcs(
+        window_m=60_000.0, max_radius_m=MAX_RADIUS_M, rotation=vortex.polar_rotation()
+    )
+    assert eddies["rotation_sense"].values.tolist() == [1]
+
+
+@pytest.mark.parametrize(
+    "knob", ["edge_m", "launch_spacing_m", "step_m", "closure_tol_m"]
+)
+def test_elliptic_lcs_leaves_the_numerical_parameters_to_the_steps(vortex, knob):
+    with pytest.raises(TypeError):
+        vortex.elliptic_lcs(**{knob: 1.0})
 
 
 # --- metadata -------------------------------------------------------------------
 
-INDEX_COORDS = {"orbit", "point", "eddy", "centre"}
+INDEX_COORDS = {"orbit", "point", "centre"}
 
 
 def _assert_labelled(ds):
@@ -616,9 +721,13 @@ def _assert_labelled(ds):
 
 def test_elliptic_outputs_are_labelled(vortex, vortex_orbits):
     _assert_labelled(vortex_orbits)
-    eddies = outermost_shear_lines(vortex_orbits, rotation=vortex.polar_rotation())
+    eddies = rotation_sense(
+        outermost_shear_lines(vortex_orbits), rotation=vortex.polar_rotation()
+    )
     _assert_labelled(eddies)
     assert eddies["rotation_sense"].attrs["units"] == "1"
+    assert eddies["rotation_rad"].attrs["units"] == "rad"
+    assert eddies["at_scan_edge"].attrs["units"] == "1"
     assert eddies["area_m2"].attrs["units"] == "m2"
     assert eddies["radius_m"].attrs["units"] == "m"
     assert eddies["stretch"].attrs["units"] == "1"

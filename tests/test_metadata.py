@@ -235,9 +235,7 @@ def test_hyperbolic_lcs_carries_the_ridge_selection_attrs(lon_axis, lat_axis):
     fm = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
     )
-    lcs = fm.hyperbolic_lcs(
-        window_m=RIDGE_WINDOW_M, step_m=1_000.0, line_length_m=6_000.0
-    )
+    lcs = fm.hyperbolic_lcs(window_m=RIDGE_WINDOW_M, line_length_m=6_000.0)
     seeds = ftle_ridge_seeds(fm.ftle(), window_m=RIDGE_WINDOW_M)
 
     assert RIDGE_ATTRS <= set(lcs.attrs)
@@ -257,9 +255,7 @@ def test_hyperbolic_lcs_output_is_labelled(lon_axis, lat_axis):
     fm = advected_flowmap(
         AuxiliarySeedGrid, lon_axis, lat_axis, M, RELEASE_TIME, END_TIME
     )
-    lcs = fm.hyperbolic_lcs(
-        window_m=RIDGE_WINDOW_M, step_m=1_000.0, line_length_m=6_000.0
-    )
+    lcs = fm.hyperbolic_lcs(window_m=RIDGE_WINDOW_M, line_length_m=6_000.0)
 
     assert_labelled(
         lcs,

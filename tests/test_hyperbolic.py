@@ -1146,7 +1146,6 @@ LCS_KWARGS = {
     "window_m": 150_000.0,
     # Deliberately not ftle_ridge_seeds' own default of 0.90.
     "quantile": 0.5,
-    "step_m": 10_000.0,
     "line_length_m": 30_000.0,
 }
 
@@ -1188,7 +1187,6 @@ def test_hyperbolic_lcs_matches_the_manual_pipeline():
         fm,
         seed_lon=seeds["lon"],
         seed_lat=seeds["lat"],
-        step_m=LCS_KWARGS["step_m"],
         line_length_m=LCS_KWARGS["line_length_m"],
     )
     manual = prune_shrink_lines(unpruned, ftle=ftle, window_m=LCS_KWARGS["window_m"])
@@ -1212,10 +1210,7 @@ def test_hyperbolic_lcs_ridge_parameters_are_forwarded():
     """Both ridge parameters reach ``ftle_ridge_seeds``: tightening either one
     yields strictly fewer lines, so a dropped forward cannot pass unnoticed."""
     fm = _wavy_stretch_flowmap()
-    trace = {
-        "step_m": LCS_KWARGS["step_m"],
-        "line_length_m": LCS_KWARGS["line_length_m"],
-    }
+    trace = {"line_length_m": LCS_KWARGS["line_length_m"]}
 
     loose = fm.hyperbolic_lcs(window_m=150_000.0, quantile=0.5, **trace)
     tight_quantile = fm.hyperbolic_lcs(window_m=150_000.0, quantile=0.99, **trace)
@@ -1231,11 +1226,7 @@ def test_hyperbolic_lcs_forwards_ftle_min():
     both selectors raises rather than silently dropping one."""
     fm = _wavy_stretch_flowmap()
     ftle = fm.ftle()
-    trace = {
-        "window_m": 150_000.0,
-        "step_m": LCS_KWARGS["step_m"],
-        "line_length_m": LCS_KWARGS["line_length_m"],
-    }
+    trace = {"window_m": 150_000.0, "line_length_m": LCS_KWARGS["line_length_m"]}
 
     loose = fm.hyperbolic_lcs(ftle_min=float(ftle.quantile(0.5)), **trace)
     tight = fm.hyperbolic_lcs(ftle_min=float(ftle.quantile(0.99)), **trace)
@@ -1246,33 +1237,10 @@ def test_hyperbolic_lcs_forwards_ftle_min():
         fm.hyperbolic_lcs(quantile=0.5, ftle_min=0.0, **trace)
 
 
-def test_hyperbolic_lcs_min_anisotropy_is_forwarded(lon_axis, lat_axis):
-    """``min_anisotropy`` reaches ``shrink_lines``, so the guard cannot go inert
-    on the convenience path while the two ridge parameters stay wired up.
-
-    ``M = diag(3, 1)`` gives an eigenvalue ratio of 9 everywhere: a floor of 1.15
-    lets the lines through, and an absurd floor kills every one of them. If the
-    forward is dropped both calls fall back to the same default and trace alike.
-    """
-    fm = advected_flowmap(
-        AuxiliarySeedGrid,
-        lon_axis,
-        lat_axis,
-        np.diag([3.0, 1.0]),
-        RELEASE_TIME,
-        END_TIME,
-    )
-    trace = {
-        "window_m": FIXTURE_WINDOW_M,
-        "step_m": LCS_KWARGS["step_m"],
-        "line_length_m": LCS_KWARGS["line_length_m"],
-    }
-
-    traced = fm.hyperbolic_lcs(min_anisotropy=1.15, **trace)
-    guarded = fm.hyperbolic_lcs(min_anisotropy=1e9, **trace)
-
-    assert bool(traced["lon"].notnull().any())
-    assert bool(guarded["lon"].isnull().all())
+@pytest.mark.parametrize("knob", ["min_anisotropy", "step_m"])
+def test_hyperbolic_lcs_leaves_the_integration_parameters_to_shrink_lines(knob):
+    with pytest.raises(TypeError):
+        _wavy_stretch_flowmap().hyperbolic_lcs(**{knob: 1.0})
 
 
 def test_hyperbolic_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):

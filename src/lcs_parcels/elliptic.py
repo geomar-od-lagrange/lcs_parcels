@@ -16,7 +16,8 @@ Every tangent element of such a curve is stretched by the same factor
 
 :func:`elliptic_centres` picks candidate centres from a field,
 :func:`closed_shear_lines` searches them for closed orbits over a scan of
-``lambda``, and :func:`outermost_shear_lines` keeps one boundary per vortex.
+``lambda``, :func:`outermost_shear_lines` keeps one boundary per vortex, and
+:func:`rotation_sense` reads each boundary's sense of rotation.
 
 The stretching factor ``lambda`` is stored as ``stretch``. Rectilinear grids
 only.
@@ -143,15 +144,7 @@ def elliptic_centres(
         .fillna(0.0)
         > 0.5
     )
-    i_index = xr.DataArray(np.arange(field.sizes["i"]), dims="i")
-    j_index = xr.DataArray(np.arange(field.sizes["j"]), dims="j")
-    inside = (
-        (i_index >= edge_cells_i)
-        & (i_index < field.sizes["i"] - edge_cells_i)
-        & (j_index >= edge_cells_j)
-        & (j_index < field.sizes["j"] - edge_cells_j)
-    )
-    keep = is_extremum & field.notnull() & clear_of_nan & inside
+    keep = is_extremum & field.notnull() & clear_of_nan
     picked = (
         xr.Dataset({"lon": field["lon_grid"], "lat": field["lat_grid"]})
         .reset_coords(drop=True)
@@ -353,9 +346,9 @@ def _orbit_dataset(orbits: list[dict], attrs: dict) -> xr.Dataset:
                 {"long_name": "latitude along the closed shear line"}
                 | _LONLAT_ATTRS["lat"],
             ),
-            "centre": (
+            "centre_index": (
                 "orbit",
-                per_orbit("centre", int),
+                per_orbit("centre_index", int),
                 {"long_name": "index of the candidate centre searched", "units": "1"},
             ),
             "centre_lon": (
@@ -403,6 +396,17 @@ def _orbit_dataset(orbits: list[dict], attrs: dict) -> xr.Dataset:
                 {
                     "long_name": "distance from launch to return on the section",
                     "units": "m",
+                },
+            ),
+            "at_scan_edge": (
+                "orbit",
+                np.isin(
+                    per_orbit("stretch"), [attrs["stretch_min"], attrs["stretch_max"]]
+                ),
+                {
+                    "long_name": "closed at the first or last stretching factor of "
+                    "the scan",
+                    "units": "1",
                 },
             ),
         },
@@ -466,10 +470,10 @@ def closed_shear_lines(
     -------
     xr.Dataset
         ``lon``/``lat`` (degrees) on ``(orbit, point)``, each row a closed curve
-        NaN-padded past its end. Per orbit: the ``centre`` searched with its
-        ``centre_lon``/``centre_lat``, ``stretch``, ``branch``, ``area_m2``,
-        ``radius_m`` (equivalent radius) and ``residual_m``. The ``attrs``
-        record the scan.
+        NaN-padded past its end. Per orbit: the ``centre_index`` searched with
+        its ``centre_lon``/``centre_lat``, ``stretch``, ``branch``, ``area_m2``,
+        ``radius_m`` (equivalent radius), ``residual_m``, and ``at_scan_edge``.
+        The ``attrs`` record the scan and the ``grid_spacing_m`` it derived from.
     """
     centre_lon = np.asarray(centre_lon, dtype=float).ravel()
     centre_lat = np.asarray(centre_lat, dtype=float).ravel()
@@ -510,7 +514,6 @@ def closed_shear_lines(
     ).reshape(4, -1)
     families_per_chunk = max(1, _LINES_PER_CHUNK // max(1, s_launch.size))
     orbits = []
-    n_never_returned = 0
     for start in range(0, family.shape[1], families_per_chunk):
         c, d, k, b = family[:, start : start + families_per_chunk]
         props = {
@@ -534,7 +537,6 @@ def closed_shear_lines(
         )
         returned_s, _ = _trace_to_return(lon_0, lat_0, **lines, **trace)
         offset = (returned_s - s).reshape(c.size, s_launch.size)
-        n_never_returned += int((~np.isfinite(offset)).all(axis=1).sum())
 
         # A launch returning within tolerance is an orbit, since on an
         # axisymmetric vortex the offset never changes sign.
@@ -604,7 +606,7 @@ def closed_shear_lines(
                 {
                     "lon": track_lon,
                     "lat": track_lat,
-                    "centre": c[fam[m]],
+                    "centre_index": c[fam[m]],
                     "centre_lon": bracket["centre_lon"][m],
                     "centre_lat": bracket["centre_lat"][m],
                     "stretch": bracket["stretch"][m],
@@ -623,8 +625,8 @@ def closed_shear_lines(
         "launch_spacing_m": float(launch_spacing_m),
         "step_m": float(step_m),
         "closure_tol_m": float(closure_tol_m),
+        "grid_spacing_m": spacing_m,
         "n_centres": int(centre_lon.size),
-        "n_never_returned": n_never_returned,
     }
     return _orbit_dataset(orbits, attrs)
 
@@ -639,128 +641,125 @@ def _points_inside(x_poly, y_poly, *, x, y):
     return (straddles & (x < x_cross)).sum(axis=0) % 2 == 1
 
 
-def outermost_shear_lines(
-    orbits: xr.Dataset, *, rotation: xr.DataArray | None = None
-) -> xr.Dataset:
+def outermost_shear_lines(orbits: xr.Dataset) -> xr.Dataset:
     """The outermost closed shear line of each vortex.
 
     Keeps the largest-area orbit per candidate centre, then drops any whose
     centre lies inside a larger kept boundary, so several candidate centres in
     one vortex give one eddy.
 
-    With ``rotation``, a :meth:`~lcs_parcels.FlowMap.polar_rotation` field,
-    ``rotation_sense`` is the sign of its mean inside each boundary against its
-    domain median, ``+1`` counter-clockwise, 0 where no point lies inside.
-
-    Pass the rotation of a window over which an eddy turns less than half a turn.
-
     Returns
     -------
     xr.Dataset
-        The kept rows of ``orbits`` on ``(eddy, point)``, with their original
-        ``orbit_index``, plus ``centroid_lon``/``centroid_lat`` of each boundary
-        and, with ``rotation``, ``rotation_sense``.
+        The kept rows of ``orbits``, keeping their ``orbit`` labels, plus
+        ``centroid_lon``/``centroid_lat`` of each boundary.
     """
-    if rotation is not None:
-        theta_lon = rotation["lon_grid"].values.ravel()
-        theta_lat = rotation["lat_grid"].values.ravel()
-        theta_anomaly = (rotation - rotation.median()).values.ravel()
-
-    area = orbits["area_m2"].values
-    centre_index = orbits["centre"].values
-    best = {}
-    for k in range(orbits.sizes["orbit"]):
-        centre = int(centre_index[k])
-        if centre not in best or area[k] > area[best[centre]]:
-            best[centre] = k
-
-    kept, centroids, senses = [], [], []
-    for k in sorted(best.values(), key=lambda k: -area[k]):
-        line = orbits.isel(orbit=k)
-        finite = np.isfinite(line["lon"].values)
-        lon, lat = line["lon"].values[finite], line["lat"].values[finite]
-        centre_lon, centre_lat = float(line["centre_lon"]), float(line["centre_lat"])
+    order = np.argsort(-orbits["area_m2"].values, kind="stable")
+    _, first = np.unique(orbits["centre_index"].values[order], return_index=True)
+    kept, centroids = [], []
+    for k in order[np.sort(first)]:
+        row = orbits.isel(orbit=k)
+        lon, lat = row["lon"].dropna("point").values, row["lat"].dropna("point").values
+        centre_lon, centre_lat = float(row["centre_lon"]), float(row["centre_lat"])
+        x, y = _separation_m(lon_a=centre_lon, lat_a=centre_lat, lon_b=lon, lat_b=lat)
+        # The centre in each kept boundary's own frame.
+        offsets = [
+            _separation_m(lon_a=lon_k, lat_a=lat_k, lon_b=centre_lon, lat_b=centre_lat)
+            for _, lon_k, lat_k, _, _ in kept
+        ]
         if any(
-            _points_inside(
-                *_polygon_metres(
-                    other["lon"],
-                    other["lat"],
-                    centre_lon=centre_lon,
-                    centre_lat=centre_lat,
-                ),
-                x=np.array([0.0]),
-                y=np.array([0.0]),
-            )[0]
-            for other in kept
+            _points_inside(x_k, y_k, x=np.array([dx]), y=np.array([dy]))[0]
+            for (_, _, _, x_k, y_k), (dx, dy) in zip(kept, offsets, strict=True)
         ):
             continue
-        x, y = _polygon_metres(lon, lat, centre_lon=centre_lon, centre_lat=centre_lat)
         _, (centroid_x, centroid_y) = _area_and_centroid(x, y)
-        mean_anomaly = np.nan
-        if rotation is not None:
-            gx, gy = _polygon_metres(
-                theta_lon, theta_lat, centre_lon=centre_lon, centre_lat=centre_lat
-            )
-            near = (np.abs(gx) <= np.abs(x).max()) & (np.abs(gy) <= np.abs(y).max())
-            inside = np.zeros_like(near)
-            inside[near] = _points_inside(x, y, x=gx[near], y=gy[near])
-            inside &= np.isfinite(theta_anomaly)
-            if inside.any():
-                mean_anomaly = theta_anomaly[inside].mean()
-        kept.append({"index": k, "lon": lon, "lat": lat})
+        kept.append((k, centre_lon, centre_lat, x, y))
         centroids.append(
             (
                 centre_lon + centroid_x / (_M_PER_DEG * np.cos(np.deg2rad(centre_lat))),
                 centre_lat + centroid_y / _M_PER_DEG,
             )
         )
-        senses.append(int(np.sign(mean_anomaly)) if np.isfinite(mean_anomaly) else 0)
 
-    index = [entry["index"] for entry in kept]
-    eddies = (
-        orbits.isel(orbit=index)
-        .rename_dims(orbit="eddy")
-        .reset_coords()
-        .rename_vars(orbit="orbit_index")
-    )
-    eddies = eddies.assign(
-        orbit_index=eddies["orbit_index"].assign_attrs(
-            long_name="index of the orbit in the closed_shear_lines result",
-            units="1",
-        ),
-        centroid_lon=(
-            "eddy",
-            np.array([c[0] for c in centroids], dtype=float),
-            {"long_name": "longitude of the eddy boundary centroid"}
-            | _LONLAT_ATTRS["lon"],
-        ),
-        centroid_lat=(
-            "eddy",
-            np.array([c[1] for c in centroids], dtype=float),
-            {"long_name": "latitude of the eddy boundary centroid"}
-            | _LONLAT_ATTRS["lat"],
-        ),
-    )
-    if rotation is not None:
-        eddies = eddies.assign(
-            rotation_sense=(
-                "eddy",
-                np.array(senses, dtype=int),
-                {
-                    "long_name": "rotation sense, +1 counter-clockwise, -1 clockwise",
-                    "units": "1",
-                },
-            )
-        )
-    finite_rows = np.isfinite(eddies["lon"]).any("eddy")
-    n_points = int(finite_rows.values.nonzero()[0].max()) + 1 if index else 0
+    centroid_lon, centroid_lat = np.array(centroids, dtype=float).reshape(-1, 2).T
     return (
-        eddies.isel(point=slice(0, n_points))
-        .assign_coords(
-            eddy=("eddy", np.arange(len(index)), {"long_name": "eddy index"})
+        orbits.isel(orbit=[entry[0] for entry in kept])
+        .dropna("point", how="all", subset=["lon"])
+        .assign(
+            centroid_lon=(
+                "orbit",
+                centroid_lon,
+                {"long_name": "longitude of the eddy boundary centroid"}
+                | _LONLAT_ATTRS["lon"],
+            ),
+            centroid_lat=(
+                "orbit",
+                centroid_lat,
+                {"long_name": "latitude of the eddy boundary centroid"}
+                | _LONLAT_ATTRS["lat"],
+            ),
         )
         .assign_attrs(
             n_orbits_in=int(orbits.sizes["orbit"]),
-            n_centres_with_orbits=len(best),
+            n_centres_with_orbits=int(first.size),
         )
+    )
+
+
+def rotation_sense(boundaries: xr.Dataset, *, rotation: xr.DataArray) -> xr.Dataset:
+    """Mean polar rotation angle inside each closed boundary, and its sign.
+
+    ``boundaries`` holds closed curves as ``lon``/``lat`` on a ``point`` dim, such
+    as :func:`outermost_shear_lines` or an image of it. ``rotation`` is the
+    :meth:`~lcs_parcels.FlowMap.polar_rotation` of a window short enough that
+    each eddy turns less than half a turn.
+
+    Returns
+    -------
+    xr.Dataset
+        ``boundaries`` plus ``rotation_rad``, the mean of ``rotation`` over the
+        grid points inside each curve, and ``rotation_sense``, its sign, ``+1``
+        counter-clockwise. Both are NaN where no finite grid point lies inside.
+    """
+    lon_grid = rotation["lon_grid"].values.ravel()
+    lat_grid = rotation["lat_grid"].values.ravel()
+    theta = rotation.values.ravel()
+    curve_lon = boundaries["lon"].transpose(..., "point")
+    curve_lat = boundaries["lat"].transpose(*curve_lon.dims)
+    template = curve_lon.sum("point").reset_coords(drop=True)
+    n_points = curve_lon.sizes["point"]
+    mean = np.full(template.size, np.nan)
+    for n, (lon, lat) in enumerate(
+        zip(
+            curve_lon.values.reshape(template.size, n_points),
+            curve_lat.values.reshape(template.size, n_points),
+            strict=True,
+        )
+    ):
+        finite = np.isfinite(lon) & np.isfinite(lat)
+        if not finite.any():
+            continue
+        lon, lat = lon[finite], lat[finite]
+        x, y = _separation_m(lon_a=lon[0], lat_a=lat[0], lon_b=lon, lat_b=lat)
+        gx, gy = _separation_m(
+            lon_a=lon[0], lat_a=lat[0], lon_b=lon_grid, lat_b=lat_grid
+        )
+        near = (
+            np.isfinite(theta)
+            & (gx >= x.min())
+            & (gx <= x.max())
+            & (gy >= y.min())
+            & (gy <= y.max())
+        )
+        inside = np.flatnonzero(near)[_points_inside(x, y, x=gx[near], y=gy[near])]
+        if inside.size:
+            mean[n] = theta[inside].mean()
+    rotation_rad = template.copy(data=mean.reshape(template.shape))
+    return boundaries.assign(
+        rotation_rad=rotation_rad.assign_attrs(
+            long_name="mean polar rotation angle inside the boundary", units="rad"
+        ),
+        rotation_sense=np.sign(rotation_rad).assign_attrs(
+            long_name="rotation sense, +1 counter-clockwise, -1 clockwise", units="1"
+        ),
     )

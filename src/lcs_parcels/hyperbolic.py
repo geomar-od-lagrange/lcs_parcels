@@ -22,8 +22,6 @@ the antimeridian is seeded on ``170, 175, 180, 185`` rather than ``170, 175,
 
 from __future__ import annotations
 
-import warnings
-
 import numpy as np
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
@@ -107,20 +105,6 @@ def ftle_ridge_seeds(
     threshold = float(ftle.quantile(quantile)) if ftle_min is None else float(ftle_min)
 
     is_peak, geometry = _windowed_extrema(ftle, window_m=window_m, extremum="max")
-    cells_i = geometry["window_cells_i"]
-    cells_j = geometry["window_cells_j"]
-    if cells_i < 3 or cells_j < 3:
-        warnings.warn(
-            f"window_m={window_m} spans {cells_i}x{cells_j} cells of this grid "
-            f"({geometry['grid_spacing_i_m']:.0f} x "
-            f"{geometry['grid_spacing_j_m']:.0f} m). A window under three cells "
-            "makes every point a windowed maximum in that dimension, so the "
-            "local-maximum test stops selecting. Consider wider window_m or finer "
-            "grid.",
-            UserWarning,
-            stacklevel=2,
-        )
-
     is_seed = is_peak & (ftle >= threshold)
     picked = (
         xr.Dataset({"lon": ftle["lon_grid"], "lat": ftle["lat_grid"]})

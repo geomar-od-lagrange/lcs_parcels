@@ -55,7 +55,6 @@ import xarray as xr
 
 from lcs_parcels._numerics import (
     _M_PER_DEG,
-    EARTH_RADIUS_M,  # noqa: F401, a public name of this module
     _circular_mean_lon,
     _separation_m,
     _wrap_lon,
@@ -64,6 +63,7 @@ from lcs_parcels.elliptic import (
     closed_shear_lines,
     elliptic_centres,
     outermost_shear_lines,
+    rotation_sense,
 )
 from lcs_parcels.hyperbolic import ftle_ridge_seeds, prune_shrink_lines, shrink_lines
 
@@ -582,6 +582,21 @@ class FlowMap(abc.ABC):
             units="1/s",
         )
 
+    def cg_anisotropy(self) -> xr.DataArray:
+        """Eigenvalue ratio ``lambda_2 / lambda_1`` of ``C``, at least 1.
+
+        Returns
+        -------
+        xr.DataArray
+            The ratio on ``(i, j)``, dimensionless.
+        """
+        eigenvalues = self.cg_eigen()["lambda"]
+        ratio = eigenvalues.isel(eig=1, drop=True) / eigenvalues.isel(eig=0, drop=True)
+        return ratio.rename("cg_anisotropy").assign_attrs(
+            long_name="Cauchy-Green eigenvalue ratio lambda_2 / lambda_1",
+            units="1",
+        )
+
     def polar_rotation(self) -> xr.DataArray:
         """Rotation angle of the polar decomposition ``grad F = R U``.
 
@@ -693,8 +708,6 @@ class FlowMap(abc.ABC):
         window_m: float | None = None,
         quantile: float | None = None,
         ftle_min: float | None = None,
-        min_anisotropy: float | None = None,
-        step_m: float | None = None,
         line_length_m: float | None = None,
     ) -> xr.Dataset:
         """Hyperbolic LCS of this flow map: FTLE, ridge seeds, shrink lines, pruning.
@@ -714,8 +727,9 @@ class FlowMap(abc.ABC):
 
         Every call recomputes the FTLE, which is the expensive step, though within
         one call it is computed once and handed to the ridge finder. To re-tune
-        parameters against a fixed field, or to pick ridges from a smoothed or
-        masked one, or to see the unpruned lines, drive the steps yourself.
+        parameters against a fixed field, to pick ridges from a smoothed or
+        masked one, to see the unpruned lines, or to set the integration step or
+        ``min_anisotropy``, drive the steps yourself.
 
         Parameters
         ----------
@@ -724,8 +738,8 @@ class FlowMap(abc.ABC):
             :func:`~lcs_parcels.ftle_ridge_seeds`. ``quantile`` and ``ftle_min``
             are mutually exclusive. ``window_m`` also goes to
             :func:`~lcs_parcels.prune_shrink_lines`.
-        min_anisotropy, step_m, line_length_m : float, optional
-            Integration parameters, passed to
+        line_length_m : float, optional
+            Length budget of each line, passed to
             :func:`~lcs_parcels.shrink_lines`.
 
         Returns
@@ -753,11 +767,7 @@ class FlowMap(abc.ABC):
             self,
             seed_lon=seeds["lon"].values,
             seed_lat=seeds["lat"].values,
-            **_given(
-                min_anisotropy=min_anisotropy,
-                step_m=step_m,
-                line_length_m=line_length_m,
-            ),
+            **_given(line_length_m=line_length_m),
         )
         lines = prune_shrink_lines(lines, ftle=ftle, **_given(window_m=window_m))
         # The forward-backward duality belongs to the diagnostic, so the LCS
@@ -783,65 +793,51 @@ class FlowMap(abc.ABC):
         self,
         *,
         window_m: float | None = None,
-        edge_m: float | None = None,
         stretches=None,
         max_radius_m: float | None = None,
-        launch_spacing_m: float | None = None,
-        step_m: float | None = None,
-        closure_tol_m: float | None = None,
+        rotation: xr.DataArray | None = None,
     ) -> xr.Dataset:
         """Elliptic LCS of this flow map: centres, closed shear lines, boundaries.
 
-        Picks centres at windowed minima of ``lambda_2 / lambda_1``
+        Picks centres at windowed minima of :meth:`cg_anisotropy`
         (:func:`~lcs_parcels.elliptic_centres`), searches them
-        (:func:`~lcs_parcels.closed_shear_lines`), and keeps the outermost orbits.
+        (:func:`~lcs_parcels.closed_shear_lines`), and keeps the outermost orbits
+        (:func:`~lcs_parcels.outermost_shear_lines`).
 
-        The result carries no ``rotation_sense``. For one, pass the
-        :meth:`polar_rotation` of a short window to
-        :func:`~lcs_parcels.outermost_shear_lines`.
+        To set the edge margin, the launch spacing, the step or the closure
+        tolerance, drive the steps yourself.
 
         Parameters
         ----------
-        window_m, edge_m : float, optional
+        window_m : float, optional
             Passed to :func:`~lcs_parcels.elliptic_centres`.
-        stretches, max_radius_m, launch_spacing_m, step_m, closure_tol_m : optional
+        stretches, max_radius_m : optional
             Passed to :func:`~lcs_parcels.closed_shear_lines`.
+        rotation : xr.DataArray, optional
+            The :meth:`polar_rotation` of a short window, passed to
+            :func:`~lcs_parcels.rotation_sense`.
 
         Returns
         -------
         xr.Dataset
-            The :func:`~lcs_parcels.outermost_shear_lines` result, with the
-            eigenvalue ratio ``cg_anisotropy`` on ``(i, j)`` that the centres were
-            picked from, and the centre and search ``attrs``.
+            The boundaries on ``(orbit, point)``, with ``rotation_rad`` and
+            ``rotation_sense`` given a ``rotation``, the ``cg_anisotropy`` on
+            ``(i, j)`` the centres were picked from, and the centre and search
+            ``attrs``.
         """
-        eigen = self.cg_eigen()
-        anisotropy = (
-            (
-                eigen["lambda"].isel(eig=1, drop=True)
-                / eigen["lambda"].isel(eig=0, drop=True)
-            )
-            .rename("cg_anisotropy")
-            .assign_attrs(
-                long_name="Cauchy-Green eigenvalue ratio lambda_2 / lambda_1",
-                units="1",
-            )
-        )
+        anisotropy = self.cg_anisotropy()
         centres = elliptic_centres(
-            anisotropy, extremum="min", **_given(window_m=window_m, edge_m=edge_m)
+            anisotropy, extremum="min", **_given(window_m=window_m)
         )
         orbits = closed_shear_lines(
             self,
             centre_lon=centres["lon"].values,
             centre_lat=centres["lat"].values,
-            **_given(
-                stretches=stretches,
-                max_radius_m=max_radius_m,
-                launch_spacing_m=launch_spacing_m,
-                step_m=step_m,
-                closure_tol_m=closure_tol_m,
-            ),
+            **_given(stretches=stretches, max_radius_m=max_radius_m),
         )
         eddies = outermost_shear_lines(orbits)
+        if rotation is not None:
+            eddies = rotation_sense(eddies, rotation=rotation)
         centre_attrs = {f"centres_{key}": value for key, value in centres.attrs.items()}
         return eddies.assign(cg_anisotropy=anisotropy).assign_attrs(
             orbits.attrs | centre_attrs

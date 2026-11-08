@@ -19,6 +19,7 @@ from lcs_parcels.elliptic import (
     closed_shear_lines,
     elliptic_centres,
     outermost_shear_lines,
+    rotation_sense,
     stretch_range,
 )
 from lcs_parcels.grids import (
@@ -47,6 +48,7 @@ __all__ = [
     "ftle_ridge_seeds",
     "outermost_shear_lines",
     "prune_shrink_lines",
+    "rotation_sense",
     "shrink_lines",
     "stretch_range",
 ]
