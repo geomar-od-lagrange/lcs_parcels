@@ -29,8 +29,7 @@ _LONLAT_ATTRS = {
 def _wrap_lon(dlon):
     """Wrap a longitude *difference* (degrees) into ``[-180, 180]``.
 
-    Takes plain arrays or xarray objects. Applied to differences and to the
-    offsets a circular mean is built from, never to a stored position.
+    Takes plain arrays or xarray objects. Never applied to a stored position.
     """
     # Subtracting the nearest multiple of 360, rather than shifting and taking a
     # modulo, returns an argument already inside the range bit-for-bit.
@@ -107,19 +106,6 @@ def _step_lonlat_by_meters(
 # --- windowed extrema --------------------------------------------------------
 
 
-def _odd_cells(window_m: float, spacing_m: float) -> int:
-    """Number of cells covering ``window_m`` at spacing ``spacing_m``, made odd.
-
-    An odd count has a middle cell, so the rolling window sits centred on its own
-    grid point. The count is rounded to nearest, dropped by one if even, and at
-    least 1.
-    """
-    cells = round(window_m / spacing_m)
-    if cells % 2 == 0:
-        cells -= 1
-    return max(1, cells)
-
-
 def _grid_spacing_m(field: xr.DataArray) -> tuple[xr.DataArray, xr.DataArray]:
     """Absolute east separation of adjacent points along ``i`` and north
     separation along ``j``, in metres, from ``lon_grid``/``lat_grid``.
@@ -145,19 +131,17 @@ def _grid_spacing_m(field: xr.DataArray) -> tuple[xr.DataArray, xr.DataArray]:
 def _window_geometry(field: xr.DataArray, window_m: float) -> dict[str, float]:
     """Convert a window in metres into cell counts on this field's grid.
 
-    The cell counts use the **median** grid spacing, the size most of the grid
-    has. ``min_seed_separation_m`` uses the **minimum**, since that is where two
-    windowed extrema get closest.
-
-    A window of ``cells`` reaches ``(cells - 1) // 2`` cells either side, so the
-    nearest competing *strict* extremum is one cell beyond that. Every cell of a
-    plateau of equal values ties, so adjacent cells can all qualify.
+    A cell count is ``window_m`` over the **median** spacing, rounded and made
+    odd so the window centres on its own point. ``min_seed_separation_m`` is
+    the closest two *strict* windowed extrema can sit, at the **minimum** spacing.
     """
     dx, dy = _grid_spacing_m(field)
     spacing_i = float(dx.median())
     spacing_j = float(dy.median())
-    cells_i = _odd_cells(window_m, spacing_i)
-    cells_j = _odd_cells(window_m, spacing_j)
+    cells_i, cells_j = (
+        max(1, cells - 1 + cells % 2)
+        for cells in (round(window_m / spacing_i), round(window_m / spacing_j))
+    )
     return {
         "window_m": float(window_m),
         "window_cells_i": cells_i,
@@ -210,6 +194,32 @@ def _windowed_extrema(
     return mask, geometry
 
 
+def _point_dataset(mask: xr.DataArray, *, dim: str, what: str) -> xr.Dataset:
+    """``lon``/``lat`` (degrees) of the True cells of an ``(i, j)`` mask, on ``dim``.
+
+    ``what`` names one point in the ``long_name`` of each variable.
+    """
+    picked = (
+        xr.Dataset({"lon": mask["lon_grid"], "lat": mask["lat_grid"]})
+        .reset_coords(drop=True)
+        .stack({dim: ("i", "j")})
+        .where(mask.reset_coords(drop=True).stack({dim: ("i", "j")}), drop=True)
+    )
+    return xr.Dataset(
+        {
+            name: (
+                dim,
+                picked[name].values,
+                {"long_name": f"{long} of the {what}"} | _LONLAT_ATTRS[name],
+            )
+            for name, long in (("lon", "longitude"), ("lat", "latitude"))
+        },
+        coords={
+            dim: (dim, np.arange(picked.sizes[dim]), {"long_name": f"{what} index"})
+        },
+    )
+
+
 # --- tracing -----------------------------------------------------------------
 
 
@@ -226,9 +236,6 @@ def _rk2_step(
     ``tangent(lon, lat, heading)`` returns unit ``(east, north)`` vectors
     oriented to ``heading``, or NaN rows where the field is not well defined.
 
-    The step evaluates ``tangent`` at the current point and at the half-step
-    midpoint, and takes the full step along the midpoint direction.
-
     Returns
     -------
     tuple[np.ndarray, np.ndarray, np.ndarray]
@@ -242,6 +249,19 @@ def _rk2_step(
     mid_direction = tangent(mid_lon, mid_lat, direction)
     lon, lat = _step_lonlat_by_meters(lon, lat, mid_direction, step_m=step_m)
     return lon, lat, mid_direction
+
+
+def _eigen_2x2(C: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Eigenvalues ``lambda_1 <= lambda_2`` of symmetric ``(n, 2, 2)`` tensors, and
+    the angle ``phi`` of ``xi_2`` counter-clockwise from east.
+
+    ``lambda_1`` is clamped at zero against round-off. A NaN tensor gives NaN.
+    """
+    c_xx, c_xy, c_yy = C[:, 0, 0], C[:, 0, 1], C[:, 1, 1]
+    half_trace = 0.5 * (c_xx + c_yy)
+    half_gap = np.hypot(0.5 * (c_xx - c_yy), c_xy)
+    phi = 0.5 * np.arctan2(2.0 * c_xy, c_xx - c_yy)
+    return np.maximum(half_trace - half_gap, 0.0), half_trace + half_gap, phi
 
 
 def _tensor_interp(cauchy_green: xr.DataArray) -> RegularGridInterpolator:

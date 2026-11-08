@@ -29,6 +29,8 @@ from scipy.interpolate import RegularGridInterpolator
 from lcs_parcels._numerics import (
     _LONLAT_ATTRS,
     EARTH_RADIUS_M,
+    _eigen_2x2,
+    _point_dataset,
     _rk2_step,
     _separation_m,
     _tensor_interp,
@@ -80,11 +82,8 @@ def ftle_ridge_seeds(
         given.
     ftle_min : float, optional
         Magnitude floor as an absolute value, in the units of ``ftle`` (1/s for
-        :meth:`FlowMap.ftle`). Mutually exclusive with ``quantile``.
-
-        The quantile is the default because it means the same thing on any field.
-        Use ``ftle_min`` to hold several windows or regions to one common
-        threshold, which a quantile cannot express.
+        :meth:`FlowMap.ftle`). Mutually exclusive with ``quantile``. Use it to
+        hold several windows or regions to one common threshold.
 
     Returns
     -------
@@ -105,42 +104,13 @@ def ftle_ridge_seeds(
     threshold = float(ftle.quantile(quantile)) if ftle_min is None else float(ftle_min)
 
     is_peak, geometry = _windowed_extrema(ftle, window_m=window_m, extremum="max")
-    is_seed = is_peak & (ftle >= threshold)
-    picked = (
-        xr.Dataset({"lon": ftle["lon_grid"], "lat": ftle["lat_grid"]})
-        .stack(seed=("i", "j"))
-        .where(is_seed.stack(seed=("i", "j")), drop=True)
-    )
-    lon = picked["lon"].values
-    lat = picked["lat"].values
-    return xr.Dataset(
-        {
-            "lon": xr.DataArray(
-                lon,
-                dims="seed",
-                attrs={"long_name": "longitude of the FTLE ridge seed"}
-                | _LONLAT_ATTRS["lon"],
-            ),
-            "lat": xr.DataArray(
-                lat,
-                dims="seed",
-                attrs={"long_name": "latitude of the FTLE ridge seed"}
-                | _LONLAT_ATTRS["lat"],
-            ),
-        },
-        coords={
-            "seed": xr.DataArray(
-                np.arange(lon.size),
-                dims="seed",
-                attrs={"long_name": "FTLE ridge seed index"},
-            )
-        },
-        attrs={
-            "long_name": "seed points at strong local maxima of the FTLE field",
-            "selector": "quantile" if ftle_min is None else "ftle_min",
-            "ftle_threshold": threshold,
-            **geometry,
-        },
+    return _point_dataset(
+        is_peak & (ftle >= threshold), dim="seed", what="FTLE ridge seed"
+    ).assign_attrs(
+        long_name="seed points at strong local maxima of the FTLE field",
+        selector="quantile" if ftle_min is None else "ftle_min",
+        ftle_threshold=threshold,
+        **geometry,
     )
 
 
@@ -158,11 +128,8 @@ def _shrink_line_tangent(
     material line elements shrink along, and the shrink line is the curve tangent
     to it everywhere.
 
-    Returns ``NaN`` wherever the tangent is **not well defined**, which covers a
-    point off the grid, a point in a NaN cell, and a tensor too close to
-    isotropic for its eigenvectors to be resolved (``min_anisotropy``). Callers
-    read a NaN row as "the line ends here" and do not need to know which of the
-    three fired.
+    Returns ``NaN`` wherever the tangent is **not well defined**: off the grid,
+    in a NaN cell, or where ``lambda_2 / lambda_1`` is under ``min_anisotropy``.
 
     Parameters
     ----------
@@ -170,8 +137,7 @@ def _shrink_line_tangent(
         Positions (degrees), shape ``(n,)``.
     heading : np.ndarray
         Shape ``(n, 2)``; the running direction each returned vector is aligned
-        with. Need not be a unit vector, since only its sign against ``xi_1``
-        matters.
+        with. Only its sign against ``xi_1`` matters.
     tensor_interp : RegularGridInterpolator
         Interpolator over the Cauchy-Green tensor field, returning ``(n, 2, 2)``
         and ``NaN`` off-grid.
@@ -185,23 +151,12 @@ def _shrink_line_tangent(
         Shape ``(n, 2)`` unit ``(east, north)`` vectors; ``NaN`` rows wherever
         the tangent is not well defined.
     """
-    cauchy_green = tensor_interp(np.column_stack([lon, lat]))
-    terminated = ~np.isfinite(cauchy_green).all(axis=(1, 2))
-    # eigh returns eigenvalues ascending, so index 0 is xi_1. Off-grid points go
-    # in as the identity to keep eigh from raising, and are NaN'd below.
-    eigenvalues, eigenvectors = np.linalg.eigh(
-        np.where(terminated[:, None, None], np.eye(2), cauchy_green)
-    )
-    # Stop where the eigenvalues are too close to separate. Clamping a
-    # round-off-negative lambda_1 to zero lets very anisotropic points through.
-    terminated = terminated | (
-        eigenvalues[:, 1] < min_anisotropy * np.maximum(eigenvalues[:, 0], 0.0)
-    )
-    direction = eigenvectors[:, :, 0]
+    lambda_1, lambda_2, phi = _eigen_2x2(tensor_interp(np.column_stack([lon, lat])))
+    direction = np.column_stack([np.sin(phi), -np.cos(phi)])
     # An eigenvector has no intrinsic sign, so agreeing with the running heading
     # is what keeps the marched sequence continuous instead of zig-zag.
     direction[np.sum(direction * heading, axis=1) < 0] *= -1
-    direction[terminated] = np.nan
+    direction[~(lambda_2 >= min_anisotropy * lambda_1)] = np.nan
     return direction
 
 
@@ -214,7 +169,7 @@ def _trace_half_line(
     min_anisotropy: float,
     step_m: float,
     n_steps: int,
-) -> list[tuple[np.ndarray, np.ndarray]]:
+) -> tuple[np.ndarray, np.ndarray]:
     """March every seed ``n_steps`` steps in one of the two ``xi_1`` directions.
 
     Integrates ``dr/ds = xi_1(r)`` with the midpoint (RK2) step of
@@ -235,10 +190,10 @@ def _trace_half_line(
 
     Returns
     -------
-    list[tuple[np.ndarray, np.ndarray]]
-        ``n_steps + 1`` ``(lon, lat)`` pairs, each of shape ``(n,)``, ordered
-        along the curve away from the seed. Terminated lines carry ``NaN`` from
-        the step that terminated them onward.
+    tuple[np.ndarray, np.ndarray]
+        ``(lon, lat)`` of shape ``(n_steps + 1, n)``, ordered along the curve
+        away from the seed. Terminated lines carry ``NaN`` from the step that
+        terminated them onward.
     """
     lon = np.asarray(seed_lon, dtype=float).ravel().copy()
     lat = np.asarray(seed_lat, dtype=float).ravel().copy()
@@ -256,7 +211,9 @@ def _trace_half_line(
     untraceable = ~np.isfinite(heading).all(axis=1)
     lon[untraceable] = np.nan
     lat[untraceable] = np.nan
-    track = [(lon.copy(), lat.copy())]
+    track_lon = np.full((n_steps + 1, lon.size), np.nan)
+    track_lat = np.full((n_steps + 1, lon.size), np.nan)
+    track_lon[0], track_lat[0] = lon, lat
 
     def tangent(lon, lat, heading):
         return _shrink_line_tangent(
@@ -267,12 +224,12 @@ def _trace_half_line(
             min_anisotropy=min_anisotropy,
         )
 
-    for _ in range(n_steps):
+    for step in range(1, n_steps + 1):
         lon, lat, heading = _rk2_step(lon, lat, heading, tangent=tangent, step_m=step_m)
         # All seeds march in one array, so a terminated line is NaN-filled rather
         # than broken out of. That costs work on lines that died early, see #11.
-        track.append((lon.copy(), lat.copy()))
-    return track
+        track_lon[step], track_lat[step] = lon, lat
+    return track_lon, track_lat
 
 
 def shrink_lines(
@@ -289,20 +246,11 @@ def shrink_lines(
     Traces the tensor-line ODE ``dr/ds = xi_1(r)`` both ways from each seed,
     where ``xi_1`` is the weak-stretch eigenvector of ``flowmap.cauchy_green()``.
     A *forward* flow map yields repelling LCS and a *backward* one yields
-    attracting LCS, by the forward-backward duality. The integrator:
+    attracting LCS, by the forward-backward duality.
 
-    - interpolates the tensor ``C`` rather than the eigenvector and
-      re-diagonalises at each point, so it stays smooth through the
-      near-degenerate spots where ``xi_1`` is otherwise sign-ambiguous;
-    - orients each step to the running heading, an eigenvector having no
-      intrinsic sign;
-    - stops a line where ``xi_1`` stops being well defined, whether through
-      ``min_anisotropy``, running off the grid, or a NaN cell.
-
-    All seeds march together as one array with a midpoint (arc-length) step.
-    ``line_length_m`` is a budget rather than an achieved length, so a line that
-    terminates early is shorter and the returned block is NaN-filled past
-    termination to keep every row the same length.
+    A line stops where ``xi_1`` stops being well defined, through
+    ``min_anisotropy``, off the grid, or in a NaN cell. ``line_length_m`` is a
+    budget, so a line that stops early is shorter and NaN-padded.
 
     Parameters
     ----------
@@ -341,10 +289,10 @@ def shrink_lines(
     }
     # Stitch the halves into one curve, reversing the backward one and dropping
     # the forward one's shared first point. They leave in opposite directions.
-    points = _trace_half_line(seed_lon, seed_lat, -1, **trace_kwargs)[::-1]
-    points += _trace_half_line(seed_lon, seed_lat, +1, **trace_kwargs)[1:]
-    lon_lines = np.array([p[0] for p in points]).T  # (line, point)
-    lat_lines = np.array([p[1] for p in points]).T
+    back_lon, back_lat = _trace_half_line(seed_lon, seed_lat, -1, **trace_kwargs)
+    ahead_lon, ahead_lat = _trace_half_line(seed_lon, seed_lat, +1, **trace_kwargs)
+    lon_lines = np.concatenate([back_lon[::-1], ahead_lon[1:]]).T  # (line, point)
+    lat_lines = np.concatenate([back_lat[::-1], ahead_lat[1:]]).T
     return xr.Dataset(
         {
             "lon": xr.DataArray(

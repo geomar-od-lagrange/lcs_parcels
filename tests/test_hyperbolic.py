@@ -705,7 +705,7 @@ def test_trace_half_line_is_second_order_in_the_step(seed_lat):
     arc_m = 300_000.0
 
     def endpoint(n_steps):
-        track = _trace_half_line(
+        lon, lat = _trace_half_line(
             np.array([0.0]),
             np.array([seed_lat]),
             +1,
@@ -714,7 +714,7 @@ def test_trace_half_line_is_second_order_in_the_step(seed_lat):
             step_m=arc_m / n_steps,
             n_steps=n_steps,
         )
-        return np.array([track[-1][0][0], track[-1][1][0]])
+        return np.array([lon[-1, 0], lat[-1, 0]])
 
     coarse, medium, fine = endpoint(10), endpoint(20), endpoint(40)
     first = np.linalg.norm(medium - coarse)
@@ -735,7 +735,7 @@ def test_trace_half_line_guard_fires_at_the_rk2_midpoint():
     """
     tensor = _dipping_tensor(0.5, half_width_deg=0.1)
 
-    track = _trace_half_line(
+    lon, _ = _trace_half_line(
         np.array([0.0]),
         np.array([0.0]),
         +1,
@@ -744,8 +744,7 @@ def test_trace_half_line_guard_fires_at_the_rk2_midpoint():
         step_m=111_195.0,  # about one degree of longitude at the equator
         n_steps=3,
     )
-
-    lon = np.array([p[0][0] for p in track])
+    lon = lon[:, 0]
     assert np.isfinite(lon[0])  # the seed itself is fine
     assert np.isnan(lon[1:]).all()  # the first step dies at its midpoint
 
@@ -754,7 +753,7 @@ def test_trace_half_line_point_count_and_nan_padding():
     """The track is n_steps + 1 points and, once it leaves the grid, stays NaN."""
     interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
 
-    track = _trace_half_line(
+    lon, _ = _trace_half_line(
         np.array([0.0]),
         np.array([0.0]),
         +1,
@@ -764,8 +763,8 @@ def test_trace_half_line_point_count_and_nan_padding():
         n_steps=10,
     )
 
-    assert len(track) == 11
-    lon = np.array([p[0][0] for p in track])
+    assert lon.shape == (11, 1)
+    lon = lon[:, 0]
     assert np.isfinite(lon[:3]).all()  # 0.45 deg steps stay inside |lon| <= 1
     assert np.isnan(lon[-1])
     finite = np.isfinite(lon)
