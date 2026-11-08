@@ -97,10 +97,13 @@ methods, `hyperbolic` the shrink-line extraction and `elliptic` the
 closed-shear-line extraction. The private module `_numerics` holds the
 spherical metric (`EARTH_RADIUS_M`, `_wrap_lon`, `_separation_m`,
 `_circular_mean_lon`, `_step_lonlat_by_meters`) and the primitives both
-extraction modules use. These are the windowed-extremum search behind
-`ftle_ridge_seeds` and `elliptic_centres`, and the line stepping and
-interpolation of $C$ (`_rk2_step`, `_tensor_interp`) that `shrink_lines` and
-`closed_shear_lines` both trace with. It imports only numpy, xarray and scipy.
+extraction modules use. `ftle_ridge_seeds` and `elliptic_centres` share the
+windowed-extremum search, which also issues the under-three-cells warning, and
+`_point_dataset`, which builds the point dataset each returns. `shrink_lines`
+and `closed_shear_lines` share the line step, the interpolation of $C$ and the
+closed-form $2 \times 2$ eigen solve (`_rk2_step`, `_tensor_interp`,
+`_eigen_2x2`), and both record their tracks as `(step, line)` arrays. It
+imports only numpy, xarray and scipy.
 
 The imports run one way:
 
@@ -361,6 +364,14 @@ dataset announces repelling or attracting in its own `long_name` attributes.
 What those parameters mean and why they are stated in the units they are is in
 [`docs/numerics.md`](numerics.md).
 
+Both one-call methods take only the parameters that choose what is extracted.
+`hyperbolic_lcs()` takes the ridge window, the ridge threshold and the line
+length, and `elliptic_lcs()` the centre window, the stretching scan, the
+largest radius and the rotation field. The numerical parameters stay on the
+step functions, where a caller tuning them also sees the intermediate results.
+These are the integration step and `min_anisotropy` of `shrink_lines`, and the
+edge margin, launch spacing, step and closure tolerance of the elliptic steps.
+
 ### Why `window_m` was not redefined as the seed separation
 
 `window_m` is the *side* of the window a candidate must be the maximum over, so
@@ -451,11 +462,13 @@ outputs, each runnable by hand, and a one-call method on `FlowMap`.
 - `elliptic_centres(field, extremum=...)` picks candidate centres;
 - `closed_shear_lines(flowmap, centre_lon=..., centre_lat=...)` returns every
   closed $\eta^\pm_\lambda$ orbit about them, on `(orbit, point)`;
-- `outermost_shear_lines(orbits, rotation=...)` keeps one boundary per vortex,
-  on `(eddy, point)`.
+- `outermost_shear_lines(orbits)` keeps one boundary per vortex, as the
+  selected rows of `orbits`;
+- `rotation_sense(boundaries, rotation=...)` reads each boundary's sense of
+  rotation from a polar rotation field.
 
-`FlowMap.elliptic_lcs()` runs the chain, and `FlowMap.polar_rotation()` is the
-gridded diagnostic the layer adds.
+`FlowMap.elliptic_lcs()` runs the chain, and `FlowMap.cg_anisotropy()` and
+`FlowMap.polar_rotation()` are the gridded diagnostics the layer adds.
 
 ### Why the search returns every orbit
 
@@ -465,6 +478,11 @@ member that is depends on the scan: its range, its step, and the sections and
 launches. `closed_shear_lines` returns the family so the caller can see it, plot
 it, and judge the scan. `outermost_shear_lines` is a separate step for the same
 reason `prune_shrink_lines` is, and dropping it leaves the unselected result.
+Filtering the orbits before it lets a rejected outermost orbit fall back to the
+next one inside it. The package ships no quality thresholds for that filter,
+because they are tuned per dataset, and returns the quantities they are built
+from instead (`at_scan_edge`, `residual_m`, `radius_m` and the
+`grid_spacing_m` attribute).
 
 ### Why the stretching factors are an argument and not a knob
 
@@ -489,17 +507,21 @@ more of the GLED eddies than $\theta$ extrema did.
 $C = (\nabla F)^\top \nabla F$ discards the rotation of the flow map, so no
 quantity derived from $C$ can tell a cyclone from an anticyclone. The polar
 rotation angle reads it from $\nabla F$ itself, so the package needs no
-velocity or vorticity. Its median over the domain is subtracted before taking
-the sign. A frame rotating rigidly with angle $\phi(t)$ shifts $\theta$ by the
-same amount everywhere, so the anomaly does not depend on the frame.
+velocity or vorticity. `rotation_sense` takes the sign of the mean $\theta$
+inside each boundary as it is, with no domain median or other background
+subtracted.
 
 $\nabla F$ holds the rotation only modulo $2\pi$, and a vortex turns once or twice
-over a window long enough for its boundary to be found. So
-`outermost_shear_lines` takes the rotation as a separate field, from a flow
-map of its own window, rather than reading it off the orbits' flow map. The
-first design read it off that flow map, and at 30 days its sign matched GLED's
-polarity for 4 or 5 of the 7 to 9 matched eddies, which is chance.
-`elliptic_lcs()` has one flow map, so it returns no rotation sense.
+over a window long enough for its boundary to be found. So `rotation_sense`
+takes the rotation as a separate field, from a flow map of its own short
+window, rather than reading it off the orbits' flow map. The first design read
+it off that flow map, and at 30 days its sign matched GLED's polarity for 4 or
+5 of the 7 to 9 matched eddies, which is chance. `elliptic_lcs()` takes the
+short-window field as `rotation=` for the same reason.
+
+`rotation_sense` is a function of its own rather than a step of the selection,
+because it needs only closed curves and a gridded field. It applies unchanged
+to the boundaries of any selection and to an `image()` of them.
 
 ### Why `stretch`, not `lambda`
 

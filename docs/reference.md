@@ -61,6 +61,7 @@ Elliptic LCS as closed shear lines, taking the gridded outputs of a
    lcs_parcels.stretch_range
    lcs_parcels.closed_shear_lines
    lcs_parcels.outermost_shear_lines
+   lcs_parcels.rotation_sense
 ```
 
 ## Modules

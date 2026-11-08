@@ -42,6 +42,7 @@ from lcs_parcels import (
     closed_shear_lines,
     elliptic_centres,
     outermost_shear_lines,
+    rotation_sense,
     stretch_range,
 )
 
@@ -136,14 +137,7 @@ first_day
 # ratio $\lambda_2 / \lambda_1$, whose windowed minima mark the vortex cores.
 
 # %%
-eigen = forward.cg_eigen()
-anisotropy = (
-    (eigen["lambda"].isel(eig=1, drop=True) / eigen["lambda"].isel(eig=0, drop=True))
-    .rename("cg_anisotropy")
-    .assign_attrs(
-        long_name="Cauchy-Green eigenvalue ratio lambda_2 / lambda_1", units="1"
-    )
-)
+anisotropy = forward.cg_anisotropy()
 # The ratio spans many decades, so it is drawn as its decimal logarithm.
 log_anisotropy = (
     np.log10(anisotropy)
@@ -203,12 +197,10 @@ plt.show()
 # ## The outermost boundary per vortex
 #
 # `outermost_shear_lines` keeps the largest orbit per centre and merges centres
-# that one boundary encloses. With the first day's polar rotation it adds
-# `rotation_sense`, counter-clockwise positive. South of the equator a clockwise
-# eddy is cyclonic.
+# that one boundary encloses.
 
 # %%
-eddies = outermost_shear_lines(orbits, rotation=first_day.polar_rotation())
+eddies = outermost_shear_lines(orbits)
 eddies
 
 # %%
@@ -233,6 +225,17 @@ ax.plot(eddies["lon"].T, eddies["lat"].T, color="black", lw=1.5)
 plt.show()
 
 # %% [markdown]
+# ## The rotation sense
+#
+# `rotation_sense` averages the first day's rotation angle over the grid points
+# inside each boundary, and its sign is the sense, counter-clockwise positive.
+# South of the equator a clockwise eddy is cyclonic.
+
+# %%
+eddies = rotation_sense(eddies, rotation=first_day.polar_rotation())
+eddies[["rotation_rad", "rotation_sense"]]
+
+# %% [markdown]
 # ## The boundaries at the end of the window
 #
 # A boundary is a material curve, so `forward.image` carries it to $t_1$
@@ -254,16 +257,16 @@ plt.show()
 # ## In one call
 #
 # `elliptic_lcs` runs the centres, the search and the selection at the package
-# defaults. It has only the 15-day flow map, so its boundaries carry no
-# rotation sense.
+# defaults, and with the first day's rotation angle it adds the rotation sense.
 
 # %%
-forward.elliptic_lcs()
+forward.elliptic_lcs(rotation=first_day.polar_rotation())
 
 # %% [markdown]
 # ## Outcome
 #
 # `elliptic_centres` picks 241 candidate centres, and `closed_shear_lines`
 # closes 192 orbits at 13 of them. `outermost_shear_lines` keeps 12 boundaries,
-# six turning counter-clockwise over the first day and six clockwise.
-# `elliptic_lcs` returns the same 12 boundaries in one call.
+# none of them at either end of the scan. Over the first day six turn
+# counter-clockwise and six clockwise. `elliptic_lcs` returns the same 12
+# boundaries with the same rotation senses in one call.

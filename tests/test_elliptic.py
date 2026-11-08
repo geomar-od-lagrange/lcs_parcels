@@ -517,6 +517,21 @@ def test_outermost_shear_lines_keeps_the_largest_orbit(vortex_orbits):
     assert float(eddies["area_m2"].max()) == float(vortex_orbits["area_m2"].max())
 
 
+def test_outermost_shear_lines_of_filtered_orbits(vortex_orbits):
+    """Orbits filtered before selection keep their labels, and the next largest
+    orbit takes the place of a rejected one."""
+    area = vortex_orbits["area_m2"]
+    filtered = vortex_orbits.isel(orbit=area < area.max())
+    eddies = outermost_shear_lines(filtered)
+    label = int(filtered["area_m2"].idxmax("orbit"))
+    assert eddies["orbit"].values.tolist() == [label]
+    np.testing.assert_array_equal(
+        eddies["lon"].values[0],
+        vortex_orbits["lon"].sel(orbit=label).values[: eddies.sizes["point"]],
+    )
+    assert eddies["at_scan_edge"].dtype == bool
+
+
 def test_outermost_shear_lines_merges_centres_inside_one_boundary(vortex):
     """Two candidate centres 5.5 km apart in one vortex give one eddy."""
     orbits = closed_shear_lines(
@@ -621,6 +636,14 @@ def test_rotation_sense_of_an_evolved_boundary(vortex, vortex_eddies):
     evolved = vortex.image(lon_0=vortex_eddies["lon"], lat_0=vortex_eddies["lat"])
     eddies = rotation_sense(evolved, rotation=vortex.polar_rotation())
     assert eddies["rotation_sense"].values.tolist() == [1]
+
+
+def test_rotation_sense_of_a_curve_missing_its_closing_point(vortex, vortex_eddies):
+    evolved = vortex.image(lon_0=vortex_eddies["lon"], lat_0=vortex_eddies["lat"])
+    opened = evolved.assign(lon=evolved["lon"].where(evolved["point"] > 0))
+    plain = rotation_sense(evolved, rotation=vortex.polar_rotation())
+    eddies = rotation_sense(opened, rotation=vortex.polar_rotation())
+    np.testing.assert_allclose(eddies["rotation_rad"], plain["rotation_rad"], rtol=0.01)
 
 
 def test_rotation_sense_takes_the_rotation_by_keyword(vortex, vortex_eddies):

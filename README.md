@@ -80,7 +80,7 @@ eddies = flowmap.elliptic_lcs()
 Every returned array carries `long_name` and `units`, so
 `ftle.plot(x="lon_grid", y="lat_grid")` labels itself.
 
-`print(flowmap)` gives a one-line summary and `flowmap.ds` gives the dataset
+`print(flowmap)` gives a short summary and `flowmap.ds` gives the dataset
 itself:
 
 ```pycon

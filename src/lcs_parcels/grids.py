@@ -591,7 +591,10 @@ class FlowMap(abc.ABC):
             The ratio on ``(i, j)``, dimensionless.
         """
         eigenvalues = self.cg_eigen()["lambda"]
-        ratio = eigenvalues.isel(eig=1, drop=True) / eigenvalues.isel(eig=0, drop=True)
+        # A round-off-negative lambda_1 would otherwise give a negative ratio.
+        ratio = eigenvalues.isel(eig=1, drop=True) / eigenvalues.isel(
+            eig=0, drop=True
+        ).clip(min=0.0)
         return ratio.rename("cg_anisotropy").assign_attrs(
             long_name="Cauchy-Green eigenvalue ratio lambda_2 / lambda_1",
             units="1",
@@ -725,11 +728,9 @@ class FlowMap(abc.ABC):
         window decides which family is returned, and the returned dataset records
         that family in its ``long_name``.
 
-        Every call recomputes the FTLE, which is the expensive step, though within
-        one call it is computed once and handed to the ridge finder. To re-tune
-        parameters against a fixed field, to pick ridges from a smoothed or
-        masked one, to see the unpruned lines, or to set the integration step or
-        ``min_anisotropy``, drive the steps yourself.
+        Every call recomputes the FTLE. To re-tune against a fixed field, to pick
+        ridges from a smoothed or masked one, to see the unpruned lines, or to set
+        the integration step or ``min_anisotropy``, drive the steps yourself.
 
         Parameters
         ----------

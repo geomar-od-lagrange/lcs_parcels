@@ -419,8 +419,8 @@ one curve traced twice, and the rule keeps them.
 ## Closed shear lines
 
 `closed_shear_lines` traces $\eta^\pm_\lambda$ with the RK2 step shrink lines
-use, on the same interpolated $C$. Its tangent diagonalises $C$ in closed form
-and takes $\xi_2$ as $\xi_1$ turned 90 degrees counter-clockwise. An
+use, on the same interpolated $C$. Both tangents diagonalise $C$ in closed
+form, and both take $\xi_2$ as $\xi_1$ turned 90 degrees counter-clockwise. An
 eigensolver may flip either eigenvector, and flipping $\xi_2$ alone turns
 $\eta^+$ into $\eta^-$. Tying the two signs together leaves one overall sign,
 which the running heading fixes, so a line stays on its branch.
@@ -467,7 +467,9 @@ first return.
 ### Why the defaults derive from the grid spacing
 
 `launch_spacing_m`, `step_m` and `closure_tol_m` default to the grid spacing,
-half of it, and half of it, so they mean the same at another resolution.
+half of it, and half of it, so they mean the same at another resolution. The
+grid spacing is stored as the `grid_spacing_m` attribute whatever these are
+set to.
 `max_radius_m` is the largest eddy radius looked for, a physical length like
 `window_m`. On the 1/4 degree geostrophic case below, launched from the 23 GLED
 centres, the number of GLED eddies with a boundary is:

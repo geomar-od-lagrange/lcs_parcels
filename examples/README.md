@@ -17,8 +17,9 @@ Cabo Verde ones build on each other, and `cape_cauldron_vortices` builds on
   extracted LCS as a material curve.
 - [`cape_cauldron_vortices`](cape_cauldron_vortices.ipynb) finds coherent
   Lagrangian vortex boundaries as closed shear lines over the Agulhas-ring
-  corridor in GLORYS12 currents, with `elliptic_centres`, `stretch_range`,
-  `closed_shear_lines`, `outermost_shear_lines`, `FlowMap.polar_rotation` and
+  corridor in GLORYS12 currents, with `FlowMap.cg_anisotropy`,
+  `elliptic_centres`, `stretch_range`, `closed_shear_lines`,
+  `outermost_shear_lines`, `FlowMap.polar_rotation`, `rotation_sense` and
   `FlowMap.elliptic_lcs`.
 
 Each notebook is a jupytext triplet. The `.py` (py:percent) is the source of

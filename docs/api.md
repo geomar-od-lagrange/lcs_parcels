@@ -13,8 +13,9 @@ strain field into hyperbolic-LCS curves (see
 [Hyperbolic LCS: shrink lines](#hyperbolic-lcs-shrink-lines) below), and
 `FlowMap.hyperbolic_lcs()` runs them in one call. `elliptic_centres`,
 `closed_shear_lines` and `outermost_shear_lines` find coherent vortex
-boundaries (see [Elliptic LCS: closed shear lines](#elliptic-lcs-closed-shear-lines)),
-and `FlowMap.elliptic_lcs()` runs them in one call.
+boundaries and `rotation_sense` reads their sense of rotation (see
+[Elliptic LCS: closed shear lines](#elliptic-lcs-closed-shear-lines)), and
+`FlowMap.elliptic_lcs()` runs them in one call.
 
 Every adjacent same-typed argument pair on the public surface, meaning every
 lon/lat pair, is **keyword-only**, so a transposed call raises `TypeError`.
@@ -184,6 +185,7 @@ FlowMap.deformation_gradient() -> xr.DataArray   # abstract (per-stencil)
 FlowMap.cauchy_green() -> xr.DataArray            # concrete (base)
 FlowMap.cg_eigen() -> xr.Dataset                  # concrete (base)
 FlowMap.ftle() -> xr.DataArray                    # concrete (base)
+FlowMap.cg_anisotropy() -> xr.DataArray           # concrete (base)
 ```
 
 - **`deformation_gradient()`** returns $\nabla F = \partial(\text{lon},
@@ -217,8 +219,11 @@ FlowMap.ftle() -> xr.DataArray                    # concrete (base)
   *largest* eigenvalue $\lambda_2$ and the recorded signed window `T`. Dims
   `(i, j)`, units 1/second. Only $|T|$ enters, so backward and forward
   integration of the same map give the same FTLE.
+- **`cg_anisotropy()`** returns the eigenvalue ratio $\lambda_2 / \lambda_1$
+  of $C$ on `(i, j)`, dimensionless and at least 1. Its windowed minima are the
+  candidate vortex centres of `elliptic_lcs()`.
 
-All four are reported at the diagnostic grid points and carry
+All of these are reported at the diagnostic grid points and carry
 `lon_grid`/`lat_grid` as their position coords, and only those. The release
 positions `lon_0`/`lat_0` are *not* carried through: on an `AuxiliaryFlowMap`
 they are one stencil arm, which would mislabel an `(i, j)` quantity.
@@ -352,7 +357,6 @@ antimeridian on the branch its seed point came in on.
 
 ```text
 FlowMap.hyperbolic_lcs(*, window_m=None, quantile=None, ftle_min=None,
-                       min_anisotropy=None, step_m=None,
                        line_length_m=None) -> xr.Dataset
 ```
 
@@ -391,7 +395,8 @@ grid be curvilinear), so a gridded field is drawn against them by passing
 
 Ridge-finding itself takes a *field*, not a flow map, so to pick seed points
 from a smoothed or masked FTLE, or to see the lines before pruning, run the
-steps by hand.
+steps by hand. `min_anisotropy` and `step_m` are set the same way, on
+`shrink_lines`.
 
 ## Elliptic LCS: closed shear lines
 
@@ -412,24 +417,22 @@ flow map of the same release over one day:
 
 ```python
 from lcs_parcels import (
-    closed_shear_lines, elliptic_centres, outermost_shear_lines, stretch_range,
+    closed_shear_lines, elliptic_centres, outermost_shear_lines, rotation_sense,
+    stretch_range,
 )
 
-eigen = forward.cg_eigen()
-anisotropy = eigen["lambda"].isel(eig=1) / eigen["lambda"].isel(eig=0)
-centres = elliptic_centres(anisotropy, extremum="min")       # candidate centres
+centres = elliptic_centres(forward.cg_anisotropy(), extremum="min")  # candidates
 orbits = closed_shear_lines(
     forward,
     centre_lon=centres["lon"],
     centre_lat=centres["lat"],
     stretches=stretch_range(stretch_max=1.5, step=0.03),       # the default scan
 )                                                              # every closed orbit
-eddies = outermost_shear_lines(
-    orbits, rotation=first_day.polar_rotation()                # rotation sense
-)                                                              # one per vortex
+eddies = outermost_shear_lines(orbits)                         # one per vortex
+eddies = rotation_sense(eddies, rotation=first_day.polar_rotation())
 evolved = forward.image(lon_0=eddies["lon"], lat_0=eddies["lat"])  # at t1
 
-eddies = forward.elliptic_lcs()            # the same chain in one call, no rotation sense
+eddies = forward.elliptic_lcs(rotation=first_day.polar_rotation())  # in one call
 ```
 
 The example
@@ -443,7 +446,8 @@ stretch_range(*, stretch_max=1.5, step=0.03) -> np.ndarray
 closed_shear_lines(flowmap, *, centre_lon, centre_lat, stretches=None,
                    max_radius_m=150_000.0, launch_spacing_m=None,
                    step_m=None, closure_tol_m=None) -> xr.Dataset
-outermost_shear_lines(orbits, *, rotation=None) -> xr.Dataset
+outermost_shear_lines(orbits) -> xr.Dataset
+rotation_sense(boundaries, *, rotation) -> xr.Dataset
 ```
 
 - **`polar_rotation()`** returns the rotation angle $\theta$ of $R$ in the
@@ -461,8 +465,9 @@ outermost_shear_lines(orbits, *, rotation=None) -> xr.Dataset
   side `window_m` metres, and drops any within `edge_m` (default
   `window_m / 2`) of the domain edge or of a NaN cell. `extremum` has no
   default. Like `ftle_ridge_seeds`, it takes a field, so any indicator can be
-  passed, such as the eigenvalue ratio $\lambda_2 / \lambda_1$ (minima) or
-  $\lvert \theta - \operatorname{median} \theta \rvert$ (maxima). Returns
+  passed, such as `cg_anisotropy()` (minima) or
+  $\lvert \theta - \operatorname{median} \theta \rvert$ (maxima), and it warns
+  in the same way when `window_m` spans fewer than three cells. Returns
   `lon`/`lat` on a `centre` dim, with the window attributes.
 - **`stretch_range()`** returns the default scan, $\lambda = e^{k\,\delta}$ for
   integer $k$ with $\lvert k\,\delta \rvert \le \ln \Lambda$, where
@@ -481,33 +486,40 @@ outermost_shear_lines(orbits, *, rotation=None) -> xr.Dataset
   $\eta^\pm_\lambda$ is not defined, when it crosses its section before half
   a turn, after one and a half turns, or after two circumferences at
   `max_radius_m`. `launch_spacing_m`, `step_m` and
-  `closure_tol_m` default to the grid spacing, half of it, and half of it, the
-  smaller of the two median spacings of the flow map's grid.
+  `closure_tol_m` default to the grid spacing, half of it, and half of it. The
+  grid spacing is the smaller of the two median spacings of the flow map's
+  grid, recorded as `attrs["grid_spacing_m"]`.
 
   It returns **every** orbit, so one vortex comes back as a nested family of
   loops over the stretching factors and both sections. `lon`/`lat` are on
   `(orbit, point)`, each row a closed curve whose last point repeats its first,
-  NaN-padded past its end. Per orbit there is the `centre` searched with its
-  `centre_lon`/`centre_lat`, `stretch`, `branch` ($\pm 1$), the enclosed
-  `area_m2`, the equivalent radius `radius_m` $= \sqrt{A / \pi}$, and the
-  closure miss `residual_m`. The `attrs` record the scan, including
-  `n_never_returned`, the number of (centre, section, stretch, branch)
-  families none of whose launches returned.
-- **`outermost_shear_lines(orbits, *, rotation=None)`** keeps the largest-area
-  orbit per centre, then drops any whose centre lies inside a larger kept
-  boundary, so several candidate centres in one vortex give one eddy. It
-  returns the kept rows on `(eddy, point)` with their `orbit_index` and the
-  boundary centroid `centroid_lon`/`centroid_lat`. Given a `rotation` field,
-  the `polar_rotation()` of a short flow map, it adds `rotation_sense`, the
-  sign of the mean $\theta$ inside the boundary against its domain median,
-  $+1$ counter-clockwise, $-1$ clockwise, and 0 where no point of `rotation`
-  lies inside. Cyclonic or anticyclonic follows
-  from the hemisphere, since a cyclone turns counter-clockwise in the north
-  and clockwise in the south.
+  NaN-padded past its end. Per orbit there is the `centre_index` searched with
+  its `centre_lon`/`centre_lat`, `stretch`, `branch` ($\pm 1$), the enclosed
+  `area_m2`, the equivalent radius `radius_m` $= \sqrt{A / \pi}$, the centroid
+  `centroid_lon`/`centroid_lat`, the closure miss `residual_m`, and
+  `at_scan_edge`, True for an orbit closed at the first or last stretching
+  factor of the scan. The `attrs` record the scan and `grid_spacing_m`.
+- **`outermost_shear_lines(orbits)`** keeps the largest-area orbit per centre,
+  then drops any whose centre lies inside a larger kept boundary, so several
+  candidate centres in one vortex give one eddy. It returns the kept rows of
+  `orbits`, on `(orbit, point)` with their **original** `orbit` labels, as
+  `prune_shrink_lines` keeps its `line` labels. The attributes `n_orbits_in`
+  and `n_centres_with_orbits` record what it was given.
+- **`rotation_sense(boundaries, *, rotation)`** adds `rotation_rad`, the mean
+  of `rotation` over the grid points inside each closed curve (rad), and
+  `rotation_sense`, its sign, $+1$ counter-clockwise and $-1$ clockwise. Both
+  are floats, NaN where no finite grid point lies inside. `rotation` is the
+  `polar_rotation()` of a short flow map, and nothing is subtracted from it.
+  `boundaries` is any dataset of closed `lon`/`lat` curves on a `point` dim,
+  such as the `outermost_shear_lines` result or an `image()` of it. Cyclonic
+  or anticyclonic follows from the hemisphere, since a cyclone turns
+  counter-clockwise in the north and clockwise in the south.
 
   ```python
   short = seed.pset_to_flowmap(lon=lon_1day, lat=lat_1day, t0=t0, t1=t0 + one_day)
-  eddies = outermost_shear_lines(orbits, rotation=short.polar_rotation())
+  eddies = rotation_sense(
+      outermost_shear_lines(orbits), rotation=short.polar_rotation()
+  )
   ```
 
 `radius_m` is the radius of the circle with the same area. A boundary is a
@@ -525,28 +537,55 @@ evolves it.
 - **`max_radius_m`** of `closed_shear_lines` is the largest boundary radius
   sought. A line is traced for at most two circumferences at that radius, so it
   also bounds the work.
-- **`stretches`.** When the outermost orbits of many centres close at the
-  first or last value of the scan, widen it with `stretch_range(stretch_max=...)`.
-- **`attrs["n_never_returned"]`** counts the (centre, section, stretch, branch)
-  families of which no launch came back to its section. On real currents it is
-  most of them. When it equals `4 * n_stretch * n_centres`, every family
-  searched, no launch returned at all.
+- **`stretches`.** When the outermost orbits of many centres carry
+  `at_scan_edge`, widen the scan with `stretch_range(stretch_max=...)`.
+
+### Checking the orbits
+
+The package sets no quality thresholds. Each check is one xarray expression on
+the `closed_shear_lines` result:
+
+- `orbits.at_scan_edge` flags an orbit closed at the first or last stretching
+  factor of the scan. When it is a vortex's outermost orbit, the true outermost
+  orbit may lie outside the scan.
+- `orbits.residual_m / orbits.radius_m` is the closure residual relative to the
+  size of the orbit.
+- `orbits.radius_m / orbits.attrs["grid_spacing_m"]` is the radius in grid
+  cells. An orbit only a few cells across is near the resolution of the
+  gradient stencil.
+
+Filter before selecting, so that a rejected outermost orbit falls back to the
+next orbit inside it:
+
+```python
+ok = (orbits.residual_m / orbits.radius_m < max_relative_residual) & (
+    orbits.radius_m / orbits.attrs["grid_spacing_m"] > min_radius_cells
+)
+eddies = outermost_shear_lines(orbits.isel(orbit=ok))
+```
 
 ### One call: `FlowMap.elliptic_lcs()`
 
 ```text
-FlowMap.elliptic_lcs(*, window_m=None, edge_m=None, stretches=None,
-                     max_radius_m=None, launch_spacing_m=None, step_m=None,
-                     closure_tol_m=None) -> xr.Dataset
+FlowMap.elliptic_lcs(*, window_m=None, stretches=None, max_radius_m=None,
+                     rotation=None) -> xr.Dataset
 ```
 
-Takes candidate centres at the windowed minima of $\lambda_2 / \lambda_1$,
-searches them, and keeps the outermost boundaries. A parameter left at `None`
-takes the default of `elliptic_centres` or `closed_shear_lines`. The result is
-the `outermost_shear_lines` dataset with the ratio it picked the centres from
-as `cg_anisotropy` on `(i, j)`, and the search and centre-selection `attrs`, the
-latter prefixed `centres_`. It carries no `rotation_sense`. For one, pass the
-`polar_rotation()` of a short window to `outermost_shear_lines`.
+Takes candidate centres at the windowed minima of `cg_anisotropy()`, searches
+them, and keeps the outermost boundaries. A parameter left at `None` takes the
+default of `elliptic_centres` or `closed_shear_lines`. Given a `rotation`, the
+`polar_rotation()` of a short window, it adds `rotation_rad` and
+`rotation_sense` through `rotation_sense()`. The result is the
+`outermost_shear_lines` dataset with the ratio it picked the centres from as
+`cg_anisotropy` on `(i, j)`, and the search and centre-selection `attrs`, the
+latter prefixed `centres_`.
+
+```python
+eddies = forward.elliptic_lcs(rotation=short.polar_rotation())
+```
+
+To set `edge_m`, `launch_spacing_m`, `step_m` or `closure_tol_m`, or to filter
+the orbits before selection, run the steps by hand.
 
 ## Evolving a material curve
 
@@ -612,12 +651,13 @@ rather than against the logical `i`/`j` axes.
 | `closed_shear_lines()` | `branch` | branch of eta^pm_lambda, +1 or -1 | `1` |
 | `closed_shear_lines()` | `area_m2` | area enclosed by the closed shear line | `m2` |
 | `closed_shear_lines()` | `radius_m` | equivalent radius sqrt(area / pi) of the closed shear line | `m` |
+| `closed_shear_lines()` | `centroid_lon` / `centroid_lat` | longitude/latitude of the closed shear line centroid | `degrees_east` / `degrees_north` |
 | `closed_shear_lines()` | `residual_m` | distance from launch to return on the section | `m` |
-| `outermost_shear_lines()` | `centroid_lon` / `centroid_lat` | longitude/latitude of the eddy boundary centroid | `degrees_east` / `degrees_north` |
-| `outermost_shear_lines()` | `rotation_sense` | rotation sense, +1 counter-clockwise, -1 clockwise | `1` |
-| `closed_shear_lines()` | `centre` | index of the candidate centre searched | `1` |
-| `outermost_shear_lines()` | `orbit_index` | index of the orbit in the closed_shear_lines result | `1` |
-| `elliptic_lcs()` | `cg_anisotropy` | Cauchy-Green eigenvalue ratio lambda_2 / lambda_1 | `1` |
+| `closed_shear_lines()` | `at_scan_edge` | closed at the first or last stretching factor of the scan | `1` |
+| `closed_shear_lines()` | `centre_index` | index of the candidate centre searched | `1` |
+| `rotation_sense()` | `rotation_rad` | mean polar rotation angle inside the boundary | `rad` |
+| `rotation_sense()` | `rotation_sense` | rotation sense, +1 counter-clockwise, -1 clockwise | `1` |
+| `cg_anisotropy()`, `elliptic_lcs()` | `cg_anisotropy` | Cauchy-Green eigenvalue ratio lambda_2 / lambda_1 | `1` |
 
 Units are SI: the FTLE is `1/s`, not 1/day. Convert for display in the plotting
 code, where the conversion is visible, and re-set `units` when you do.
@@ -641,10 +681,9 @@ The coordinates carry the same metadata, set once at construction
 | `point` | point index along the shrink line, or along the closed shear line |  |
 | `centre` | candidate vortex centre index |  |
 | `orbit` | closed shear line index |  |
-| `eddy` | eddy index |  |
 
 The index and label coords (`i`, `j`, `displacement`, `row`, `col`, `comp`,
-`eig`, `seed`, `line`, `point`, `centre`, `orbit`, `eddy`) carry no `units`: their values are logical indices or
+`eig`, `seed`, `line`, `point`, `centre`, `orbit`) carry no `units`: their values are logical indices or
 string labels, so there is no unit to give. `t0` and `T` carry none either,
 they are `datetime64`/`timedelta64`, so the dtype already holds the unit.
 

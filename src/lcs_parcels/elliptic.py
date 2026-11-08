@@ -612,7 +612,7 @@ def rotation_sense(boundaries: xr.Dataset, *, rotation: xr.DataArray) -> xr.Data
     """
     lon_grid = rotation["lon_grid"].values.ravel()
     lat_grid = rotation["lat_grid"].values.ravel()
-    theta = rotation.values.ravel()
+    theta = rotation.transpose(*rotation["lon_grid"].dims).values.ravel()
     curve_lon = boundaries["lon"].transpose(..., "point")
     curve_lat = boundaries["lat"].transpose(*curve_lon.dims)
     template = curve_lon.sum("point").reset_coords(drop=True)
@@ -628,7 +628,9 @@ def rotation_sense(boundaries: xr.Dataset, *, rotation: xr.DataArray) -> xr.Data
         finite = np.isfinite(lon) & np.isfinite(lat)
         if not finite.any():
             continue
-        lon, lat = lon[finite], lat[finite]
+        # Closed again in case NaN took the first or last point.
+        lon = np.append(lon[finite], lon[finite][0])
+        lat = np.append(lat[finite], lat[finite][0])
         x, y = _separation_m(lon_a=lon[0], lat_a=lat[0], lon_b=lon, lat_b=lat)
         gx, gy = _separation_m(
             lon_a=lon[0], lat_a=lat[0], lon_b=lon_grid, lat_b=lat_grid
