@@ -374,6 +374,41 @@ def _orbit_columns(s, family, *, trace, closure_tol_m):
     }
 
 
+def _orbit_dataset(columns: dict, *, attrs: dict) -> xr.Dataset:
+    """The per-orbit ``columns`` as a dataset on ``(orbit, point)``, trimmed to the
+    longest curve."""
+    return xr.Dataset(
+        {
+            "lon": (
+                ("orbit", "point"),
+                columns["lon"],
+                {"long_name": "longitude along the closed shear line"}
+                | _LONLAT_ATTRS["lon"],
+            ),
+            "lat": (
+                ("orbit", "point"),
+                columns["lat"],
+                {"long_name": "latitude along the closed shear line"}
+                | _LONLAT_ATTRS["lat"],
+            ),
+        }
+        | {name: ("orbit", columns[name], meta) for name, meta in _ORBIT_ATTRS.items()},
+        coords={
+            "orbit": (
+                "orbit",
+                np.arange(columns["stretch"].size),
+                {"long_name": "closed shear line index"},
+            ),
+            "point": (
+                "point",
+                np.arange(columns["lon"].shape[1]),
+                {"long_name": "point index along the closed shear line"},
+            ),
+        },
+        attrs=attrs,
+    ).dropna("point", how="all", subset=["lon"])
+
+
 def closed_shear_lines(
     flowmap,
     *,
@@ -492,37 +527,8 @@ def closed_shear_lines(
     columns["at_scan_edge"] = np.isin(
         columns["stretch"], [stretches.min(), stretches.max()]
     )
-    return xr.Dataset(
-        {
-            "lon": (
-                ("orbit", "point"),
-                columns["lon"],
-                {"long_name": "longitude along the closed shear line"}
-                | _LONLAT_ATTRS["lon"],
-            ),
-            "lat": (
-                ("orbit", "point"),
-                columns["lat"],
-                {"long_name": "latitude along the closed shear line"}
-                | _LONLAT_ATTRS["lat"],
-            ),
-        }
-        | {
-            name: ("orbit", columns[name], attrs)
-            for name, attrs in _ORBIT_ATTRS.items()
-        },
-        coords={
-            "orbit": (
-                "orbit",
-                np.arange(columns["stretch"].size),
-                {"long_name": "closed shear line index"},
-            ),
-            "point": (
-                "point",
-                np.arange(columns["lon"].shape[1]),
-                {"long_name": "point index along the closed shear line"},
-            ),
-        },
+    return _orbit_dataset(
+        columns,
         attrs={
             "stretch_min": float(stretches.min()),
             "stretch_max": float(stretches.max()),
@@ -534,7 +540,7 @@ def closed_shear_lines(
             "grid_spacing_m": spacing_m,
             "n_centres": int(centre_lon.size),
         },
-    ).dropna("point", how="all", subset=["lon"])
+    )
 
 
 def _points_inside(x_poly, y_poly, *, x, y):
