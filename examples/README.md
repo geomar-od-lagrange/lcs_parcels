@@ -1,8 +1,10 @@
 # Examples
 
 The notebooks are listed in increasing scope and are read in that order. The
-Cabo Verde ones build on each other, and `cape_cauldron_vortices` builds on
-`cabo_verde_ftle`. `example_grid_pset` stands on its own and can be read at any point.
+Cabo Verde ones build on each other, `cape_cauldron_vortices` builds on
+`cabo_verde_ftle`, and `cape_cauldron_one_vortex` builds on
+`cape_cauldron_vortices`. `example_grid_pset` stands on its own and can be read
+at any point.
 
 - [`get_data`](get_data.ipynb) downloads the CMEMS subsets the notebooks read,
   the hourly Cabo Verde currents and the daily GLORYS12 Cape Cauldron currents.
@@ -21,6 +23,10 @@ Cabo Verde ones build on each other, and `cape_cauldron_vortices` builds on
   `elliptic_centres`, `stretch_range`, `closed_shear_lines`,
   `outermost_shear_lines`, `FlowMap.polar_rotation`, `rotation_sense` and
   `FlowMap.elliptic_lcs`.
+- [`cape_cauldron_one_vortex`](cape_cauldron_one_vortex.ipynb) takes one of
+  those vortices on a finer local grid and shows every closed orbit at its
+  centre, why `outermost_shear_lines` picks its boundary, and the boundary in
+  the anisotropy, FTLE and polar rotation fields and their profiles.
 
 Each notebook is a jupytext triplet. The `.py` (py:percent) is the source of
 truth; the `.md` and `.ipynb` are generated with `jupytext --sync`, and the
