@@ -102,8 +102,8 @@ windowed-extremum search, which also issues the under-three-cells warning, and
 `_point_dataset`, which builds the point dataset each returns. `shrink_lines`
 and `closed_shear_lines` share the line step, the interpolation of $C$ and the
 closed-form $2 \times 2$ eigen solve (`_rk2_step`, `_tensor_interp`,
-`_eigen_2x2`), and both record their tracks as `(step, line)` arrays. It
-imports only numpy, xarray and scipy.
+`_eigen_2x2`), and both record their tracks as `(step, line)` arrays.
+`_numerics` imports only numpy, xarray and scipy.
 
 The imports run one way:
 
@@ -487,7 +487,7 @@ from instead (`at_scan_edge`, `residual_m`, `radius_m` and the
 ### Why the stretching factors are an argument and not a knob
 
 `stretches` takes the array to scan, and `stretch_range` builds the default one
-in the open. A single default $\lambda$ would mean $\lambda = 1$, the
+as a public function. A single default $\lambda$ would mean $\lambda = 1$, the
 area-preserving case. On hourly CMEMS model currents over the Cape Cauldron from
 2025-06-01 no orbit closes there, because they close between 1.16 and 1.35. A
 scan log-symmetric about 1 covers boundaries that shrink and boundaries that

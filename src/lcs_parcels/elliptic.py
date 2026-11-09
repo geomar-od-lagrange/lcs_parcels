@@ -46,7 +46,7 @@ from lcs_parcels._numerics import (
 #: Lines traced together in one array. Bounds the memory of the search.
 _LINES_PER_CHUNK = 200_000
 
-#: Metadata of the per-orbit variables of :func:`closed_shear_lines`.
+#: Metadata of the per-orbit variables of a closed-shear-line dataset.
 _ORBIT_ATTRS = {
     "centre_index": {
         "long_name": "index of the candidate centre searched",
@@ -420,7 +420,7 @@ def closed_shear_lines(
     step_m: float | None = None,
     closure_tol_m: float | None = None,
 ) -> xr.Dataset:
-    """Closed ``eta_lambda`` orbits about each candidate centre.
+    """Closed ``eta^pm_lambda`` orbits about each candidate centre.
 
     For every centre, stretching factor and branch, ``eta^pm_lambda`` lines are
     launched every ``launch_spacing_m`` from two sections, due east and due west
@@ -450,11 +450,13 @@ def closed_shear_lines(
     -------
     xr.Dataset
         ``lon``/``lat`` (degrees) on ``(orbit, point)``, each row a closed curve
-        NaN-padded past its end. Per orbit: the ``centre_index`` searched with
-        its ``centre_lon``/``centre_lat``, ``stretch``, ``branch``, ``area_m2``,
-        ``radius_m`` (equivalent radius), ``centroid_lon``/``centroid_lat``,
-        ``residual_m`` and ``at_scan_edge``. The ``attrs`` record the scan and
-        the ``grid_spacing_m`` it derived from.
+        NaN-padded past its end. The ``attrs`` record the scan and the
+        ``grid_spacing_m`` it derived from.
+
+        Per orbit: the ``centre_index`` searched with its ``centre_lon``/
+        ``centre_lat``, ``stretch``, ``branch``, ``area_m2``, ``radius_m``
+        (equivalent radius), ``centroid_lon``/``centroid_lat``, ``residual_m``
+        and ``at_scan_edge``.
 
     Raises
     ------
@@ -563,7 +565,7 @@ def outermost_shear_lines(orbits: xr.Dataset) -> xr.Dataset:
     Returns
     -------
     xr.Dataset
-        The kept rows of ``orbits``, keeping their ``orbit`` labels.
+        The kept rows of ``orbits``, with their ``orbit`` labels.
     """
     order = np.argsort(-orbits["area_m2"].values, kind="stable")
     _, first = np.unique(orbits["centre_index"].values[order], return_index=True)

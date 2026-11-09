@@ -823,8 +823,8 @@ class FlowMap(abc.ABC):
         xr.Dataset
             The boundaries on ``(orbit, point)``, with ``rotation_rad`` and
             ``rotation_sense`` given a ``rotation``, the ``cg_anisotropy`` on
-            ``(i, j)`` the centres were picked from, and the centre and search
-            ``attrs``.
+            ``(i, j)`` the centres were picked from, the search ``attrs``, and the
+            centre-selection ``attrs`` prefixed ``centres_``.
         """
         anisotropy = self.cg_anisotropy()
         centres = elliptic_centres(

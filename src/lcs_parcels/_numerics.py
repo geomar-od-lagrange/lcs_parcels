@@ -62,7 +62,7 @@ def _circular_mean_lon(lon: xr.DataArray, dim: str) -> xr.DataArray:
 
     Anchored on the first element along ``dim`` and averaged over wrapped offsets
     from it, so the result stays on the anchor's branch. ``skipna=False`` makes
-    the mean NaN if any member is, as one lost stencil point invalidates it.
+    the mean NaN if any member is.
     """
     anchor = lon.isel({dim: 0}, drop=True)
     return anchor + _wrap_lon(lon - anchor).mean(dim, skipna=False)

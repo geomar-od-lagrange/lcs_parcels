@@ -2,8 +2,9 @@
 
 The quantitative half of the design record: the frame separations are measured
 in, the longitude arithmetic that goes with it, the units the tuning parameters
-are stated in, and the guard that decides when $\xi_1$ is a direction rather
-than noise. The companion document
+are stated in, the guard that decides when $\xi_1$ is a direction rather
+than noise, and the closed-shear-line search with the measurements that fixed
+its defaults. The companion document
 [`docs/architecture.md`](architecture.md) covers the other
 half, what the types are and how they compose. Symbols and the definitions of
 every quantity used below live in [`docs/notation.md`](notation.md); notation
@@ -425,8 +426,9 @@ eigensolver may flip either eigenvector, and flipping $\xi_2$ alone turns
 $\eta^+$ into $\eta^-$. Tying the two signs together leaves one overall sign,
 which the running heading fixes, so a line stays on its branch.
 
-The tangent carries no anisotropy guard like `min_anisotropy`. It is NaN only
-where $\lambda_1 < \lambda^2 < \lambda_2$ fails. In an incompressible flow
+The tangent carries no anisotropy guard like `min_anisotropy`. Besides off the
+grid and in a NaN cell, it is NaN only where $\lambda_1 < \lambda^2 <
+\lambda_2$ fails. In an incompressible flow
 $\lambda_1 \lambda_2 = 1$, so $\lambda = 1$ lies strictly between the
 eigenvalues wherever $C$ is not isotropic. On the analytic Gaussian vortex of
 `tests/test_elliptic.py` every orbit wider than the two-cell stencil is a
@@ -446,9 +448,9 @@ The search keeps these zeros:
 
 - **A launch that already returns within `closure_tol_m`.** On the circles of
   an axisymmetric vortex every launch closes, so $P(s) - s$ sits near zero
-  along the whole section without changing sign, and a sign-change search
-  alone finds nothing. On the analytic vortex it returns one orbit instead of
-  one per launch.
+  along the whole section and changes sign only where noise crosses zero. On
+  the analytic vortex a sign-change search alone returns one orbit there
+  instead of one per launch.
 - **A sign change of $P(s) - s$ between neighbouring launches**, neither of
   them a hit. Bisection narrows it to a quarter of `closure_tol_m`. A bracket
   whose midpoint does not return straddles a gap in the return map rather than

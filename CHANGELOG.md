@@ -7,10 +7,10 @@ deprecation shims: the old form is deleted and every call site updated.
 ## Unreleased
 
 Coherent vortex boundaries as closed shear lines. `FlowMap.hyperbolic_lcs()`
-no longer takes `min_anisotropy` or `step_m`, and `lcs_parcels.grids` no longer
-exports `EARTH_RADIUS_M`, so code passing either keyword or importing that name
-has to change. Imports
-from the package root are unchanged. The details are under Changed.
+no longer takes `min_anisotropy` or `step_m`, `lcs_parcels.grids` no longer
+exports `EARTH_RADIUS_M`, and `lcs_parcels.tensorlines` is renamed
+`lcs_parcels.hyperbolic`. Imports from the package root are unchanged. The
+details are under Changed.
 
 ### Added
 

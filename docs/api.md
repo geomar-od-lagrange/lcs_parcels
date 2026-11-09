@@ -472,7 +472,7 @@ rotation_sense(boundaries, *, rotation) -> xr.Dataset
 - **`stretch_range()`** returns the default scan, $\lambda = e^{k\,\delta}$ for
   integer $k$ with $\lvert k\,\delta \rvert \le \ln \Lambda$, where
   $\delta$ is `step` and $\Lambda$ is `stretch_max`. It is log-symmetric about
-  1 and includes 1. The default is 27 values from 0.68 to 1.48, about 0.03 apart.
+  1 and includes 1. The default is 27 values from 0.68 to 1.48, spaced 0.03 in $\ln \lambda$.
 - **`closed_shear_lines(flowmap, *, centre_lon, centre_lat)`** searches each
   centre for closed orbits at every stretching factor in `stretches` and on
   both branches $\pm$. It launches lines from two sections running due east and
@@ -522,8 +522,7 @@ rotation_sense(boundaries, *, rotation) -> xr.Dataset
   )
   ```
 
-`radius_m` is the radius of the circle with the same area. A boundary is a
-material curve, so `FlowMap.image(lon_0=eddies["lon"], lat_0=eddies["lat"])`
+A boundary is a material curve, so `FlowMap.image(lon_0=eddies["lon"], lat_0=eddies["lat"])`
 evolves it.
 
 ### Choosing the parameters
@@ -531,7 +530,7 @@ evolves it.
 - **The window `T`** of the flow map sets how long a boundary has to stay
   uniformly stretched. One to two turns of the eddies sought is a working
   choice. Over longer windows the filaments grow thinner than the seed spacing,
-  `|det grad F|` rises far above 1, and fewer orbits close.
+  $\lvert \det \nabla F \rvert$ rises far above 1, and fewer orbits close.
 - **`window_m`** of `elliptic_centres` is about the spacing of the eddies
   sought. Two eddies closer than `window_m / 2` give one centre.
 - **`max_radius_m`** of `closed_shear_lines` is the largest boundary radius
