@@ -4,6 +4,56 @@ Versions are CalVer, `YYYY.M.D.N`. The API breaks whenever the design improves,
 so each entry says what broke and what to write instead. There are no
 deprecation shims: the old form is deleted and every call site updated.
 
+## Unreleased
+
+Coherent vortex boundaries as closed shear lines. `FlowMap.hyperbolic_lcs()`
+no longer takes `min_anisotropy` or `step_m`, `lcs_parcels.grids` no longer
+exports `EARTH_RADIUS_M`, and `lcs_parcels.tensorlines` is renamed
+`lcs_parcels.hyperbolic`. Imports from the package root are unchanged. The
+details are under Changed.
+
+### Added
+
+- `closed_shear_lines(flowmap, *, centre_lon, centre_lat, stretches=None,
+  max_radius_m=150_000.0, ...)`, which returns every closed
+  `eta^pm_lambda` orbit (Haller & Beron-Vera 2013,
+  [doi:10.1017/jfm.2013.391](https://doi.org/10.1017/jfm.2013.391)) about each
+  candidate centre over a scan of stretching factors, with its area,
+  equivalent radius, centroid, closure residual and an `at_scan_edge` flag,
+  and the grid spacing its defaults derive from as `attrs["grid_spacing_m"]`.
+- `outermost_shear_lines(orbits)`, which keeps the outermost orbit per vortex
+  as the selected rows of `orbits`, keeping their `orbit` labels. Filtering
+  `orbits` before it lets a rejected outermost orbit fall back to the next
+  one inside it.
+- `rotation_sense(boundaries, *, rotation)`, which adds the mean polar
+  rotation inside each closed curve as `rotation_rad` and its sign as
+  `rotation_sense`, from the polar rotation of a short window.
+- `elliptic_centres(field, *, extremum, window_m=100_000.0, edge_m=None)`,
+  which picks candidate centres at windowed extrema of a field.
+- `stretch_range(*, stretch_max=1.5, step=0.03)`, the default scan,
+  log-symmetric about 1.
+- `FlowMap.polar_rotation()`, the rotation angle of the polar decomposition of
+  `grad F` (Farazmand & Haller 2016,
+  [doi:10.1016/j.physd.2015.09.007](https://doi.org/10.1016/j.physd.2015.09.007)).
+- `FlowMap.cg_anisotropy()`, the eigenvalue ratio `lambda_2 / lambda_1` of the
+  Cauchy-Green tensor.
+- `FlowMap.elliptic_lcs(*, window_m=None, stretches=None, max_radius_m=None,
+  rotation=None)`, which runs centres, search and selection in one call, and
+  the rotation sense when a `rotation` is passed.
+
+### Changed
+
+- **`FlowMap.hyperbolic_lcs()` no longer takes `min_anisotropy` or
+  `step_m`.** Passing either raises `TypeError`. To set them, call
+  `ftle_ridge_seeds`, `shrink_lines` and `prune_shrink_lines` by hand and pass
+  them to `shrink_lines`.
+- **`lcs_parcels.grids.EARTH_RADIUS_M` is gone.** It was never exported from
+  the package root. Code that imported it writes the value, `6_371_000.0`
+  metres, itself.
+- **`lcs_parcels.tensorlines` is now `lcs_parcels.hyperbolic`.** Code that
+  imports from the old submodule path imports from `lcs_parcels.hyperbolic` or
+  from the package root instead.
+
 ## 2026.8.27.1
 
 Pruning of the near-duplicate shrink lines that several seeds on one FTLE ridge

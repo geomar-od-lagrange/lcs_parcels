@@ -278,16 +278,14 @@ plt.show()
 # The backward flow map runs the same steps, and `hyperbolic_lcs` packs them
 # into one call: it computes the FTLE once, hands it to the ridge finder, prunes
 # the traced lines, and returns the curves together with the field the seeds
-# were picked from. The attracting family therefore arrives pruned already.
-# *Hyperbolic* because elliptic LCS are a different family.
+# were picked from. The attracting family therefore arrives pruned already. The
+# step and `min_anisotropy` stay at the defaults used above, and setting either
+# means calling `shrink_lines` yourself. *Hyperbolic* because elliptic LCS are a
+# different family.
 
 # %%
 attracting_lcs = backward.hyperbolic_lcs(
-    window_m=window_m,
-    quantile=quantile,
-    step_m=step_m,
-    line_length_m=line_length_m,
-    min_anisotropy=min_anisotropy,
+    window_m=window_m, quantile=quantile, line_length_m=line_length_m
 )
 attracting_lcs
 

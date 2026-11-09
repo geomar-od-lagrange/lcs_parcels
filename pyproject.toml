@@ -199,7 +199,7 @@ parcels = { git = "https://github.com/OceanParcels/Parcels.git", rev = "5a0df965
 
 [tool.pixi.feature.examples.tasks]
 test-examples = { cmd = "pytest tests/test_examples.py", description = "Every example, including the one needing no credentials" }
-get-data = { cmd = "python get_data.py", cwd = "examples", description = "Download the CMEMS subset to examples/data/ (needs CMEMS credentials)" }
+get-data = { cmd = "python get_data.py", cwd = "examples", description = "Download the CMEMS subsets the examples read to examples/data/ (needs CMEMS credentials)" }
 
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"

@@ -1,4 +1,4 @@
-"""Tensor-line tests: ftle_ridge_seeds and shrink_lines.
+"""Hyperbolic LCS tests: ftle_ridge_seeds, shrink_lines and prune_shrink_lines.
 
 ``conftest.advected_flowmap`` advects a seed through a constant linear map ``M``
 acting in the one tangent frame at the seed centroid (``AuxiliarySeedGrid``, so
@@ -36,13 +36,13 @@ from lcs_parcels import (
     prune_shrink_lines,
     shrink_lines,
 )
-from lcs_parcels.grids import _M_PER_DEG, _separation_m
-from lcs_parcels.tensorlines import (
-    _shrink_line_tangent,
+from lcs_parcels._numerics import (
+    _M_PER_DEG,
+    _separation_m,
     _step_lonlat_by_meters,
-    _trace_half_line,
     _window_geometry,
 )
+from lcs_parcels.hyperbolic import _shrink_line_tangent, _trace_half_line
 
 RELEASE_TIME = np.datetime64("2020-01-01")
 END_TIME = np.datetime64("2020-01-02")
@@ -69,7 +69,7 @@ def _gridded_field(values, lon_axis, lat_axis):
 
 def _cells(geometry):
     """The ``(i, j)`` window cell counts of a
-    :func:`~lcs_parcels.tensorlines._window_geometry` dict, or of a seed
+    :func:`~lcs_parcels._numerics._window_geometry` dict, or of a seed
     dataset's attrs, which carry the same keys."""
     return geometry["window_cells_i"], geometry["window_cells_j"]
 
@@ -82,7 +82,7 @@ def _three_cell_window_m(field):
     window chosen for the zonal spacing is a single cell meridionally, and every
     grid point is then trivially a local maximum along ``j``. Three times the
     *larger* median spacing clears three cells either way. That is
-    :func:`~lcs_parcels.tensorlines._window_geometry` behaving as documented --
+    :func:`~lcs_parcels._numerics._window_geometry` behaving as documented --
     one median per dimension, so the test states the grid it wants rather than
     a number that happens to suit one latitude.
     """
@@ -283,7 +283,7 @@ def test_min_seed_separation_m_bounds_the_returned_seeds(lat_max):
     """No two seeds are closer than the reported ``min_seed_separation_m``, and
     they are a good deal closer than ``window_m``.
 
-    Measured with :func:`~lcs_parcels.grids._separation_m`, the same frame the
+    Measured with :func:`~lcs_parcels._numerics._separation_m`, the same frame the
     package works in. The field packs its crests at exactly the reported
     separation, so the bound is attained and not merely respected: the measured
     closest pair is about ``window_m / 2``, which is the whole content of #21 --
@@ -705,7 +705,7 @@ def test_trace_half_line_is_second_order_in_the_step(seed_lat):
     arc_m = 300_000.0
 
     def endpoint(n_steps):
-        track = _trace_half_line(
+        lon, lat = _trace_half_line(
             np.array([0.0]),
             np.array([seed_lat]),
             +1,
@@ -714,7 +714,7 @@ def test_trace_half_line_is_second_order_in_the_step(seed_lat):
             step_m=arc_m / n_steps,
             n_steps=n_steps,
         )
-        return np.array([track[-1][0][0], track[-1][1][0]])
+        return np.array([lon[-1, 0], lat[-1, 0]])
 
     coarse, medium, fine = endpoint(10), endpoint(20), endpoint(40)
     first = np.linalg.norm(medium - coarse)
@@ -735,7 +735,7 @@ def test_trace_half_line_guard_fires_at_the_rk2_midpoint():
     """
     tensor = _dipping_tensor(0.5, half_width_deg=0.1)
 
-    track = _trace_half_line(
+    lon, _ = _trace_half_line(
         np.array([0.0]),
         np.array([0.0]),
         +1,
@@ -744,8 +744,7 @@ def test_trace_half_line_guard_fires_at_the_rk2_midpoint():
         step_m=111_195.0,  # about one degree of longitude at the equator
         n_steps=3,
     )
-
-    lon = np.array([p[0][0] for p in track])
+    lon = lon[:, 0]
     assert np.isfinite(lon[0])  # the seed itself is fine
     assert np.isnan(lon[1:]).all()  # the first step dies at its midpoint
 
@@ -754,7 +753,7 @@ def test_trace_half_line_point_count_and_nan_padding():
     """The track is n_steps + 1 points and, once it leaves the grid, stays NaN."""
     interp = _uniform_tensor_interp(np.diag([1.0, 9.0]))
 
-    track = _trace_half_line(
+    lon, _ = _trace_half_line(
         np.array([0.0]),
         np.array([0.0]),
         +1,
@@ -764,8 +763,8 @@ def test_trace_half_line_point_count_and_nan_padding():
         n_steps=10,
     )
 
-    assert len(track) == 11
-    lon = np.array([p[0][0] for p in track])
+    assert lon.shape == (11, 1)
+    lon = lon[:, 0]
     assert np.isfinite(lon[:3]).all()  # 0.45 deg steps stay inside |lon| <= 1
     assert np.isnan(lon[-1])
     finite = np.isfinite(lon)
@@ -982,7 +981,7 @@ def test_shrink_line_steps_in_the_frame_the_tensor_lives_in():
     runs along the local ``xi_1`` measured at that segment's midpoint.
 
     ``C`` is built from separations in the local east/north frame of each pair
-    (:func:`~lcs_parcels.grids._separation_m`), so a segment must be measured the
+    (:func:`~lcs_parcels._numerics._separation_m`), so a segment must be measured the
     same way, which is what this checks, by taking ``_separation_m`` between
     consecutive points of the line and comparing its heading with the tangent the
     integrator would read there. Measured in the same frame the tensor is built
@@ -1041,7 +1040,7 @@ def _local_frame_flowmap(lon_axis, lat_axis, M):
     point's own east/north frame: read each arm's offset from its grid point in
     that frame, map it with ``M``, and place the advected arm back at the mapped
     offset. The arithmetic is written out rather than taken from
-    ``lcs_parcels.grids``, since what the frame *is* is the thing under test.
+    ``lcs_parcels._numerics``, since what the frame *is* is the thing under test.
     """
     seed = AuxiliarySeedGrid.from_axes(lon=lon_axis, lat=lat_axis)
     lon_c, lat_c = seed.ds["lon_grid"], seed.ds["lat_grid"]
@@ -1146,7 +1145,6 @@ LCS_KWARGS = {
     "window_m": 150_000.0,
     # Deliberately not ftle_ridge_seeds' own default of 0.90.
     "quantile": 0.5,
-    "step_m": 10_000.0,
     "line_length_m": 30_000.0,
 }
 
@@ -1188,7 +1186,6 @@ def test_hyperbolic_lcs_matches_the_manual_pipeline():
         fm,
         seed_lon=seeds["lon"],
         seed_lat=seeds["lat"],
-        step_m=LCS_KWARGS["step_m"],
         line_length_m=LCS_KWARGS["line_length_m"],
     )
     manual = prune_shrink_lines(unpruned, ftle=ftle, window_m=LCS_KWARGS["window_m"])
@@ -1212,10 +1209,7 @@ def test_hyperbolic_lcs_ridge_parameters_are_forwarded():
     """Both ridge parameters reach ``ftle_ridge_seeds``: tightening either one
     yields strictly fewer lines, so a dropped forward cannot pass unnoticed."""
     fm = _wavy_stretch_flowmap()
-    trace = {
-        "step_m": LCS_KWARGS["step_m"],
-        "line_length_m": LCS_KWARGS["line_length_m"],
-    }
+    trace = {"line_length_m": LCS_KWARGS["line_length_m"]}
 
     loose = fm.hyperbolic_lcs(window_m=150_000.0, quantile=0.5, **trace)
     tight_quantile = fm.hyperbolic_lcs(window_m=150_000.0, quantile=0.99, **trace)
@@ -1231,11 +1225,7 @@ def test_hyperbolic_lcs_forwards_ftle_min():
     both selectors raises rather than silently dropping one."""
     fm = _wavy_stretch_flowmap()
     ftle = fm.ftle()
-    trace = {
-        "window_m": 150_000.0,
-        "step_m": LCS_KWARGS["step_m"],
-        "line_length_m": LCS_KWARGS["line_length_m"],
-    }
+    trace = {"window_m": 150_000.0, "line_length_m": LCS_KWARGS["line_length_m"]}
 
     loose = fm.hyperbolic_lcs(ftle_min=float(ftle.quantile(0.5)), **trace)
     tight = fm.hyperbolic_lcs(ftle_min=float(ftle.quantile(0.99)), **trace)
@@ -1246,33 +1236,10 @@ def test_hyperbolic_lcs_forwards_ftle_min():
         fm.hyperbolic_lcs(quantile=0.5, ftle_min=0.0, **trace)
 
 
-def test_hyperbolic_lcs_min_anisotropy_is_forwarded(lon_axis, lat_axis):
-    """``min_anisotropy`` reaches ``shrink_lines``, so the guard cannot go inert
-    on the convenience path while the two ridge parameters stay wired up.
-
-    ``M = diag(3, 1)`` gives an eigenvalue ratio of 9 everywhere: a floor of 1.15
-    lets the lines through, and an absurd floor kills every one of them. If the
-    forward is dropped both calls fall back to the same default and trace alike.
-    """
-    fm = advected_flowmap(
-        AuxiliarySeedGrid,
-        lon_axis,
-        lat_axis,
-        np.diag([3.0, 1.0]),
-        RELEASE_TIME,
-        END_TIME,
-    )
-    trace = {
-        "window_m": FIXTURE_WINDOW_M,
-        "step_m": LCS_KWARGS["step_m"],
-        "line_length_m": LCS_KWARGS["line_length_m"],
-    }
-
-    traced = fm.hyperbolic_lcs(min_anisotropy=1.15, **trace)
-    guarded = fm.hyperbolic_lcs(min_anisotropy=1e9, **trace)
-
-    assert bool(traced["lon"].notnull().any())
-    assert bool(guarded["lon"].isnull().all())
+@pytest.mark.parametrize("knob", ["min_anisotropy", "step_m"])
+def test_hyperbolic_lcs_leaves_the_integration_parameters_to_shrink_lines(knob):
+    with pytest.raises(TypeError):
+        _wavy_stretch_flowmap().hyperbolic_lcs(**{knob: 1.0})
 
 
 def test_hyperbolic_lcs_computes_the_ftle_once(lon_axis, lat_axis, monkeypatch):

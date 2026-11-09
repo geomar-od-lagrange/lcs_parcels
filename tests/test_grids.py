@@ -13,7 +13,7 @@ import xarray as xr
 from conftest import advected_flowmap
 
 from lcs_parcels import AuxiliarySeedGrid, NeighborFlowMap, NeighborSeedGrid
-from lcs_parcels.grids import _separation_m
+from lcs_parcels._numerics import _separation_m
 
 # Release/end times supplied only at ingest (the seed grid carries no time).
 RELEASE_TIME = np.datetime64("2020-01-01")
@@ -275,7 +275,7 @@ def test_diagnostics_leave_the_flowmap_dataset_untouched(seed_cls, lon_axis, lat
     fm.image(lon_0=fm.ds["lon_grid"], lat_0=fm.ds["lat_grid"])
     # window_m is sized to the fixture grid, whose cells run 30-110 km: the
     # default 30 km would be a single cell and the call would rightly warn.
-    fm.hyperbolic_lcs(window_m=700_000.0, step_m=1_000.0, line_length_m=6_000.0)
+    fm.hyperbolic_lcs(window_m=700_000.0, line_length_m=6_000.0)
     fm.to_seed()
 
     xr.testing.assert_identical(fm.ds, before)

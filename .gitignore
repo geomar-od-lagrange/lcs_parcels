@@ -28,3 +28,6 @@ site/
 docs/_build/
 docs/generated/
 docs/examples/
+
+# macOS Finder metadata
+.DS_Store
