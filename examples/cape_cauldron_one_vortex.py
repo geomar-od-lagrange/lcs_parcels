@@ -21,7 +21,7 @@
 # the counter-clockwise one near 5.2 degrees E and 30.6 degrees S, and looks at
 # it closely. It shows the whole family of closed orbits found at its centre,
 # why `outermost_shear_lines` picks the one it does, and how the boundary sits
-# in the Cauchy–Green anisotropy, the FTLE and the polar rotation angle. The
+# in the Cauchy-Green anisotropy, the FTLE and the polar rotation angle. The
 # Parcels setup is the one of `cape_cauldron_vortices`.
 
 # %% tags=["remove-output"]
@@ -153,7 +153,17 @@ orbits
 # %%
 eddy = outermost_shear_lines(orbits)
 eddy = rotation_sense(eddy, rotation=first_day.polar_rotation())
-eddy[["stretch", "branch", "radius_m", "residual_m", "at_scan_edge"]]
+eddy[
+    [
+        "stretch",
+        "branch",
+        "radius_m",
+        "residual_m",
+        "at_scan_edge",
+        "centroid_lon",
+        "centroid_lat",
+    ]
+]
 
 # %%
 eddy[["rotation_rad", "rotation_sense"]]
