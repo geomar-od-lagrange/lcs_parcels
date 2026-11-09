@@ -4,7 +4,7 @@ Versions are CalVer, `YYYY.M.D.N`. The API breaks whenever the design improves,
 so each entry says what broke and what to write instead. There are no
 deprecation shims: the old form is deleted and every call site updated.
 
-## Unreleased
+## 2026.11.9.1
 
 Coherent vortex boundaries as closed shear lines. `FlowMap.hyperbolic_lcs()`
 no longer takes `min_anisotropy` or `step_m`, `lcs_parcels.grids` no longer
